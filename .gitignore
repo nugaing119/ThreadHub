@@ -1,0 +1,52 @@
+# macOS
+.DS_Store
+
+# Local Codex / OMX state
+.omc/
+.omx/
+.codex/
+
+# Secrets and environment files
+.env
+.env.*
+!.env.example
+*.secret
+*.secrets
+secrets/
+
+# Keys and certificates
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+*.csr
+certbot/
+
+# Runtime data and logs
+volumes/
+data/
+postgres/
+mattermost/
+backups/
+logs/
+*.log
+
+# Local Docker overrides
+docker-compose.override.yml
+compose.override.yml
+versions.local.env
+
+# Terraform and OCI local state
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+
+# Editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
