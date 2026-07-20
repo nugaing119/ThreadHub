@@ -32,7 +32,7 @@ jobs:
         run: ./deploy/scripts/validate.sh
 
       - name: Run ShellCheck
-        run: shellcheck -x deploy/scripts/*.sh
+        run: shellcheck -x -P deploy/scripts deploy/scripts/*.sh
 
       - name: Verify immutable image manifests
         shell: bash

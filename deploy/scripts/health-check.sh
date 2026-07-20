@@ -74,6 +74,8 @@ published_port="$("${DOCKER_COMMAND[@]}" port "${mattermost_id}" 8065/tcp)"
 [[ "${published_port}" == "${bind_address}:${bind_port}" ]] \
     || die "Mattermost is not bound only to ${bind_address}:${bind_port}"
 
+# PGDATA must expand inside the container, not in this host shell.
+# shellcheck disable=SC2016
 pgdata="$("${DOCKER_COMMAND[@]}" exec "${postgres_id}" sh -c 'printf "%s" "$PGDATA"')"
 [[ "${pgdata}" == "/var/lib/postgresql/18/docker" ]] \
     || die "Unexpected PostgreSQL 18 PGDATA: ${pgdata}"

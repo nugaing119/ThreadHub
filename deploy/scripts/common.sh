@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+# This file is sourced by several entry-point scripts; each caller uses a
+# different subset of these shared path variables.
+# shellcheck disable=SC2034
+
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
