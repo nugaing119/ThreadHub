@@ -1,0 +1,10 @@
+/srv/threadhub/mattermost/logs/*.log {
+    daily
+    rotate 7
+    compress
+    delaycompress
+    missingok
+    notifempty
+    copytruncate
+    su 2000 2000
+}

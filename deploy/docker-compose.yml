@@ -1,0 +1,146 @@
+name: ${COMPOSE_PROJECT_NAME:-threadhub}
+
+services:
+  postgres:
+    image: "${POSTGRES_IMAGE_REPOSITORY:?load deploy/versions.env}:${POSTGRES_IMAGE_TAG:?load deploy/versions.env}@${POSTGRES_IMAGE_DIGEST:?load deploy/versions.env}"
+    platform: linux/amd64
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    mem_limit: 6g
+    shm_size: 256m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/run/postgresql:rw,nosuid,nodev,size=16m
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}
+    volumes:
+      - "${THREADHUB_DATA_ROOT:?set THREADHUB_DATA_ROOT in deploy/.env}/postgres:/var/lib/postgresql:rw"
+    networks:
+      - database
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+  mattermost:
+    image: "${MATTERMOST_IMAGE_REPOSITORY:?load deploy/versions.env}:${MATTERMOST_IMAGE_TAG:?load deploy/versions.env}@${MATTERMOST_IMAGE_DIGEST:?load deploy/versions.env}"
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 6g
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=128m
+    ports:
+      - "${MATTERMOST_BIND_ADDRESS:-127.0.0.1}:${MATTERMOST_BIND_PORT:-8065}:8065"
+    environment:
+      TZ: ${TZ:-Asia/Seoul}
+
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable&connect_timeout=10"
+      MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
+      MM_SERVICESETTINGS_SITEURL: "https://${THREADHUB_DOMAIN}"
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+
+      MM_TEAMSETTINGS_ENABLEUSERCREATION: "true"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "false"
+      MM_SERVICESETTINGS_ENABLEEMAILINVITATIONS: "true"
+      MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL: "true"
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "true"
+      MM_EMAILSETTINGS_ENABLESIGNINWITHEMAIL: "true"
+      MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME: "true"
+      MM_PASSWORDSETTINGS_MINIMUMLENGTH: "12"
+      MM_SERVICESETTINGS_MAXIMUMLOGINATTEMPTS: "10"
+      MM_SERVICESETTINGS_ENABLEMULTIFACTORAUTHENTICATION: "true"
+
+      MM_EMAILSETTINGS_ENABLESMTPAUTH: "true"
+      MM_EMAILSETTINGS_SMTPSERVER: ${SMTP_SERVER}
+      MM_EMAILSETTINGS_SMTPPORT: ${SMTP_PORT:-587}
+      MM_EMAILSETTINGS_SMTPUSERNAME: ${SMTP_USERNAME}
+      MM_EMAILSETTINGS_SMTPPASSWORD: ${SMTP_PASSWORD}
+      MM_EMAILSETTINGS_CONNECTIONSECURITY: STARTTLS
+      MM_EMAILSETTINGS_SKIPSERVERCERTIFICATEVERIFICATION: "false"
+      MM_EMAILSETTINGS_FEEDBACKNAME: ${SMTP_FEEDBACK_NAME:-ThreadHub}
+      MM_EMAILSETTINGS_FEEDBACKEMAIL: ${SMTP_FROM_ADDRESS}
+      MM_EMAILSETTINGS_REPLYTOADDRESS: ${SMTP_REPLY_TO_ADDRESS}
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_ENABLEEMAILBATCHING: "false"
+      MM_EMAILSETTINGS_ENABLEPREVIEWMODEBANNER: "false"
+
+      MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_PUSHNOTIFICATIONSERVER: ""
+
+      MM_TEAMSETTINGS_MAXUSERSPERTEAM: "250"
+      MM_TEAMSETTINGS_MAXCHANNELSPERTEAM: "2000"
+      MM_FILESETTINGS_DRIVERNAME: local
+      MM_FILESETTINGS_DIRECTORY: /mattermost/data
+      MM_FILESETTINGS_MAXFILESIZE: "26214400"
+      MM_FILESETTINGS_ENABLEPUBLICLINK: "false"
+      MM_FEATUREFLAGS_CJKSEARCH: "true"
+
+      MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS: "false"
+      MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS: "false"
+      MM_SERVICESETTINGS_ENABLECOMMANDS: "false"
+      MM_SERVICESETTINGS_ENABLEOAUTHSERVICEPROVIDER: "false"
+      MM_SERVICESETTINGS_ENABLEDYNAMICCLIENTREGISTRATION: "false"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "false"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "false"
+      MM_SERVICESETTINGS_ENABLELINKPREVIEWS: "false"
+      MM_SERVICESETTINGS_ENABLEDEVELOPER: "false"
+      MM_SERVICESETTINGS_ENABLEINSECUREOUTGOINGCONNECTIONS: "false"
+      MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: ""
+
+      MM_PLUGINSETTINGS_ENABLE: "false"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "false"
+      MM_PLUGINSETTINGS_ENABLEMARKETPLACE: "false"
+      MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE: "false"
+      MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS: "false"
+
+      MM_LOGSETTINGS_ENABLECONSOLE: "true"
+      MM_LOGSETTINGS_CONSOLELEVEL: INFO
+      MM_LOGSETTINGS_CONSOLEJSON: "true"
+      MM_LOGSETTINGS_ENABLEFILE: "true"
+      MM_LOGSETTINGS_FILELEVEL: INFO
+      MM_LOGSETTINGS_FILEJSON: "true"
+      MM_LOGSETTINGS_FILELOCATION: /mattermost/logs/mattermost.log
+      MM_LOGSETTINGS_ENABLEWEBHOOKDEBUGGING: "false"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+      MM_LOGSETTINGS_ENABLESENTRY: "false"
+    volumes:
+      - "${THREADHUB_DATA_ROOT}/mattermost/config:/mattermost/config:rw"
+      - "${THREADHUB_DATA_ROOT}/mattermost/data:/mattermost/data:rw"
+      - "${THREADHUB_DATA_ROOT}/mattermost/logs:/mattermost/logs:rw"
+      - "${THREADHUB_DATA_ROOT}/mattermost/plugins:/mattermost/plugins:rw"
+      - "${THREADHUB_DATA_ROOT}/mattermost/client/plugins:/mattermost/client/plugins:rw"
+      - "${THREADHUB_DATA_ROOT}/mattermost/bleve-indexes:/mattermost/bleve-indexes:rw"
+    networks:
+      - database
+      - outbound
+    stop_grace_period: 60s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
+networks:
+  database:
+    internal: true
+  outbound: {}

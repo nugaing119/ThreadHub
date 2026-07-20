@@ -6,7 +6,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 
 ## 현재 상태
 
-현재 저장소는 ThreadHub MVP의 요구사항과 구축·검증 기준을 확정한 문서 중심 단계입니다. Docker Compose, NGINX 설정과 배포 스크립트는 문서의 인수조건에 맞춰 순차적으로 추가할 예정입니다.
+현재 저장소에는 ThreadHub MVP의 요구사항, 구축·검증 기준과 첫 번째 배포 패키지가 포함되어 있습니다. 배포 패키지는 정적·CI 검증 대상이며 실제 OCI VM 파일럿을 통해 런타임 인수조건을 확인할 예정입니다.
 
 프로덕션 운영이 검증된 완성 배포본이 아니므로 실제 고객 데이터로 사용하기 전에 구축·검증 계획의 필수 시험을 수행해야 합니다.
 
@@ -43,9 +43,20 @@ ThreadHub/
 │   ├── .env.example
 │   ├── versions.env
 │   ├── nginx/
-│   └── scripts/
-└── tests/
+│   ├── scripts/
+│   └── docs/
+└── .github/workflows/
 ```
+
+## 배포 패키지
+
+배포 구성과 VM 설치 순서는 [deploy/README.md](./deploy/README.md)에서 확인할 수 있습니다.
+
+```bash
+./deploy/scripts/validate.sh
+```
+
+로컬에 Docker가 없으면 YAML과 셸 구문을 검사하고, GitHub Actions에서 Docker Compose, ShellCheck, 고정 이미지 manifest와 NGINX 설정을 추가 검증합니다.
 
 ## 보안
 
