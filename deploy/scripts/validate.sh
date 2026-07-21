@@ -77,6 +77,8 @@ validate_runtime_env
 ENV_FILE="${original_env_file}"
 log "Runtime environment validation accepts a complete non-placeholder configuration"
 
+# Match the literal deployment-script expression; expansion is not intended.
+# shellcheck disable=SC2016
 grep -F 'install -d -m 0755 "${data_root}/postgres"' \
     "${SCRIPT_DIR}/deploy.sh" >/dev/null \
     || die "PostgreSQL bind-mount root permission regression detected"
