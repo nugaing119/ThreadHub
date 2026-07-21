@@ -23,7 +23,25 @@ require_file "${final_template}"
 
 log "Installing NGINX and Certbot"
 "${SUDO_COMMAND[@]}" apt-get update
-"${SUDO_COMMAND[@]}" apt-get install -y nginx certbot
+"${SUDO_COMMAND[@]}" env DEBIAN_FRONTEND=noninteractive \
+    apt-get install -y nginx certbot iptables-persistent
+require_command iptables
+require_command netfilter-persistent
+
+ensure_tcp_input_rule() {
+    local port="$1"
+    if ! "${SUDO_COMMAND[@]}" iptables -w 5 -C INPUT \
+        -p tcp -m state --state NEW --dport "${port}" -j ACCEPT \
+        2>/dev/null; then
+        "${SUDO_COMMAND[@]}" iptables -w 5 -I INPUT 1 \
+            -p tcp -m state --state NEW --dport "${port}" -j ACCEPT
+    fi
+}
+
+log "Allowing persistent host-firewall ingress for HTTP and HTTPS"
+ensure_tcp_input_rule 80
+ensure_tcp_input_rule 443
+"${SUDO_COMMAND[@]}" netfilter-persistent save
 "${SUDO_COMMAND[@]}" install -d -m 0755 /var/www/letsencrypt
 
 rendered_config="$(mktemp)"

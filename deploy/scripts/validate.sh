@@ -84,6 +84,14 @@ grep -F 'install -d -m 0755 "${data_root}/postgres"' \
     || die "PostgreSQL bind-mount root permission regression detected"
 log "PostgreSQL bind-mount root remains traversable after the entrypoint drops privileges"
 
+grep -F 'ensure_tcp_input_rule 80' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Host HTTP firewall rule regression detected"
+grep -F 'ensure_tcp_input_rule 443' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Host HTTPS firewall rule regression detected"
+grep -F 'netfilter-persistent save' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Persistent host firewall save regression detected"
+log "Host HTTP and HTTPS firewall rules remain persistent"
+
 for template in \
     "${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template" \
     "${DEPLOY_DIR}/nginx/threadhub.conf.template"; do

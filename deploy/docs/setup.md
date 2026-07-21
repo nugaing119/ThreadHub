@@ -135,6 +135,8 @@ SMTP 587과 STARTTLS를 사용합니다. OCI 콘솔 비밀번호가 아니라 SM
 
 스크립트는 HTTP ACME bootstrap, Let’s Encrypt 인증서, 최종 HTTPS·WebSocket 프록시와 Certbot 갱신 dry-run을 구성합니다.
 
+OCI Ubuntu 이미지의 host iptables가 외부 연결을 거부할 수 있으므로, 스크립트는 TCP 80·443 허용 규칙을 중복 없이 추가하고 `netfilter-persistent`로 저장합니다. OCI Security List 또는 NSG 규칙도 별도로 허용되어 있어야 합니다.
+
 ## 9. 기계 검증
 
 ```bash

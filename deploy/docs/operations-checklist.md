@@ -10,6 +10,7 @@
 - [ ] WebSocket 정상
 - [ ] 8065가 loopback에만 바인딩
 - [ ] 5432와 8443 외부 미노출
+- [ ] host iptables의 80·443 허용 규칙과 `netfilter-persistent` 활성 상태 확인
 - [ ] 기존 계정·메시지·파일 유지
 
 ## 주 1회
