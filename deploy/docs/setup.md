@@ -31,6 +31,19 @@ NSG 또는 보안목록에는 다음 규칙만 허용합니다.
 
 8065, 5432, 8443과 Docker API는 외부에 공개하지 않습니다.
 
+SSH 공개키 인증만 허용하고 root 직접 로그인을 차단합니다.
+
+```bash
+sudo install -m 0644 \
+  deploy/ssh/99-threadhub-hardening.conf \
+  /etc/ssh/sshd_config.d/99-threadhub-hardening.conf
+sudo sshd -t
+sudo systemctl reload ssh
+sudo sshd -T | grep -E '^(passwordauthentication|pubkeyauthentication|permitrootlogin) '
+```
+
+마지막 출력은 `passwordauthentication no`, `pubkeyauthentication yes`, `permitrootlogin no`여야 합니다. 현재 관리자 SSH 세션을 유지한 상태에서 새 터미널의 `ubuntu` 키 접속을 확인한 후 기존 세션을 종료합니다.
+
 ## 3. 저장소 준비
 
 VM에서 저장소를 복제합니다.

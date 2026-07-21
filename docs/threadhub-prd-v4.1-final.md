@@ -545,7 +545,7 @@ ThreadHub의 실제 채널 수는 기본 채널 구조와 관리자 중심 생�
 | FR-AUTH-003 | 초대 토큰 또는 유효한 Team InviteId가 없는 직접 가입을 차단해야 한다. | 필수 |
 | FR-AUTH-004 | 이메일 기반 계정 생성을 허용해야 한다. | 필수 |
 | FR-AUTH-005 | 이메일 주소 확인 후 로그인을 허용해야 한다. | 필수 |
-| FR-AUTH-006 | 이메일 기반 비밀번호 재설정을 지원해야 한다. | 필수 |
+| FR-AUTH-006 | 이메일 기반 비밀번호 재설정을 지원하고 변경 후 기존 세션을 종료해야 한다. | 필수 |
 | FR-AUTH-007 | 비밀번호 최소 길이를 12자로 설정해야 한다. | 필수 |
 | FR-AUTH-008 | 로그인 실패 허용 횟수를 제한해야 한다. | 필수 |
 | FR-AUTH-009 | 관리자는 사용자 계정을 비활성화하고 재활성화할 수 있어야 한다. | 필수 |
@@ -569,6 +569,7 @@ MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME=true
 MM_PASSWORDSETTINGS_MINIMUMLENGTH=12
 MM_SERVICESETTINGS_MAXIMUMLOGINATTEMPTS=10
 MM_SERVICESETTINGS_ENABLEMULTIFACTORAUTHENTICATION=true
+MM_SERVICESETTINGS_TERMINATESESSIONSONPASSWORDCHANGE=true
 ```
 
 Team Edition 11.7.7은 사용자별 선택적 MFA를 지원한다. 전 사용자 MFA 강제는 무료 기능으로 전제하지 않으며, System Admin 계정에 대해 운영 절차로 등록을 강제한다. 구현 근거는 [MFA 등록 코드](https://github.com/mattermost/mattermost/blob/v11.7.7/server/channels/app/user.go#L870-L925)와 [전역 MFA 강제 검사 코드](https://github.com/mattermost/mattermost/blob/v11.7.7/server/channels/app/authentication.go#L306-L370)를 따른다.
@@ -945,6 +946,7 @@ Docker Engine 29.6.2가 대상 Ubuntu 저장소에서 제공되지 않으면 임
 | 이메일 초대 | 관리자의 이메일 초대 허용 | `MM_SERVICESETTINGS_ENABLEEMAILINVITATIONS=true` |
 | 이메일 확인 | 확인 전 로그인 차단 | `MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION=true` |
 | 비밀번호 | 최소 12자 | `MM_PASSWORDSETTINGS_MINIMUMLENGTH=12` |
+| 비밀번호 세션 | 변경·재설정 후 기존 세션 종료 | `MM_SERVICESETTINGS_TERMINATESESSIONSONPASSWORDCHANGE=true` |
 | MFA | 사용자별 MFA 활성화, System Admin 등록 | `MM_SERVICESETTINGS_ENABLEMULTIFACTORAUTHENTICATION=true` |
 | 모바일 푸시 | 비활성화 | `MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS=false` |
 | 일반 이메일 알림 | 비활성화 | `MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false` |
@@ -1466,7 +1468,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-AUTH-004 | 이메일과 사용자명 로그인이 모두 동작한다. |
 | AC-AUTH-005 | 12자 미만 비밀번호가 거부된다. |
 | AC-AUTH-006 | 로그인 실패 제한이 적용된다. |
-| AC-AUTH-007 | 비밀번호 재설정이 동작한다. |
+| AC-AUTH-007 | 비밀번호 재설정이 동작하고 기존 웹·데스크톱·모바일 세션이 종료된다. |
 | AC-AUTH-008 | 계정 비활성화 후 로그인은 실패하고 재활성화 후 성공한다. |
 | AC-AUTH-009 | 사용 완료 또는 관리자가 무효화한 이메일 초대 토큰은 재사용할 수 없다. |
 | AC-AUTH-010 | 유효한 Team 초대 URL 가입은 성공하며 코드 재생성 후 이전 URL은 실패한다. |
@@ -1769,7 +1771,7 @@ threadhub-deploy/
 18. 유효한 이메일 초대 사용자는 가입할 수 있고 초대 없는 직접 가입은 실패한다.
 19. 사용 완료·무효화된 이메일 초대 토큰을 재사용할 수 없다.
 20. 유효한 Team 초대 URL과 코드 재생성 후 이전 URL 무효화 동작이 검증되어 있다.
-21. 비밀번호 최소 12자와 로그인 실패 제한이 적용되어 있다.
+21. 비밀번호 최소 12자, 로그인 실패 제한과 비밀번호 변경 후 기존 세션 종료가 적용되어 있다.
 22. System Admin 계정은 1~2개이며 모두 MFA 등록·로그인·복구 시험을 통과한다.
 23. 고객은 일반 Member이며 System Admin·Team Admin 권한이 없다.
 24. System Scheme으로 고객 Member의 사용자 초대, Team 생성, 공개·비공개 채널 생성과 통합 생성이 차단된다.

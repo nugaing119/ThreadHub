@@ -9,6 +9,8 @@ source "${SCRIPT_DIR}/common.sh"
 require_file "${COMPOSE_FILE}"
 require_file "${ENV_EXAMPLE_FILE}"
 require_file "${VERSIONS_FILE}"
+ssh_hardening_file="${DEPLOY_DIR}/ssh/99-threadhub-hardening.conf"
+require_file "${ssh_hardening_file}"
 
 for script in "${SCRIPT_DIR}"/*.sh; do
     bash -n "${script}"
@@ -91,6 +93,15 @@ grep -F 'ensure_tcp_input_rule 443' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/nul
 grep -F 'netfilter-persistent save' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
     || die "Persistent host firewall save regression detected"
 log "Host HTTP and HTTPS firewall rules remain persistent"
+
+for directive in \
+    'PasswordAuthentication no' \
+    'PubkeyAuthentication yes' \
+    'PermitRootLogin no'; do
+    grep -Fx "${directive}" "${ssh_hardening_file}" >/dev/null \
+        || die "SSH hardening directive is missing: ${directive}"
+done
+log "SSH password and root login hardening directives are present"
 
 for template in \
     "${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template" \

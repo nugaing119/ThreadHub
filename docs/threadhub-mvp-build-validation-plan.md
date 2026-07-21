@@ -437,6 +437,7 @@ Mattermost Team Edition 11.7.7은 사용자별 선택적 MFA 등록을 지원한
     MM_PASSWORDSETTINGS_MINIMUMLENGTH=12
     MM_SERVICESETTINGS_MAXIMUMLOGINATTEMPTS=10
     MM_SERVICESETTINGS_ENABLEMULTIFACTORAUTHENTICATION=true
+    MM_SERVICESETTINGS_TERMINATESESSIONSONPASSWORDCHANGE=true
 
 의도:
 
@@ -446,6 +447,7 @@ Mattermost Team Edition 11.7.7은 사용자별 선택적 MFA 등록을 지원한
 - 이메일 확인을 요구한다.
 - 로그인 실패 제한을 적용한다.
 - 사용자별 MFA 등록 기능을 활성화하고 System Admin 계정에 운영 절차로 적용한다.
+- 비밀번호 변경 또는 재설정 시 기존 세션을 종료한다.
 
 설정 근거는 [Mattermost 인증 설정](https://docs.mattermost.com/administration-guide/configure/authentication-configuration-settings.html)을 따른다.
 
@@ -755,6 +757,7 @@ OCI Email Delivery의 기본 절차는 [OCI Email Delivery 시작 안내](https:
 - 이메일 확인 활성화
 - 최소 비밀번호 길이 설정
 - 로그인 실패 제한
+- 비밀번호 변경·재설정 시 기존 세션 종료
 - 사용자별 MFA 활성화
 - System Admin 계정 MFA 등록
 - System Scheme에서 일반 Member의 초대·Team 생성·공개/비공개 채널 생성 권한 제한
@@ -778,6 +781,7 @@ OCI Email Delivery의 기본 절차는 [OCI Email Delivery 시작 안내](https:
 - 초대받은 사용자는 이메일 확인 후 가입할 수 있다.
 - 유효한 Team 초대 URL은 가입에 사용할 수 있고, 코드 재생성 후 이전 URL은 사용할 수 없다.
 - System Admin 계정이 MFA로 로그인할 수 있다.
+- 비밀번호 재설정 후 기존 웹·데스크톱·모바일 세션이 종료된다.
 - 고객 Member는 사용자 초대·Team 생성·공개/비공개 채널 생성을 할 수 없다.
 - 모바일 푸시가 비활성화돼 있다.
 - Calls를 시작할 수 없다.
@@ -847,6 +851,7 @@ OCI Email Delivery의 기본 절차는 [OCI Email Delivery 시작 안내](https:
 | AUTH-17 | System Admin MFA 등록 및 정상 OTP 로그인 | 성공 |
 | AUTH-18 | 잘못된 OTP로 System Admin 로그인 | 실패 |
 | AUTH-19 | System Admin MFA 복구 절차 확인 | 절차와 결과 기록 |
+| AUTH-20 | 비밀번호 재설정 후 기존 웹·데스크톱·모바일 세션 사용 | 모두 종료되며 새 비밀번호와 MFA 로그인이 필요 |
 
 `EnableOpenServer=false`는 초대가 없는 직접 가입을 차단하지만 유효한 Team InviteId를 정상 초대로 처리한다. Team 초대 URL은 링크를 가진 사람이 사용할 수 있는 bearer invitation이므로 고객에게 배포하지 않고 노출 가능성이 있거나 초대 기간이 끝나면 코드를 재생성한다. 분기 동작은 [Mattermost v11.7.7 사용자 생성 핸들러](https://github.com/mattermost/mattermost/blob/v11.7.7/server/channels/api4/user.go)와 [초대 URL 안내](https://docs.mattermost.com/end-user-guide/collaborate/invite-people.html)를 기준으로 한다.
 

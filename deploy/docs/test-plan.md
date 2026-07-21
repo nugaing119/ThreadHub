@@ -19,7 +19,7 @@
 
 ## 필수 수동 시험군
 
-- `AUTH-01`~`AUTH-19`: 가입, 초대 URL, 비밀번호, MFA
+- `AUTH-01`~`AUTH-20`: 가입, 초대 URL, 비밀번호, 기존 세션 종료, MFA
 - `PERM-01`~`PERM-10`: 고객 Member 권한
 - `SEARCH-01`~`SEARCH-13`: 한글 검색 기능과 성능
 - `DATA-01`~`DATA-15`: 재시작·재생성·mount·소유권
@@ -28,3 +28,7 @@
 - `NET-01`~`NET-10`: 공개 포트, SSH, HTTPS와 WebSocket
 
 시험 결과에는 실행일, 이미지 Digest, 시험자, 실제 결과, 증거와 Go/No-Go 판정을 기록합니다.
+
+## 시험 결과
+
+- [2026-07-21 권한·CJK 검색·MFA 검증 결과](./test-results-2026-07-21.md)
