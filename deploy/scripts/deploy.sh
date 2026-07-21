@@ -26,7 +26,10 @@ data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
 mattermost_root="${data_root}/mattermost"
 
 log "Creating explicit PostgreSQL and Mattermost bind-mount paths"
-"${SUDO_COMMAND[@]}" install -d -m 0750 "${data_root}" "${data_root}/postgres"
+"${SUDO_COMMAND[@]}" install -d -m 0750 "${data_root}"
+# PostgreSQL 18 initializes a versioned PGDATA directory as root, then drops
+# to the postgres user. The bind-mount root must remain traversable afterward.
+"${SUDO_COMMAND[@]}" install -d -m 0755 "${data_root}/postgres"
 "${SUDO_COMMAND[@]}" install -d -m 0750 \
     "${mattermost_root}/config" \
     "${mattermost_root}/data" \

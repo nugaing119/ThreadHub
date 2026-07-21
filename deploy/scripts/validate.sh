@@ -77,6 +77,11 @@ validate_runtime_env
 ENV_FILE="${original_env_file}"
 log "Runtime environment validation accepts a complete non-placeholder configuration"
 
+grep -F 'install -d -m 0755 "${data_root}/postgres"' \
+    "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    || die "PostgreSQL bind-mount root permission regression detected"
+log "PostgreSQL bind-mount root remains traversable after the entrypoint drops privileges"
+
 for template in \
     "${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template" \
     "${DEPLOY_DIR}/nginx/threadhub.conf.template"; do

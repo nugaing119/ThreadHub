@@ -27,6 +27,9 @@ container_health() {
     || die "Mattermost container is not healthy"
 
 data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
+postgres_root_mode="$("${SUDO_COMMAND[@]}" stat -c '%a' "${data_root}/postgres")"
+[[ "${postgres_root_mode}" == "755" ]] \
+    || die "PostgreSQL bind-mount root must have mode 0755"
 
 check_bind_mount() {
     local container_id="$1"
@@ -84,5 +87,5 @@ curl --fail --silent --show-error \
     "http://${bind_address}:${bind_port}/api/v4/system/ping" \
     >/dev/null
 
-log "Container health, loopback port binding, PG18 path and all explicit bind mounts are valid"
+log "Container health, host permissions, loopback port binding, PG18 path and all explicit bind mounts are valid"
 compose ps
