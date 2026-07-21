@@ -68,6 +68,7 @@ validate_domain() {
     [[ "${domain}" =~ ^([A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)+[A-Za-z]{2,63}$ ]] \
         || die "THREADHUB_DOMAIN is not a valid DNS hostname"
     is_placeholder "${domain}" && die "THREADHUB_DOMAIN still contains an example value"
+    return 0
 }
 
 validate_email() {
@@ -76,6 +77,7 @@ validate_email() {
     [[ "${email}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
         || die "${label} is not a valid email address"
     is_placeholder "${email}" && die "${label} still contains an example value"
+    return 0
 }
 
 validate_base_env() {
@@ -128,6 +130,7 @@ validate_smtp_env() {
     is_placeholder "${smtp_server}" && die "SMTP_SERVER still contains an example value"
     is_placeholder "${smtp_username}" && die "SMTP_USERNAME still contains an example value"
     is_placeholder "${smtp_password}" && die "SMTP_PASSWORD still contains an example value"
+    return 0
 }
 
 validate_runtime_env() {

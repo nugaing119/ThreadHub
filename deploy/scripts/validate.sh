@@ -54,6 +54,29 @@ else
     die "Docker Compose or Ruby is required to validate docker-compose.yml"
 fi
 
+runtime_env_fixture="$(mktemp)"
+cleanup() {
+    rm -f "${runtime_env_fixture}"
+}
+trap cleanup EXIT
+
+sed \
+    -e 's#^THREADHUB_DOMAIN=.*#THREADHUB_DOMAIN=threadhub.internal#' \
+    -e 's#^LETSENCRYPT_EMAIL=.*#LETSENCRYPT_EMAIL=admin@threadhub.internal#' \
+    -e 's#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=0000000000000000000000000000000000000000000000000000000000000000#' \
+    -e 's#^SMTP_SERVER=.*#SMTP_SERVER=smtp.email.ap-singapore-1.oci.oraclecloud.com#' \
+    -e 's#^SMTP_USERNAME=.*#SMTP_USERNAME=fixture_user#' \
+    -e 's#^SMTP_PASSWORD=.*#SMTP_PASSWORD=fixture_password#' \
+    -e 's#^SMTP_FROM_ADDRESS=.*#SMTP_FROM_ADDRESS=no-reply@threadhub.internal#' \
+    -e 's#^SMTP_REPLY_TO_ADDRESS=.*#SMTP_REPLY_TO_ADDRESS=admin@threadhub.internal#' \
+    "${ENV_EXAMPLE_FILE}" > "${runtime_env_fixture}"
+
+original_env_file="${ENV_FILE}"
+ENV_FILE="${runtime_env_fixture}"
+validate_runtime_env
+ENV_FILE="${original_env_file}"
+log "Runtime environment validation accepts a complete non-placeholder configuration"
+
 for template in \
     "${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template" \
     "${DEPLOY_DIR}/nginx/threadhub.conf.template"; do
