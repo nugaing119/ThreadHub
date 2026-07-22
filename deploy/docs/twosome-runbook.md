@@ -7,37 +7,26 @@
 | 채널 | 유형 | 용도 | 신규 Team 멤버 |
 | --- | --- | --- | --- |
 | `00-공지` | Team 공개 | 공지와 운영 안내 | 자동 참여 |
-| `01-프로젝트-일반` | Team 공개 | 일반 프로젝트 대화 | 관리자 추가 |
-| `02-진행-이슈` | Team 공개 | 진행상황, 이슈와 차단사항 | 관리자 추가 |
-| `03-결정사항` | Team 공개 | 최종 결정과 근거 | 관리자 추가 |
+| `01-프로젝트-일반` | Team 공개 | 일반 프로젝트 대화 | 자동 참여 |
+| `02-진행-이슈` | Team 공개 | 진행상황, 이슈와 차단사항 | 자동 참여 |
+| `03-결정사항` | Team 공개 | 최종 결정과 근거 | 자동 참여 |
 
 여기서 Team 공개는 인터넷 공개가 아니라 `Twosome` Team 멤버에게 공개된다는 뜻입니다. 다른 Team의 사용자는 `Twosome` 멤버십 없이는 채널을 볼 수 없습니다.
 
-`00-공지`는 Mattermost 기본 `Town Square`의 표시 이름을 변경한 채널입니다. 새 Team 멤버가 자동 참여하므로 별도의 두 번째 공지 채널을 만들지 않습니다.
+`00-공지`는 Mattermost 기본 `Town Square`의 표시 이름을 변경한 채널입니다. 새 Team 멤버가 자동 참여하므로 별도의 두 번째 공지 채널을 만들지 않습니다. 나머지 세 채널은 `TeamSettings.ExperimentalDefaultChannels`에 내부 채널 이름으로 등록해 새 Team 멤버가 자동 참여하게 합니다. 이 설정은 서버의 모든 Team에 동일한 내부 채널 이름으로 존재하는 공개 채널에도 적용됩니다.
 
 ## 2. 사용자 초대
 
 1. 관리자가 이메일 초대를 발송합니다.
 2. 사용자가 이메일 확인과 계정 생성을 완료합니다.
 3. 사용자의 `Twosome` Team 멤버십을 확인합니다.
-4. 사용자를 `01-프로젝트-일반`, `02-진행-이슈`, `03-결정사항`에 추가합니다.
-5. 사용자가 네 채널을 모두 열 수 있는지 확인합니다.
-6. 사용자 역할이 일반 `Member`이고 Team Admin·System Admin이 아닌지 확인합니다.
+4. 사용자가 네 채널에 자동 참여했는지 확인합니다.
+5. 사용자 역할이 일반 `Member`이고 Team Admin·System Admin이 아닌지 확인합니다.
 
-서버에서 확인하거나 보완할 때는 다음 형식을 사용합니다.
+기존 Team 멤버를 포함해 누락된 채널 멤버십을 확인하고 보완할 때는 저장소 루트에서 다음 명령을 실행합니다. 이미 가입된 사용자는 변경하지 않으므로 재실행할 수 있습니다.
 
 ```bash
-sudo docker exec threadhub-mattermost-1 \
-  mmctl team users add twosome USERNAME --local
-
-sudo docker exec threadhub-mattermost-1 \
-  mmctl channel users add twosome:01-project-general USERNAME --local
-
-sudo docker exec threadhub-mattermost-1 \
-  mmctl channel users add twosome:02-progress-issues USERNAME --local
-
-sudo docker exec threadhub-mattermost-1 \
-  mmctl channel users add twosome:03-decisions USERNAME --local
+sudo ./deploy/scripts/reconcile-team-channels.sh twosome
 ```
 
 Team 초대 URL은 고객에게 배포하지 않습니다. 기본 초대 수단은 관리자가 보내는 이메일 초대입니다.

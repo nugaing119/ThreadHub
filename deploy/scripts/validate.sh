@@ -103,6 +103,12 @@ for directive in \
 done
 log "SSH password and root login hardening directives are present"
 
+grep -F 'MM_TEAMSETTINGS_EXPERIMENTALDEFAULTCHANNELS: "01-project-general 02-progress-issues 03-decisions"' \
+    "${COMPOSE_FILE}" >/dev/null \
+    || die "Default project channel membership configuration is missing"
+require_file "${SCRIPT_DIR}/reconcile-team-channels.sh"
+log "Default project channels and membership reconciliation are configured"
+
 for template in \
     "${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template" \
     "${DEPLOY_DIR}/nginx/threadhub.conf.template"; do
