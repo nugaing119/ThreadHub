@@ -21,6 +21,7 @@ deploy/
 │   ├── install-docker.sh
 │   ├── deploy.sh
 │   ├── configure-nginx.sh
+│   ├── reload-nginx.sh
 │   ├── health-check.sh
 │   ├── readiness-check.sh
 │   ├── destroy.sh
@@ -68,6 +69,14 @@ chmod 600 deploy/.env
 ```
 
 상세 절차는 [setup.md](./docs/setup.md)를 따릅니다.
+
+기존 운영 VM에 저장소의 NGINX 템플릿 변경만 반영할 때는 다음 명령을
+사용합니다. 기존 설정을 임시 백업하고 `nginx -t`를 통과한 경우에만
+무중단 reload하며, 실패하면 이전 설정을 복원합니다.
+
+```bash
+./deploy/scripts/reload-nginx.sh
+```
 
 프로젝트 Team의 사용자 온보딩과 종료 절차는 [프로젝트 Team 운영 절차](./docs/project-team-runbook.md)를 따릅니다.
 

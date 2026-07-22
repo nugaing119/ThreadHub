@@ -107,6 +107,7 @@ grep -F 'MM_TEAMSETTINGS_EXPERIMENTALDEFAULTCHANNELS: "01-project-general 02-pro
     "${COMPOSE_FILE}" >/dev/null \
     || die "Default project channel membership configuration is missing"
 require_file "${SCRIPT_DIR}/reconcile-team-channels.sh"
+require_file "${SCRIPT_DIR}/reload-nginx.sh"
 log "Default project channels and membership reconciliation are configured"
 
 for template in \
