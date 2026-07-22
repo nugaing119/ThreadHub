@@ -110,6 +110,18 @@ require_file "${SCRIPT_DIR}/reconcile-team-channels.sh"
 require_file "${SCRIPT_DIR}/reload-nginx.sh"
 log "Default project channels and membership reconciliation are configured"
 
+for script in \
+    "${SCRIPT_DIR}/configure-nginx.sh" \
+    "${SCRIPT_DIR}/reload-nginx.sh"; do
+    grep -F 'secure_nginx_logs' "${script}" >/dev/null \
+        || die "NGINX setup must protect access and error log permissions: ${script}"
+done
+grep -F 'chmod 0640 "${log_file}"' "${SCRIPT_DIR}/common.sh" >/dev/null \
+    || die "ThreadHub NGINX logs must not be world-readable"
+grep -F 'test ! -L "${log_file}"' "${SCRIPT_DIR}/common.sh" >/dev/null \
+    || die "NGINX log permission management must reject symbolic links"
+log "NGINX log files are protected from world-readable and symbolic-link regressions"
+
 for template in \
     "${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template" \
     "${DEPLOY_DIR}/nginx/threadhub.conf.template"; do

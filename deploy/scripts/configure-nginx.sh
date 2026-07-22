@@ -27,6 +27,7 @@ log "Installing NGINX and Certbot"
     apt-get install -y nginx certbot iptables-persistent
 require_command iptables
 require_command netfilter-persistent
+secure_nginx_logs
 
 ensure_tcp_input_rule() {
     local port="$1"
@@ -76,6 +77,7 @@ sed "s/__THREADHUB_DOMAIN__/${domain}/g" \
 "${SUDO_COMMAND[@]}" install -m 0644 "${rendered_config}" "${site_available}"
 "${SUDO_COMMAND[@]}" nginx -t
 "${SUDO_COMMAND[@]}" systemctl reload nginx
+secure_nginx_logs
 "${SUDO_COMMAND[@]}" certbot renew --dry-run
 
 log "NGINX, HTTPS redirect, certificate renewal and WebSocket proxy configuration are valid"

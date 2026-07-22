@@ -44,6 +44,7 @@ deploy/
 - Mattermost 8065는 `127.0.0.1`에만 연결합니다.
 - PostgreSQL은 host port를 갖지 않습니다.
 - Docker json-file 로그와 Mattermost 파일 로그의 크기 증가를 제한합니다.
+- NGINX 접근 로그는 query string을 기록하지 않으며 access/error 로그를 `0640 www-data:adm`으로 제한합니다.
 - 모바일 푸시, 플러그인, Webhook, 공개 파일 링크와 진단 텔레메트리를 비활성화합니다.
 - `destroy.sh`는 컨테이너만 내리며 bind mount 데이터를 삭제하지 않습니다.
 
@@ -72,7 +73,8 @@ chmod 600 deploy/.env
 
 기존 운영 VM에 저장소의 NGINX 템플릿 변경만 반영할 때는 다음 명령을
 사용합니다. 기존 설정을 임시 백업하고 `nginx -t`를 통과한 경우에만
-무중단 reload하며, 실패하면 이전 설정을 복원합니다.
+무중단 reload하며, 실패하면 이전 설정을 복원합니다. 이 과정은 NGINX
+접근·오류 로그의 소유권과 권한도 안전한 기준으로 다시 맞춥니다.
 
 ```bash
 ./deploy/scripts/reload-nginx.sh

@@ -12,6 +12,7 @@ init_sudo
 require_command sed
 require_command nginx
 require_command systemctl
+secure_nginx_logs
 
 domain="$(env_value THREADHUB_DOMAIN "${ENV_FILE}")"
 template="${DEPLOY_DIR}/nginx/threadhub.conf.template"
@@ -74,5 +75,6 @@ fi
 
 "${SUDO_COMMAND[@]}" systemctl is-active --quiet nginx \
     || die "NGINX is not active after reload"
+secure_nginx_logs
 
-log "NGINX configuration passed syntax validation and was reloaded without restarting application containers"
+log "NGINX configuration passed syntax validation, logs are mode 0640, and application containers were not restarted"

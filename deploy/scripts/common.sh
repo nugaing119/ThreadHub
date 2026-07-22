@@ -147,6 +147,22 @@ init_sudo() {
     fi
 }
 
+secure_nginx_logs() {
+    local log_file
+
+    for log_file in \
+        /var/log/nginx/threadhub.access.log \
+        /var/log/nginx/threadhub.error.log; do
+        "${SUDO_COMMAND[@]}" test ! -L "${log_file}" \
+            || die "Refusing to manage symbolic-link NGINX log: ${log_file}"
+        if ! "${SUDO_COMMAND[@]}" test -e "${log_file}"; then
+            "${SUDO_COMMAND[@]}" touch "${log_file}"
+        fi
+        "${SUDO_COMMAND[@]}" chown www-data:adm "${log_file}"
+        "${SUDO_COMMAND[@]}" chmod 0640 "${log_file}"
+    done
+}
+
 init_docker() {
     require_command docker
 
