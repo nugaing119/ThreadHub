@@ -120,21 +120,22 @@ for template in \
         || die "NGINX template must use the query-free ThreadHub access log format: ${template}"
 done
 
-grep -F '"$request_method $uri $server_protocol"' \
+grep -F "\"\$request_method \$uri \$server_protocol\"" \
     "${DEPLOY_DIR}/nginx/threadhub.conf.template" >/dev/null \
     || die "NGINX safe access log format is missing"
-if grep -R -n -E 'proxy_set_header[[:space:]]+Host[[:space:]]+\$(http_host|host)' \
-    "${DEPLOY_DIR}/nginx"; then
-    die "NGINX must not forward an untrusted request Host header"
-fi
+for unsafe_host in "\$http_host" "\$host"; do
+    if grep -R -n -F "proxy_set_header Host ${unsafe_host}" "${DEPLOY_DIR}/nginx"; then
+        die "NGINX must not forward an untrusted request Host header"
+    fi
+done
 
 grep -F 'config --quiet' "${DEPLOY_DIR}/README.md" >/dev/null \
     || die "Compose documentation must not print interpolated runtime secrets"
 grep -F 'chmod 600 deploy/.env' "${DEPLOY_DIR}/README.md" >/dev/null \
     || die "Quick-start documentation must protect deploy/.env before editing"
-grep -F 'chmod 0600 "${ENV_FILE}"' "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+grep -F "chmod 0600 \"\${ENV_FILE}\"" "${SCRIPT_DIR}/deploy.sh" >/dev/null \
     || die "Deployment must protect the runtime environment before reading secrets"
-grep -F 'Usage: $0 TEAM_URL_NAME [CHANNEL_URL_NAME ...]' \
+grep -F "Usage: \$0 TEAM_URL_NAME [CHANNEL_URL_NAME ...]" \
     "${SCRIPT_DIR}/reconcile-team-channels.sh" >/dev/null \
     || die "Channel reconciliation must require an explicit Team target"
 
