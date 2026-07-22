@@ -116,8 +116,11 @@ for script in \
     grep -F 'secure_nginx_logs' "${script}" >/dev/null \
         || die "NGINX setup must protect access and error log permissions: ${script}"
 done
+# Match literal deployment-script expressions; expansion is not intended.
+# shellcheck disable=SC2016
 grep -F 'chmod 0640 "${log_file}"' "${SCRIPT_DIR}/common.sh" >/dev/null \
     || die "ThreadHub NGINX logs must not be world-readable"
+# shellcheck disable=SC2016
 grep -F 'test ! -L "${log_file}"' "${SCRIPT_DIR}/common.sh" >/dev/null \
     || die "NGINX log permission management must reject symbolic links"
 log "NGINX log files are protected from world-readable and symbolic-link regressions"
