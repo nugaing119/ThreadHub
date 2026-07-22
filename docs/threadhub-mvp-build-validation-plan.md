@@ -844,16 +844,18 @@ OCI Email Delivery의 기본 절차는 [OCI Email Delivery 시작 안내](https:
 | AUTH-10 | 계정 비활성화 후 로그인 | 실패 |
 | AUTH-11 | 계정 재활성화 후 로그인 | 성공 |
 | AUTH-12 | 사용 완료된 이메일 초대 토큰 재사용 | 실패 |
-| AUTH-13 | 관리자가 무효화한 미수락 이메일 초대 토큰 사용 | 실패 |
+| AUTH-13 | 관리자가 전체 무효화한 미수락 이메일 초대 토큰 사용 | 실패 |
 | AUTH-14 | 유효한 Team 초대 URL로 가입 | 성공 |
 | AUTH-15 | Team 초대 코드 재생성 후 이전 URL 사용 | 실패 |
 | AUTH-16 | 재생성된 새 Team 초대 URL 사용 | 성공 |
 | AUTH-17 | System Admin MFA 등록 및 정상 OTP 로그인 | 성공 |
 | AUTH-18 | 잘못된 OTP로 System Admin 로그인 | 실패 |
-| AUTH-19 | System Admin MFA 복구 절차 확인 | 절차와 결과 기록 |
+| AUTH-19 | 서버 운영자가 `mmctl user resetmfa`로 System Admin MFA 복구 후 재등록 | 절차와 결과 기록 |
 | AUTH-20 | 비밀번호 재설정 후 기존 웹·데스크톱·모바일 세션 사용 | 모두 종료되며 새 비밀번호와 MFA 로그인이 필요 |
 
 `EnableOpenServer=false`는 초대가 없는 직접 가입을 차단하지만 유효한 Team InviteId를 정상 초대로 처리한다. Team 초대 URL은 링크를 가진 사람이 사용할 수 있는 bearer invitation이므로 고객에게 배포하지 않고 노출 가능성이 있거나 초대 기간이 끝나면 코드를 재생성한다. 분기 동작은 [Mattermost v11.7.7 사용자 생성 핸들러](https://github.com/mattermost/mattermost/blob/v11.7.7/server/channels/api4/user.go)와 [초대 URL 안내](https://docs.mattermost.com/end-user-guide/collaborate/invite-people.html)를 기준으로 한다.
+
+미수락 이메일 초대 무효화 API는 단일 토큰이 아니라 활성 이메일 초대 전체에 적용된다. `AUTH-13`은 다른 실제 대기 초대가 없거나 모두 폐기하기로 합의한 유지보수 시간에만 수행한다.
 
 ## 12.2 권한
 
@@ -900,9 +902,11 @@ System Scheme 적용 후 고객 Member 계정으로 다시 시험한다. 정확�
 | SEARCH-10 | 파일명 검색 |
 | SEARCH-11 | 검색 결과에서 원문 이동 |
 | SEARCH-12 | 검색 결과에서 스레드 이동 |
-| SEARCH-13 | 대표 누적 게시물 수에서 반복 검색 응답시간 기록 |
+| SEARCH-13 | 임시 비공개 채널의 누적 게시물 10,000건에서 5회 예열 후 30회 반복 검색 | p95 3초 미만, 결과와 정리 확인 |
 
 필수 부분 문자열 시험으로 `오류` 검색 시 `로그인 오류`, `고객로그인오류`, `로그인오류를 확인했습니다` 게시물이 모두 반환되는지 확인한다. 검색 성능은 활성 사용자 수가 아니라 누적 게시물 수의 영향을 받을 수 있으므로 파일럿을 대표하는 데이터 규모에서 측정한다.
+
+`SEARCH-13`의 시험 데이터는 고객 채널이 아닌 고유한 임시 비공개 채널에 생성한다. 시험 종료 후 해당 채널, 게시물, 사용자와 Team 가입 시스템 게시물만 정확히 식별해 제거하고 전체·활성 게시물 수가 시험 전 기준으로 돌아왔는지 확인한다.
 
 판정:
 

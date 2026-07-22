@@ -13,6 +13,15 @@
 
 기존 세션 종료는 `MM_SERVICESETTINGS_TERMINATESESSIONSONPASSWORDCHANGE=true`로 적용합니다. 로그인 중 비밀번호를 변경하면 현재 세션을 제외한 나머지 세션이 종료되고, 로그인하지 않은 상태의 재설정 링크로 변경하면 기존 세션이 모두 종료되어야 합니다.
 
+MFA 기기를 분실한 System Admin은 서버 접근권한을 가진 운영자가 본인 확인 후 다음과 같이 MFA를 해제합니다.
+
+```bash
+sudo docker exec threadhub-mattermost-1 \
+  mmctl user resetmfa USERNAME --local
+```
+
+복구 직후 사용자는 비밀번호로 로그인하고 새 MFA 기기를 다시 등록합니다. 복구 작업자, 대상 계정, 실행시각과 재등록 결과를 운영 기록에 남깁니다. 임시 관리자 시험에서 잘못된 OTP 거부, 정상 OTP 로그인과 이 복구 절차를 확인했습니다.
+
 ## 2. System Scheme
 
 정확한 Team Edition 11.7.7 이미지의 System Console에서 System Scheme을 편집합니다.
@@ -53,7 +62,7 @@ ThreadHub MVP에서는 일반 Member의 채널 멤버 관리, 채널 이름·설
 
 ## 4. Team과 채널
 
-기본 Team:
+기본 배포 모델의 Team:
 
 ```text
 Internal
@@ -72,6 +81,17 @@ Project Team 기본 채널:
 ```
 
 서로 존재나 참여 사실이 노출되면 안 되는 고객 조직은 같은 인스턴스에 넣지 않습니다.
+
+현재 파일럿의 `Twosome` Team은 초대 전용 Team이며 다음 네 채널만 운영합니다.
+
+```text
+00-공지            # 이름을 바꾼 기본 Town Square, Team 가입 시 자동 참여
+01-프로젝트-일반
+02-진행-이슈
+03-결정사항
+```
+
+네 채널은 모두 Team 공개 채널입니다. `Twosome` 멤버에게만 공개되며 다른 Team의 사용자는 볼 수 없습니다. 새 사용자는 `00-공지`에 자동 참여하지만 나머지 세 채널은 관리자가 명시적으로 추가해 사이드바와 알림 대상에 포함합니다. 자세한 절차는 [Twosome 운영 절차](./twosome-runbook.md)를 따릅니다.
 
 ## 5. 이메일 시험
 

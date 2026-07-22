@@ -30,6 +30,7 @@ deploy/
     ├── admin-guide.md
     ├── operations-checklist.md
     ├── test-plan.md
+    ├── twosome-runbook.md
     └── project-close.md
 ```
 
@@ -66,6 +67,8 @@ cp deploy/.env.example deploy/.env
 ```
 
 상세 절차는 [setup.md](./docs/setup.md)를 따릅니다.
+
+현재 파일럿 Team의 사용자 온보딩과 종료 절차는 [Twosome 운영 절차](./docs/twosome-runbook.md)를 따릅니다.
 
 ## Compose 직접 실행
 
