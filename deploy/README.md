@@ -30,7 +30,7 @@ deploy/
     ├── admin-guide.md
     ├── operations-checklist.md
     ├── test-plan.md
-    ├── twosome-runbook.md
+    ├── project-team-runbook.md
     └── project-close.md
 ```
 
@@ -58,6 +58,7 @@ Docker Compose가 설치되어 있으면 실제 `docker compose config`를 실�
 
 ```bash
 cp deploy/.env.example deploy/.env
+chmod 600 deploy/.env
 # deploy/.env의 모든 example/REPLACE 값을 실제 프로젝트 값으로 변경
 
 ./deploy/scripts/install-docker.sh
@@ -68,7 +69,7 @@ cp deploy/.env.example deploy/.env
 
 상세 절차는 [setup.md](./docs/setup.md)를 따릅니다.
 
-현재 파일럿 Team의 사용자 온보딩과 종료 절차는 [Twosome 운영 절차](./docs/twosome-runbook.md)를 따릅니다.
+프로젝트 Team의 사용자 온보딩과 종료 절차는 [프로젝트 Team 운영 절차](./docs/project-team-runbook.md)를 따릅니다.
 
 ## Compose 직접 실행
 
@@ -79,8 +80,11 @@ docker compose \
   --env-file deploy/.env \
   --env-file deploy/versions.env \
   -f deploy/docker-compose.yml \
-  config
+  config --quiet
 ```
+
+`config`를 `--quiet` 없이 실행하면 보간된 데이터베이스·SMTP 비밀번호가
+터미널과 세션 로그에 표시될 수 있으므로 실제 환경파일에는 사용하지 않습니다.
 
 정상 운영에서 `docker compose down -v`를 사용하지 않습니다.
 

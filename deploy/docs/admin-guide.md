@@ -82,7 +82,7 @@ Project Team 기본 채널:
 
 서로 존재나 참여 사실이 노출되면 안 되는 고객 조직은 같은 인스턴스에 넣지 않습니다.
 
-현재 파일럿의 `Twosome` Team은 초대 전용 Team이며 다음 네 채널만 운영합니다.
+프로젝트 Team을 최소 네 채널로 운영하는 경우 다음 구조를 사용합니다.
 
 ```text
 00-공지            # 이름을 바꾼 기본 Town Square, Team 가입 시 자동 참여
@@ -91,7 +91,7 @@ Project Team 기본 채널:
 03-결정사항        # Team 가입 시 자동 참여
 ```
 
-네 채널은 모두 Team 공개 채널입니다. `Twosome` 멤버에게만 공개되며 다른 Team의 사용자는 볼 수 없습니다. 새 사용자는 Team에 가입할 때 네 채널에 자동 참여합니다. 기존 멤버의 누락된 가입은 `reconcile-team-channels.sh`로 보완합니다. 자세한 절차는 [Twosome 운영 절차](./twosome-runbook.md)를 따릅니다.
+네 채널은 모두 Team 공개 채널입니다. 해당 프로젝트 Team 멤버에게만 공개되며 다른 Team의 사용자는 볼 수 없습니다. 새 사용자는 Team에 가입할 때 네 채널에 자동 참여합니다. 기존 멤버의 누락된 가입은 `reconcile-team-channels.sh`로 보완합니다. 자세한 절차는 [프로젝트 Team 운영 절차](./project-team-runbook.md)를 따릅니다.
 
 ## 5. 이메일 시험
 

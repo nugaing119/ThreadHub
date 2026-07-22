@@ -10,6 +10,8 @@ mode="${1:-deploy}"
 [[ "${mode}" == "deploy" || "${mode}" == "--validate-only" ]] \
     || die "Usage: $0 [--validate-only]"
 
+require_file "${ENV_FILE}"
+chmod 0600 "${ENV_FILE}"
 validate_runtime_env
 init_docker
 compose config --quiet
@@ -39,7 +41,6 @@ log "Creating explicit PostgreSQL and Mattermost bind-mount paths"
     "${mattermost_root}/bleve-indexes"
 "${SUDO_COMMAND[@]}" chown -R 2000:2000 "${mattermost_root}"
 "${SUDO_COMMAND[@]}" chmod -R u=rwX,g=rX,o= "${mattermost_root}"
-chmod 0600 "${ENV_FILE}"
 
 if [[ -f "${DEPLOY_DIR}/logrotate/threadhub" ]]; then
     "${SUDO_COMMAND[@]}" install -m 0644 \

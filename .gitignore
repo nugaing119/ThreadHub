@@ -21,6 +21,12 @@ secrets/
 *.pfx
 *.crt
 *.csr
+*.ppk
+*.jks
+*.keystore
+id_rsa
+id_ed25519
+.oci/
 certbot/
 
 # Runtime data and logs
@@ -42,6 +48,7 @@ versions.local.env
 *.tfstate
 *.tfstate.*
 *.tfvars
+*.tfplan
 !*.tfvars.example
 
 # Editor files

@@ -6,7 +6,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 
 ## 현재 상태
 
-현재 저장소에는 ThreadHub MVP의 요구사항, 구축·검증 기준과 첫 번째 배포 패키지가 포함되어 있습니다. 실제 OCI VM에서 내부 기술 파일럿의 핵심 서버·인증·권한·데이터 영속성·CJK 검색 시험을 통과했으며, 제한된 고객 파일럿은 모바일과 일부 외부 수동 시험을 남긴 `Conditional Go` 상태입니다.
+현재 저장소에는 ThreadHub MVP의 요구사항, 구축·검증 기준과 재사용 가능한 배포 패키지가 포함되어 있습니다. 기준 배포의 핵심 서버·인증·권한·데이터 영속성·CJK 검색 결과는 공개 요약으로 제공하며, 사이트별 상세 증거와 Go/No-Go 판정은 비공개 운영 기록에서 관리합니다.
 
 프로덕션 운영이 검증된 완성 배포본이 아니므로 실제 고객 데이터로 사용하기 전에 구축·검증 계획의 필수 시험을 수행해야 합니다.
 
@@ -52,7 +52,7 @@ ThreadHub/
 
 배포 구성과 VM 설치 순서는 [deploy/README.md](./deploy/README.md)에서 확인할 수 있습니다.
 
-현재 파일럿 Team의 사용자 운영 절차는 [Twosome 운영 절차](./deploy/docs/twosome-runbook.md)를 사용합니다.
+프로젝트 Team의 사용자 운영 절차는 [프로젝트 Team 운영 절차](./deploy/docs/project-team-runbook.md)를 사용합니다.
 
 ```bash
 ./deploy/scripts/validate.sh

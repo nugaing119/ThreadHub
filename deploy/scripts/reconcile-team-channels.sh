@@ -6,8 +6,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
 
-team_name="${1:-twosome}"
-shift || true
+[[ "$#" -ge 1 ]] || die "Usage: $0 TEAM_URL_NAME [CHANNEL_URL_NAME ...]"
+team_name="$1"
+shift
 
 if [[ "$#" -gt 0 ]]; then
     channel_names=("$@")

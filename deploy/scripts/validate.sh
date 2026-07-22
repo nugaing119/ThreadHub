@@ -115,12 +115,64 @@ for template in \
     require_file "${template}"
     [[ "$(grep -c '__THREADHUB_DOMAIN__' "${template}")" -gt 0 ]] \
         || die "NGINX template is missing the domain placeholder: ${template}"
+    grep -F 'access_log /var/log/nginx/threadhub.access.log threadhub_safe;' \
+        "${template}" >/dev/null \
+        || die "NGINX template must use the query-free ThreadHub access log format: ${template}"
 done
 
+grep -F '"$request_method $uri $server_protocol"' \
+    "${DEPLOY_DIR}/nginx/threadhub.conf.template" >/dev/null \
+    || die "NGINX safe access log format is missing"
+if grep -R -n -E 'proxy_set_header[[:space:]]+Host[[:space:]]+\$(http_host|host)' \
+    "${DEPLOY_DIR}/nginx"; then
+    die "NGINX must not forward an untrusted request Host header"
+fi
+
+grep -F 'config --quiet' "${DEPLOY_DIR}/README.md" >/dev/null \
+    || die "Compose documentation must not print interpolated runtime secrets"
+grep -F 'chmod 600 deploy/.env' "${DEPLOY_DIR}/README.md" >/dev/null \
+    || die "Quick-start documentation must protect deploy/.env before editing"
+grep -F 'chmod 0600 "${ENV_FILE}"' "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    || die "Deployment must protect the runtime environment before reading secrets"
+grep -F 'Usage: $0 TEAM_URL_NAME [CHANNEL_URL_NAME ...]' \
+    "${SCRIPT_DIR}/reconcile-team-channels.sh" >/dev/null \
+    || die "Channel reconciliation must require an explicit Team target"
+
 if command -v git >/dev/null 2>&1 && git -C "${REPOSITORY_ROOT}" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    if git -C "${REPOSITORY_ROOT}" grep -n -E \
-        'AKIA[0-9A-Z]{16}|gh[opusr]_[A-Za-z0-9_]{20,}|ocid1\.|BEGIN (RSA |EC |OPENSSH )?PRIVATE KEY'; then
+    secret_pattern='AKIA[0-9A-Z]{16}|ASIA[0-9A-Z]{16}|gh[opusr]_[A-Za-z0-9_]{20,}|github_pat_[A-Za-z0-9_]{20,}|xox[baprs]-[A-Za-z0-9-]{10,}|sk-[A-Za-z0-9]{20,}|ocid1\.|BEGIN ([A-Z]+ )*PRIVATE KEY'
+    secret_files="$(git -C "${REPOSITORY_ROOT}" grep -Il -E "${secret_pattern}" -- . || true)"
+    if [[ -n "${secret_files}" ]]; then
+        printf '%s\n' "${secret_files}" >&2
         die "Potential credential material found in tracked files"
+    fi
+
+    credential_files="$(git -C "${REPOSITORY_ROOT}" grep -Il -E \
+        '^[[:space:]]*(POSTGRES_PASSWORD|SMTP_PASSWORD|SMTP_USERNAME|AWS_SECRET_ACCESS_KEY|GITHUB_TOKEN)=' \
+        -- . ':!deploy/.env.example' || true)"
+    if [[ -n "${credential_files}" ]]; then
+        printf '%s\n' "${credential_files}" >&2
+        die "A runtime credential assignment was found outside deploy/.env.example"
+    fi
+
+    sensitive_names="$(git -C "${REPOSITORY_ROOT}" ls-files \
+        | grep -E '(^|/)(\.env($|\.)|id_(rsa|ed25519)$|.*\.(key|pem|p12|pfx|ppk|jks|keystore|tfstate|tfplan)$)' \
+        | grep -v -E '(^|/)\.env\.example$' || true)"
+    if [[ -n "${sensitive_names}" ]]; then
+        printf '%s\n' "${sensitive_names}" >&2
+        die "Sensitive filename is tracked"
+    fi
+
+    history_secret_files="$(
+        git -C "${REPOSITORY_ROOT}" rev-list --all \
+            | while IFS= read -r revision; do
+                git -C "${REPOSITORY_ROOT}" grep -Il -E \
+                    "${secret_pattern}" "${revision}" -- . || true
+            done \
+            | sort -u
+    )"
+    if [[ -n "${history_secret_files}" ]]; then
+        printf '%s\n' "${history_secret_files}" >&2
+        die "Potential credential material found in reachable Git history"
     fi
 fi
 
