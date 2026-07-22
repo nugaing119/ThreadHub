@@ -51,6 +51,41 @@ jobs:
       - name: Run ShellCheck
         run: shellcheck -x -P deploy/scripts deploy/scripts/*.sh
 
+      - name: Exercise guided configuration and unattended handoff
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          trap 'rm -f deploy/.env' EXIT
+
+          printf '%s\n' \
+            threadhub-ci.test.net \
+            ci@test.net \
+            ap-singapore-1 \
+            fixture_smtp_user \
+            fixture_smtp_password \
+            no-reply@test.net \
+            '' \
+            '' \
+            | script --quiet --return \
+                --command './deploy/scripts/setup-wizard.sh --configure-only' \
+                /dev/null
+
+          test "$(stat -c '%a' deploy/.env)" = 600
+          ./deploy/scripts/deploy.sh --validate-only
+          rm -f deploy/.env
+
+          set +e
+          ./deploy/scripts/setup-wizard.sh --non-interactive >/tmp/wizard-output 2>&1
+          wizard_status=$?
+          ./deploy/scripts/install-status.sh >/tmp/status-output 2>&1
+          status_status=$?
+          set -e
+
+          test "${wizard_status}" -eq 20
+          test "${status_status}" -eq 20
+          grep -F '[ACTION REQUIRED]' /tmp/wizard-output >/dev/null
+          grep -F '[ACTION REQUIRED]' /tmp/status-output >/dev/null
+
       - name: Verify immutable image manifests
         shell: bash
         run: |

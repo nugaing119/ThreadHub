@@ -1,5 +1,9 @@
 # ThreadHub 설치 가이드
 
+새 VM에서 가장 간단한 설치 방법은 [빠른 설치 가이드](./quick-install.md)의
+`setup-wizard.sh`를 사용하는 것입니다. 이 문서는 각 단계를 수동으로 수행하거나
+문제를 진단해야 할 때 사용합니다.
+
 ## 1. 사전조건
 
 - OCI 계정과 Compute VM 생성 권한
@@ -84,6 +88,9 @@ openssl rand -hex 32
 실제 `.env`는 복사하거나 채팅에 붙여 넣지 않고 서버에서만 관리합니다.
 
 ## 5. OCI Email Delivery 준비
+
+처음 구성하는 경우 [OCI Email Delivery 상세 설정](./oci-email-delivery.md)을 먼저
+완료합니다.
 
 배포 전에 다음 항목을 준비합니다.
 

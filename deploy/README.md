@@ -18,6 +18,8 @@ deploy/
 │   └── threadhub.conf.template
 ├── scripts/
 │   ├── common.sh
+│   ├── setup-wizard.sh
+│   ├── install-status.sh
 │   ├── install-docker.sh
 │   ├── deploy.sh
 │   ├── configure-nginx.sh
@@ -27,6 +29,9 @@ deploy/
 │   ├── destroy.sh
 │   └── validate.sh
 └── docs/
+    ├── quick-install.md
+    ├── oci-provisioning.md
+    ├── oci-email-delivery.md
     ├── setup.md
     ├── admin-guide.md
     ├── operations-checklist.md
@@ -58,6 +63,20 @@ Docker Compose가 설치되어 있으면 실제 `docker compose config`를 실�
 
 ## VM 배포 순서
 
+새 VM의 권장 진입점은 대화형 설치 마법사입니다.
+
+```bash
+./deploy/scripts/setup-wizard.sh
+```
+
+마법사는 실제 `.env` 값을 출력하지 않고 PostgreSQL 비밀번호를 자동 생성하며,
+도메인·OCI SMTP처럼 프로젝트마다 다른 값만 입력받습니다. DNS 같은 외부 작업이
+남으면 작업 내용을 출력하고 exit code `20`으로 중단하며, 완료 후 `--resume`으로
+이어갈 수 있습니다. 전체 절차는 [빠른 설치 가이드](./docs/quick-install.md)를
+따릅니다.
+
+수동으로 각 단계를 실행하려면 다음 순서를 사용합니다.
+
 ```bash
 cp deploy/.env.example deploy/.env
 chmod 600 deploy/.env
@@ -70,6 +89,12 @@ chmod 600 deploy/.env
 ```
 
 상세 절차는 [setup.md](./docs/setup.md)를 따릅니다.
+
+설치 상태는 비밀값을 출력하지 않는 다음 명령으로 확인합니다.
+
+```bash
+./deploy/scripts/install-status.sh
+```
 
 기존 운영 VM에 저장소의 NGINX 템플릿 변경만 반영할 때는 다음 명령을
 사용합니다. 기존 설정을 임시 백업하고 `nginx -t`를 통과한 경우에만

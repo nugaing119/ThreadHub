@@ -52,6 +52,21 @@ ThreadHub/
 
 배포 구성과 VM 설치 순서는 [deploy/README.md](./deploy/README.md)에서 확인할 수 있습니다.
 
+새 Ubuntu 24.04 AMD64 VM에서는 설치 마법사가 프로젝트 도메인과 OCI SMTP 값을
+안전하게 입력받고, PostgreSQL 비밀번호 생성부터 Docker·Mattermost·NGINX·HTTPS
+검증까지 순서대로 진행합니다.
+
+```bash
+git clone https://github.com/nugaing119/ThreadHub.git
+cd ThreadHub
+./deploy/scripts/setup-wizard.sh
+```
+
+DNS 또는 OCI Email Delivery가 아직 준비되지 않았다면 기존 작업과 데이터를
+유지한 채 `[ACTION REQUIRED]`를 출력하며, 준비 후 `--resume`으로 계속할 수
+있습니다. 자세한 절차는 [빠른 설치 가이드](./deploy/docs/quick-install.md)를
+따릅니다.
+
 프로젝트 Team의 사용자 운영 절차는 [프로젝트 Team 운영 절차](./deploy/docs/project-team-runbook.md)를 사용합니다.
 
 ```bash

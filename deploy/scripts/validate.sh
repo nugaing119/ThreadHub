@@ -108,7 +108,23 @@ grep -F 'MM_TEAMSETTINGS_EXPERIMENTALDEFAULTCHANNELS: "01-project-general 02-pro
     || die "Default project channel membership configuration is missing"
 require_file "${SCRIPT_DIR}/reconcile-team-channels.sh"
 require_file "${SCRIPT_DIR}/reload-nginx.sh"
+require_file "${SCRIPT_DIR}/setup-wizard.sh"
+require_file "${SCRIPT_DIR}/install-status.sh"
 log "Default project channels and membership reconciliation are configured"
+
+for guide in \
+    "${DEPLOY_DIR}/docs/quick-install.md" \
+    "${DEPLOY_DIR}/docs/oci-provisioning.md" \
+    "${DEPLOY_DIR}/docs/oci-email-delivery.md"; do
+    require_file "${guide}"
+done
+"${SCRIPT_DIR}/setup-wizard.sh" --help >/dev/null
+"${SCRIPT_DIR}/install-status.sh" --help >/dev/null
+grep -F './deploy/scripts/setup-wizard.sh' "${REPOSITORY_ROOT}/README.md" >/dev/null \
+    || die "Top-level README must expose the guided installation entry point"
+grep -F 'exit code `20`' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
+    || die "Quick-install guide must document action-required exit behavior"
+log "Guided installation entry point and OCI setup guides are present"
 
 for script in \
     "${SCRIPT_DIR}/configure-nginx.sh" \
