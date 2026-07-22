@@ -122,6 +122,8 @@ done
 "${SCRIPT_DIR}/install-status.sh" --help >/dev/null
 grep -F './deploy/scripts/setup-wizard.sh' "${REPOSITORY_ROOT}/README.md" >/dev/null \
     || die "Top-level README must expose the guided installation entry point"
+# Match the literal documentation text; command substitution is not intended.
+# shellcheck disable=SC2016
 grep -F 'exit code `20`' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
     || die "Quick-install guide must document action-required exit behavior"
 log "Guided installation entry point and OCI setup guides are present"

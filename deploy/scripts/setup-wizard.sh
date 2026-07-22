@@ -8,6 +8,16 @@ source "${SCRIPT_DIR}/common.sh"
 
 configure_only=false
 non_interactive=false
+threadhub_domain=
+letsencrypt_email=
+oci_email_region=
+smtp_server=
+smtp_username=
+smtp_password=
+smtp_from_address=
+smtp_reply_to_address=
+smtp_feedback_name=
+postgres_password=
 
 usage() {
     cat <<'EOF'
