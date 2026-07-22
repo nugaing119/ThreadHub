@@ -40,7 +40,7 @@ jobs:
       - name: Install validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y nginx shellcheck
+          sudo apt-get install -y expect nginx shellcheck
 
       - name: Validate repository diff
         run: git diff --check HEAD^ HEAD
@@ -57,18 +57,29 @@ jobs:
           set -Eeuo pipefail
           trap 'rm -f deploy/.env' EXIT
 
-          printf '%s\n' \
-            threadhub-ci.test.net \
-            ci@test.net \
-            ap-singapore-1 \
-            fixture_smtp_user \
-            fixture_smtp_password \
-            no-reply@test.net \
-            '' \
-            '' \
-            | script --quiet --return \
-                --command './deploy/scripts/setup-wizard.sh --configure-only' \
-                /dev/null
+          expect <<'EOF'
+          set timeout 30
+          spawn ./deploy/scripts/setup-wizard.sh --configure-only
+          expect "ThreadHub public domain: "
+          send "threadhub-ci.test.net\r"
+          expect "Let's Encrypt contact email: "
+          send "ci@test.net\r"
+          expect "OCI Email Delivery region*"
+          send "ap-singapore-1\r"
+          expect "OCI SMTP username: "
+          send "fixture_smtp_user\r"
+          expect "OCI SMTP password: "
+          send "fixture_smtp_password\r"
+          expect "Approved sender address: "
+          send "no-reply@test.net\r"
+          expect "Reply-to address*"
+          send "\r"
+          expect "Sender display name*"
+          send "\r"
+          expect eof
+          catch wait result
+          exit [lindex $result 3]
+          EOF
 
           test "$(stat -c '%a' deploy/.env)" = 600
           ./deploy/scripts/deploy.sh --validate-only
