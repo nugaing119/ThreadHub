@@ -53,4 +53,4 @@ printf '%s\n' "${redirect_headers}" | grep -Eiq "^location: https://${domain}/" 
     || die "HTTP endpoint did not redirect to the expected HTTPS domain"
 
 log "Runtime environment, critical Mattermost settings, HTTPS and HTTP redirect are ready"
-warn "Client UI/mobile, external mailbox and non-allowlisted network tests still require the documented manual acceptance tests"
+warn "Client UI/mobile and external mailbox tests still require the documented manual acceptance tests"
