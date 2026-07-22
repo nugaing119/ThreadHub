@@ -220,7 +220,13 @@ SSH 하드닝은 `/etc/ssh/sshd_config.d/99-threadhub-hardening.conf`에 적용�
 
 ### 10.5 Twosome 구조
 
-`Twosome`은 초대 전용 Team이며 `00-공지`, `01-프로젝트-일반`, `02-진행-이슈`, `03-결정사항`을 Team 공개 채널로 사용한다. `00-공지`는 이름을 변경한 기본 Town Square여서 Team 가입 시 자동 참여한다. 다른 세 채널은 관리자가 신규 사용자를 명시적으로 추가한다. 절차는 `twosome-runbook.md`에 기록했다.
+`Twosome`은 초대 전용 Team이며 `00-공지`, `01-프로젝트-일반`, `02-진행-이슈`, `03-결정사항`을 Team 공개 채널로 사용한다. `00-공지`는 이름을 변경한 기본 Town Square여서 Team 가입 시 자동 참여한다. 다른 세 채널은 다음 운영 환경값으로 기본 채널에 등록했다.
+
+```text
+MM_TEAMSETTINGS_EXPERIMENTALDEFAULTCHANNELS=01-project-general 02-progress-issues 03-decisions
+```
+
+Mattermost 컨테이너 재생성 후 실제 환경값을 확인하고 `reconcile-team-channels.sh twosome`을 실행했다. 활성 Team 멤버 3명 모두 네 채널에 가입돼 있으며, 향후 Team에 가입하는 사용자도 네 공개 채널에 자동 참여한다. 이 설정은 동일한 내부 채널 이름을 사용하는 서버 내 다른 Team에도 적용된다. 절차는 `twosome-runbook.md`에 기록했다.
 
 ### 10.6 일반 Member 채널 삭제 차단
 
