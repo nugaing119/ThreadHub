@@ -41,6 +41,11 @@ docker compose \
 df -h / /srv/threadhub
 sudo systemctl status nginx certbot.timer
 sudo certbot certificates
+sudo test -x /etc/letsencrypt/renewal-hooks/deploy/threadhub-reload-nginx
+sudo certbot renew \
+  --dry-run \
+  --run-deploy-hooks \
+  --no-random-sleep-on-renew
 ```
 
 ## 이상 징후

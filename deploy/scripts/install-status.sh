@@ -86,9 +86,13 @@ if [[ "${runtime_valid}" == "true" ]]; then
 
     init_sudo
     if "${SUDO_COMMAND[@]}" systemctl is-active --quiet nginx \
+        && "${SUDO_COMMAND[@]}" systemctl is-enabled --quiet certbot.timer \
+        && "${SUDO_COMMAND[@]}" systemctl is-active --quiet certbot.timer \
+        && "${SUDO_COMMAND[@]}" test -x \
+            /etc/letsencrypt/renewal-hooks/deploy/threadhub-reload-nginx \
         && "${SUDO_COMMAND[@]}" test -f "/etc/letsencrypt/live/${domain}/fullchain.pem" \
         && "${SUDO_COMMAND[@]}" test -f "/etc/letsencrypt/live/${domain}/privkey.pem"; then
-        ok "NGINX and Let's Encrypt certificate"
+        ok "NGINX, Let's Encrypt certificate and automatic renewal hook"
         https_ready=true
     else
         action "Run ./deploy/scripts/setup-wizard.sh --resume after DNS is ready"

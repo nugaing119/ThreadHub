@@ -15,11 +15,14 @@ domain="$(env_value THREADHUB_DOMAIN "${ENV_FILE}")"
 email="$(env_value LETSENCRYPT_EMAIL "${ENV_FILE}")"
 bootstrap_template="${DEPLOY_DIR}/nginx/threadhub-bootstrap.conf.template"
 final_template="${DEPLOY_DIR}/nginx/threadhub.conf.template"
+renewal_hook="${SCRIPT_DIR}/certbot-deploy-hook.sh"
+renewal_hook_target=/etc/letsencrypt/renewal-hooks/deploy/threadhub-reload-nginx
 site_available=/etc/nginx/sites-available/threadhub.conf
 site_enabled=/etc/nginx/sites-enabled/threadhub.conf
 
 require_file "${bootstrap_template}"
 require_file "${final_template}"
+require_file "${renewal_hook}"
 
 log "Installing NGINX and Certbot"
 "${SUDO_COMMAND[@]}" apt-get update
@@ -78,6 +81,12 @@ sed "s/__THREADHUB_DOMAIN__/${domain}/g" \
 "${SUDO_COMMAND[@]}" nginx -t
 "${SUDO_COMMAND[@]}" systemctl reload nginx
 secure_nginx_logs
-"${SUDO_COMMAND[@]}" certbot renew --dry-run
+"${SUDO_COMMAND[@]}" install -d -m 0755 /etc/letsencrypt/renewal-hooks/deploy
+"${SUDO_COMMAND[@]}" install -m 0755 "${renewal_hook}" "${renewal_hook_target}"
+"${SUDO_COMMAND[@]}" systemctl enable --now certbot.timer
+"${SUDO_COMMAND[@]}" certbot renew \
+    --dry-run \
+    --run-deploy-hooks \
+    --no-random-sleep-on-renew
 
 log "NGINX, HTTPS redirect, certificate renewal and WebSocket proxy configuration are valid"

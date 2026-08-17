@@ -108,6 +108,7 @@ grep -F 'MM_TEAMSETTINGS_EXPERIMENTALDEFAULTCHANNELS: "01-project-general 02-pro
     || die "Default project channel membership configuration is missing"
 require_file "${SCRIPT_DIR}/reconcile-team-channels.sh"
 require_file "${SCRIPT_DIR}/reload-nginx.sh"
+require_file "${SCRIPT_DIR}/certbot-deploy-hook.sh"
 require_file "${SCRIPT_DIR}/setup-wizard.sh"
 require_file "${SCRIPT_DIR}/install-status.sh"
 log "Default project channels and membership reconciliation are configured"
@@ -134,6 +135,29 @@ for script in \
     grep -F 'secure_nginx_logs' "${script}" >/dev/null \
         || die "NGINX setup must protect access and error log permissions: ${script}"
 done
+
+grep -F 'install -m 0755 "${renewal_hook}" "${renewal_hook_target}"' \
+    "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Certbot deploy hook installation is missing"
+grep -F 'systemctl enable --now certbot.timer' \
+    "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Certbot renewal timer activation is missing"
+grep -F -- '--run-deploy-hooks' \
+    "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Certbot deploy hook dry-run execution is missing"
+grep -F -- '--no-random-sleep-on-renew' \
+    "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
+    || die "Certbot deploy hook immediate dry-run validation is missing"
+grep -F '/usr/sbin/nginx -t' "${SCRIPT_DIR}/certbot-deploy-hook.sh" >/dev/null \
+    || die "Certbot deploy hook must validate NGINX before reload"
+grep -F '/usr/bin/systemctl reload nginx' \
+    "${SCRIPT_DIR}/certbot-deploy-hook.sh" >/dev/null \
+    || die "Certbot deploy hook must reload NGINX after renewal"
+grep -F '/etc/letsencrypt/renewal-hooks/deploy/threadhub-reload-nginx' \
+    "${SCRIPT_DIR}/install-status.sh" >/dev/null \
+    || die "Install status must verify the Certbot deploy hook"
+log "Certbot renewal installs and validates the NGINX deploy hook"
+
 # Match literal deployment-script expressions; expansion is not intended.
 # shellcheck disable=SC2016
 grep -F 'chmod 0640 "${log_file}"' "${SCRIPT_DIR}/common.sh" >/dev/null \
