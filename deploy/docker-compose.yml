@@ -109,11 +109,17 @@ services:
       MM_SERVICESETTINGS_ENABLEINSECUREOUTGOINGCONNECTIONS: "false"
       MM_SERVICESETTINGS_ALLOWEDUNTRUSTEDINTERNALCONNECTIONS: ""
 
-      MM_PLUGINSETTINGS_ENABLE: "false"
+      MM_PLUGINSETTINGS_ENABLE: "true"
       MM_PLUGINSETTINGS_ENABLEUPLOADS: "false"
       MM_PLUGINSETTINGS_ENABLEMARKETPLACE: "false"
       MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE: "false"
       MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS: "false"
+
+      THREADHUB_DOMAIN: "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}"
+      NOTIFIER_MAILER_URL: http://threadhub-mailer:8080
+      NOTIFIER_HMAC_SECRET: "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}"
+      NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
+      NOTIFIER_POLL_EVERY: 1s
 
       MM_LOGSETTINGS_ENABLECONSOLE: "true"
       MM_LOGSETTINGS_CONSOLELEVEL: INFO
@@ -132,8 +138,12 @@ services:
       - "${THREADHUB_DATA_ROOT}/mattermost/plugins:/mattermost/plugins:rw"
       - "${THREADHUB_DATA_ROOT}/mattermost/client/plugins:/mattermost/client/plugins:rw"
       - "${THREADHUB_DATA_ROOT}/mattermost/bleve-indexes:/mattermost/bleve-indexes:rw"
+      - "${THREADHUB_DATA_ROOT}/notifier/control:/run/threadhub-notifier:ro"
+    group_add:
+      - "3000"
     networks:
       - database
+      - notifier
       - outbound
     stop_grace_period: 60s
     logging:
@@ -142,7 +152,64 @@ services:
         max-size: 10m
         max-file: "3"
 
+  threadhub-mailer:
+    image: "threadhub/notifier-mailer:${NOTIFIER_VERSION:?load deploy/versions.env}"
+    build:
+      context: ../notifier
+      target: mailer
+      args:
+        GO_BUILDER_IMAGE: "${GO_BUILDER_IMAGE_REPOSITORY:?load deploy/versions.env}:${GO_BUILDER_IMAGE_TAG:?load deploy/versions.env}@${GO_BUILDER_IMAGE_DIGEST:?load deploy/versions.env}"
+    platform: linux/amd64
+    user: "65532:65532"
+    group_add:
+      - "3000"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    mem_limit: 512m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    environment:
+      NOTIFIER_LISTEN_ADDRESS: ":8080"
+      THREADHUB_DOMAIN: "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}"
+      NOTIFIER_HMAC_SECRET: "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}"
+      NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
+      NOTIFIER_QUEUE_PATH: /var/lib/threadhub-notifier/queue.db
+      NOTIFIER_RATE_PER_MINUTE: "${NOTIFIER_RATE_PER_MINUTE:-10}"
+      SMTP_SERVER: "${SMTP_SERVER:?set SMTP_SERVER in deploy/.env}"
+      SMTP_PORT: "${SMTP_PORT:-587}"
+      SMTP_USERNAME: "${SMTP_USERNAME:?set SMTP_USERNAME in deploy/.env}"
+      SMTP_PASSWORD: "${SMTP_PASSWORD:?set SMTP_PASSWORD in deploy/.env}"
+      SMTP_FROM_ADDRESS: "${SMTP_FROM_ADDRESS:?set SMTP_FROM_ADDRESS in deploy/.env}"
+      SMTP_REPLY_TO_ADDRESS: "${SMTP_REPLY_TO_ADDRESS:?set SMTP_REPLY_TO_ADDRESS in deploy/.env}"
+      SMTP_FEEDBACK_NAME: "${SMTP_FEEDBACK_NAME:-ThreadHub}"
+    volumes:
+      - "${THREADHUB_DATA_ROOT}/notifier/mailer:/var/lib/threadhub-notifier:rw"
+      - "${THREADHUB_DATA_ROOT}/notifier/control:/run/threadhub-notifier:ro"
+    networks:
+      - notifier
+      - outbound
+    healthcheck:
+      test:
+        - CMD
+        - /threadhub-mailer
+        - healthcheck
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+
 networks:
   database:
+    internal: true
+  notifier:
     internal: true
   outbound: {}

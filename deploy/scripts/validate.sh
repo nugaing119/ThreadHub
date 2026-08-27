@@ -24,6 +24,12 @@ for variable in \
     POSTGRES_IMAGE_REPOSITORY \
     POSTGRES_IMAGE_TAG \
     POSTGRES_IMAGE_DIGEST \
+    NOTIFIER_VERSION \
+    NOTIFIER_PLUGIN_ID \
+    GO_BUILDER_IMAGE_REPOSITORY \
+    GO_BUILDER_IMAGE_TAG \
+    GO_BUILDER_IMAGE_DIGEST \
+    GO_BUILDER_IMAGE_INDEX_DIGEST \
     DOCKER_CE_VERSION \
     DOCKER_CLI_VERSION \
     CONTAINERD_VERSION \
@@ -33,16 +39,183 @@ done
 
 mattermost_digest="$(env_value MATTERMOST_IMAGE_DIGEST "${VERSIONS_FILE}")"
 postgres_digest="$(env_value POSTGRES_IMAGE_DIGEST "${VERSIONS_FILE}")"
+go_builder_digest="$(env_value GO_BUILDER_IMAGE_DIGEST "${VERSIONS_FILE}")"
+go_builder_index_digest="$(env_value GO_BUILDER_IMAGE_INDEX_DIGEST "${VERSIONS_FILE}")"
 [[ "${mattermost_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "MATTERMOST_IMAGE_DIGEST is invalid"
 [[ "${postgres_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "POSTGRES_IMAGE_DIGEST is invalid"
+[[ "${go_builder_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
+    || die "GO_BUILDER_IMAGE_DIGEST is invalid"
+[[ "${go_builder_index_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
+    || die "GO_BUILDER_IMAGE_INDEX_DIGEST is invalid"
+
+if command -v ruby >/dev/null 2>&1; then
+    ruby - "${COMPOSE_FILE}" <<'RUBY'
+require "yaml"
+
+def assert(condition, message)
+  abort("[threadhub] ERROR: #{message}") unless condition
+end
+
+compose = YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], aliases: false)
+services = compose.fetch("services")
+mattermost = services.fetch("mattermost")
+mailer = services.fetch("threadhub-mailer")
+mm_env = mattermost.fetch("environment")
+mailer_env = mailer.fetch("environment")
+
+assert(mm_env["MM_PLUGINSETTINGS_ENABLE"] == "true", "Mattermost plugin execution must be enabled")
+%w[
+  MM_PLUGINSETTINGS_ENABLEUPLOADS
+  MM_PLUGINSETTINGS_ENABLEMARKETPLACE
+  MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE
+  MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS
+  MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS
+  MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS
+  MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS
+  MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS
+  MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION
+  MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS
+].each do |key|
+  assert(mm_env[key] == "false", "#{key} must remain disabled")
+end
+
+assert(!mailer.key?("ports"), "Mailer must not publish a host port")
+assert(compose.dig("networks", "notifier", "internal") == true, "notifier network must be internal")
+assert(mailer.fetch("networks").sort == %w[notifier outbound], "Mailer networks must be notifier and outbound")
+assert(mattermost.fetch("networks").sort == %w[database notifier outbound], "Mattermost networks must be database, notifier and outbound")
+
+control_mount = "${THREADHUB_DATA_ROOT}/notifier/control:/run/threadhub-notifier:ro"
+queue_mount = "${THREADHUB_DATA_ROOT}/notifier/mailer:/var/lib/threadhub-notifier:rw"
+assert(mailer.fetch("volumes").include?(queue_mount), "Mailer queue bind mount is missing")
+assert(mailer.fetch("volumes").include?(control_mount), "Mailer read-only control mount is missing")
+assert(mattermost.fetch("volumes").include?(control_mount), "Mattermost read-only control mount is missing")
+
+%w[mattermost threadhub-mailer].each do |name|
+  assert(services.fetch(name).fetch("group_add") == ["3000"], "#{name} must have only supplemental GID 3000")
+end
+(services.keys - %w[mattermost threadhub-mailer]).each do |name|
+  assert(!Array(services.fetch(name)["group_add"]).include?("3000"), "#{name} must not receive notifier control GID")
+end
+
+assert(mailer["user"] == "65532:65532", "Mailer must use numeric non-root UID/GID")
+assert(mailer["platform"] == "linux/amd64", "Mailer platform must be linux/amd64")
+assert(mailer["image"] == "threadhub/notifier-mailer:${NOTIFIER_VERSION:?load deploy/versions.env}", "Mailer image reference must use the fixed notifier version")
+assert(mailer.dig("build", "context") == "../notifier", "Mailer build context is invalid")
+assert(mailer.dig("build", "target") == "mailer", "Mailer build target is invalid")
+assert(mailer.dig("build", "args", "GO_BUILDER_IMAGE") == "${GO_BUILDER_IMAGE_REPOSITORY:?load deploy/versions.env}:${GO_BUILDER_IMAGE_TAG:?load deploy/versions.env}@${GO_BUILDER_IMAGE_DIGEST:?load deploy/versions.env}", "Mailer builder must use the pinned digest")
+assert(mailer["read_only"] == true, "Mailer root filesystem must be read-only")
+assert(mailer.fetch("cap_drop") == ["ALL"], "Mailer must drop every Linux capability")
+assert(mailer.fetch("security_opt") == ["no-new-privileges:true"], "Mailer must set no-new-privileges")
+assert(mailer.dig("healthcheck", "test") == ["CMD", "/threadhub-mailer", "healthcheck"], "Mailer healthcheck is invalid")
+assert(mailer.dig("logging", "options", "max-size") == "10m", "Mailer log size rotation is missing")
+assert(mailer.dig("logging", "options", "max-file") == "3", "Mailer log count rotation is missing")
+
+assert(mm_env["THREADHUB_DOMAIN"] == "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}", "Plugin must receive THREADHUB_DOMAIN")
+assert(mm_env["NOTIFIER_MAILER_URL"] == "http://threadhub-mailer:8080", "Plugin Mailer URL must be fixed")
+assert(mm_env["NOTIFIER_HMAC_SECRET"] == "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}", "Plugin HMAC must fail closed when absent")
+assert(mm_env["NOTIFIER_CONTROL_FILE"] == "/run/threadhub-notifier/state.json", "Plugin control path must be fixed")
+assert(mm_env["NOTIFIER_POLL_EVERY"] == "1s", "Plugin control poll interval must be fixed")
+
+expected_mailer_env = {
+  "NOTIFIER_LISTEN_ADDRESS" => ":8080",
+  "THREADHUB_DOMAIN" => "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}",
+  "NOTIFIER_HMAC_SECRET" => "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}",
+  "NOTIFIER_CONTROL_FILE" => "/run/threadhub-notifier/state.json",
+  "NOTIFIER_QUEUE_PATH" => "/var/lib/threadhub-notifier/queue.db",
+  "NOTIFIER_RATE_PER_MINUTE" => "${NOTIFIER_RATE_PER_MINUTE:-10}",
+  "SMTP_SERVER" => "${SMTP_SERVER:?set SMTP_SERVER in deploy/.env}",
+  "SMTP_PORT" => "${SMTP_PORT:-587}",
+  "SMTP_USERNAME" => "${SMTP_USERNAME:?set SMTP_USERNAME in deploy/.env}",
+  "SMTP_PASSWORD" => "${SMTP_PASSWORD:?set SMTP_PASSWORD in deploy/.env}",
+  "SMTP_FROM_ADDRESS" => "${SMTP_FROM_ADDRESS:?set SMTP_FROM_ADDRESS in deploy/.env}",
+  "SMTP_REPLY_TO_ADDRESS" => "${SMTP_REPLY_TO_ADDRESS:?set SMTP_REPLY_TO_ADDRESS in deploy/.env}",
+  "SMTP_FEEDBACK_NAME" => "${SMTP_FEEDBACK_NAME:-ThreadHub}",
+}
+assert(mailer_env == expected_mailer_env, "Mailer environment must contain only the required runtime values")
+RUBY
+else
+    # Match literal Compose interpolation text; expansion is not intended.
+    # shellcheck disable=SC2016
+    for invariant in \
+        'MM_PLUGINSETTINGS_ENABLE: "true"' \
+        'NOTIFIER_MAILER_URL: http://threadhub-mailer:8080' \
+        'NOTIFIER_HMAC_SECRET: "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}"' \
+        'user: "65532:65532"' \
+        'internal: true'; do
+        grep -F "${invariant}" "${COMPOSE_FILE}" >/dev/null \
+            || die "Notifier Compose invariant is missing: ${invariant}"
+    done
+    mailer_block="$(awk '/^  threadhub-mailer:$/ { found=1 } found { if ($0 ~ /^  [A-Za-z0-9_-]+:$/ && $0 !~ /^  threadhub-mailer:$/) exit; print }' "${COMPOSE_FILE}")"
+    [[ -n "${mailer_block}" && "${mailer_block}" != *$'\n    ports:'* ]] \
+        || die "Notifier Mailer service is missing or publishes a host port"
+    warn "Ruby is unavailable; notifier structure used strict text checks and Docker Compose will validate interpolation"
+fi
+log "Notifier Compose isolation, mounts, settings and hardening are valid"
+
+for script in \
+    "${SCRIPT_DIR}/build-notifier.sh" \
+    "${SCRIPT_DIR}/install-notifier-plugin.sh"; do
+    require_file "${script}"
+    [[ -x "${script}" ]] || die "Notifier deployment script must be executable: ${script}"
+done
+# Match the literal build-script expression; expansion is not intended.
+# shellcheck disable=SC2016
+grep -F -- '--build-arg "GO_BUILDER_IMAGE=${builder_image}"' \
+    "${SCRIPT_DIR}/build-notifier.sh" >/dev/null \
+    || die "Notifier builds must consume the pinned builder digest"
+grep -F 'NOTIFIER_PLUGIN_BUNDLE_SHA256=' "${SCRIPT_DIR}/build-notifier.sh" >/dev/null \
+    || die "Notifier release identity must record the bundle SHA-256"
+grep -F 'NOTIFIER_SOURCE_COMMIT=' "${SCRIPT_DIR}/build-notifier.sh" >/dev/null \
+    || die "Notifier release identity must record the clean source commit"
+# Match a forbidden literal source expression; expansion is not intended.
+# shellcheck disable=SC2016
+if grep -F 'source "${release_file}"' "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null; then
+    die "Notifier release identity must never be sourced as shell code"
+fi
+for archive_option in --no-same-owner --no-same-permissions; do
+    grep -F -- "${archive_option}" "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null \
+        || die "Notifier plugin extraction is missing ${archive_option}"
+done
+grep -F 'mmctl plugin list --local --suppress-warnings --json' \
+    "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null \
+    || die "Notifier plugin activation must use stable JSON mmctl output"
+grep -F 'compose pull postgres mattermost' "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    || die "Deployment must pull only immutable external services"
+if grep -Fx 'compose pull' "${SCRIPT_DIR}/deploy.sh" >/dev/null; then
+    die "Deployment must not pull the locally built Mailer image"
+fi
+if grep -E 'compose down([^[:alnum:]]|$).*(-v|--volumes)' "${SCRIPT_DIR}/destroy.sh" >/dev/null; then
+    die "Destroy must never delete ThreadHub volumes"
+fi
+
+if command -v ruby >/dev/null 2>&1; then
+    ruby -rjson - "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" <<'RUBY'
+manifest = JSON.parse(File.read(ARGV.fetch(0)))
+abort("[threadhub] ERROR: notifier manifest ID is invalid") unless manifest["id"] == "com.threadhub.channel-email-notifier"
+abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.1.0"
+abort("[threadhub] ERROR: notifier manifest server executable is invalid") unless manifest.dig("server", "executables") == {"linux-amd64" => "server/dist/plugin-linux-amd64"}
+RUBY
+else
+    grep -F '"id": "com.threadhub.channel-email-notifier"' \
+        "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
+        || die "Notifier manifest ID is invalid"
+    grep -F '"version": "0.1.0"' \
+        "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
+        || die "Notifier manifest version is invalid"
+    grep -F '"linux-amd64": "server/dist/plugin-linux-amd64"' \
+        "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
+        || die "Notifier manifest server executable is invalid"
+fi
+log "Notifier build, release and manual plugin installation invariants are valid"
 
 if grep -R -n -E 'image:[[:space:]]+[^#]*:latest([[:space:]]|$)' "${DEPLOY_DIR}"; then
     die "Floating latest image tag found"
 fi
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000 \
     docker compose \
         --env-file "${ENV_EXAMPLE_FILE}" \
         --env-file "${VERSIONS_FILE}" \
@@ -72,6 +245,10 @@ sed \
     -e 's#^SMTP_FROM_ADDRESS=.*#SMTP_FROM_ADDRESS=no-reply@threadhub.internal#' \
     -e 's#^SMTP_REPLY_TO_ADDRESS=.*#SMTP_REPLY_TO_ADDRESS=admin@threadhub.internal#' \
     "${ENV_EXAMPLE_FILE}" > "${runtime_env_fixture}"
+printf '%s\n' \
+    'NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000' \
+    'NOTIFIER_RATE_PER_MINUTE=10' \
+    >> "${runtime_env_fixture}"
 
 original_env_file="${ENV_FILE}"
 ENV_FILE="${runtime_env_fixture}"
@@ -136,6 +313,8 @@ for script in \
         || die "NGINX setup must protect access and error log permissions: ${script}"
 done
 
+# Match the literal deployment-script expression; expansion is not intended.
+# shellcheck disable=SC2016
 grep -F 'install -m 0755 "${renewal_hook}" "${renewal_hook_target}"' \
     "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
     || die "Certbot deploy hook installation is missing"

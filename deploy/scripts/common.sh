@@ -133,9 +133,120 @@ validate_smtp_env() {
     return 0
 }
 
+validate_notifier_env() {
+    local hmac_secret
+    local rate_per_minute
+
+    hmac_secret="$(env_value NOTIFIER_HMAC_SECRET "${ENV_FILE}")"
+    if grep -q '^NOTIFIER_RATE_PER_MINUTE=' "${ENV_FILE}"; then
+        rate_per_minute="$(env_value NOTIFIER_RATE_PER_MINUTE "${ENV_FILE}")"
+    else
+        rate_per_minute=10
+    fi
+
+    [[ "${hmac_secret}" =~ ^[A-Fa-f0-9]{64}$ ]] \
+        || die "NOTIFIER_HMAC_SECRET must contain exactly 64 hexadecimal characters"
+    [[ "${rate_per_minute}" =~ ^[0-9]+$ ]] \
+        || die "NOTIFIER_RATE_PER_MINUTE must be an integer from 1 through 60"
+    ((rate_per_minute >= 1 && rate_per_minute <= 60)) \
+        || die "NOTIFIER_RATE_PER_MINUTE must be an integer from 1 through 60"
+}
+
 validate_runtime_env() {
     validate_base_env
     validate_smtp_env
+    validate_notifier_env
+}
+
+sha256_file() {
+    local path="$1"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${path}" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "${path}" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "${path}" | awk '{print $NF}'
+    else
+        die "A SHA-256 command is required"
+    fi
+}
+
+notifier_control_is_valid() {
+    local path="$1"
+
+    require_command jq
+    "${SUDO_COMMAND[@]}" test -f "${path}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${path}" || return 1
+    "${SUDO_COMMAND[@]}" jq -e '
+        type == "object" and
+        (keys == ["activated_at", "channel_ids", "delivery_enabled", "enabled", "mode"]) and
+        (.enabled | type == "boolean") and
+        (.delivery_enabled | type == "boolean") and
+        (.mode == "all_channels" or .mode == "allowlist") and
+        (.channel_ids | type == "array") and
+        ([.channel_ids[] | type == "string" and test("^[a-z0-9]{26}$")] | all) and
+        (.channel_ids | length == (unique | length)) and
+        (.activated_at | type == "number" and floor == . and . >= 0) and
+        (if .mode == "all_channels" then (.channel_ids | length == 0) else (.channel_ids | length > 0) end) and
+        (if .enabled then (.delivery_enabled and .activated_at > 0) else true end)
+    ' "${path}" >/dev/null 2>&1
+}
+
+validate_notifier_host_path() {
+    local data_root="$1"
+    local path
+
+    [[ "${data_root}" == "/srv/threadhub" ]] \
+        || die "Refusing notifier state outside /srv/threadhub"
+    for path in \
+        "${data_root}" \
+        "${data_root}/notifier" \
+        "${data_root}/notifier/control"; do
+        "${SUDO_COMMAND[@]}" test ! -L "${path}" \
+            || die "Refusing symbolic-link notifier path: ${path}"
+    done
+}
+
+install_disabled_notifier_control() {
+    local data_root="$1"
+    local control_dir="${data_root}/notifier/control"
+    local state_file="${control_dir}/state.json"
+    local staged_file="${control_dir}/.state.json.tmp.$$"
+    local local_file
+
+    validate_notifier_host_path "${data_root}"
+    "${SUDO_COMMAND[@]}" test -d "${control_dir}" \
+        || die "Notifier control directory does not exist"
+    "${SUDO_COMMAND[@]}" test ! -L "${state_file}" \
+        || die "Refusing symbolic-link notifier control state"
+    "${SUDO_COMMAND[@]}" test ! -e "${staged_file}" \
+        || die "Refusing existing notifier control staging path"
+
+    local_file="$(mktemp)"
+    printf '%s\n' '{"enabled":false,"delivery_enabled":false,"mode":"all_channels","channel_ids":[],"activated_at":0}' \
+        > "${local_file}"
+    chmod 0600 "${local_file}"
+    "${SUDO_COMMAND[@]}" install -o root -g 3000 -m 0640 "${local_file}" "${staged_file}"
+    rm -f "${local_file}"
+    "${SUDO_COMMAND[@]}" mv -fT "${staged_file}" "${state_file}"
+}
+
+ensure_disabled_notifier_control() {
+    local data_root="$1"
+    local state_file="${data_root}/notifier/control/state.json"
+
+    validate_notifier_host_path "${data_root}"
+    if "${SUDO_COMMAND[@]}" test -e "${state_file}"; then
+        "${SUDO_COMMAND[@]}" test ! -L "${state_file}" \
+            || die "Refusing symbolic-link notifier control state"
+        notifier_control_is_valid "${state_file}" \
+            || die "Existing notifier control state is invalid and was not overwritten"
+        "${SUDO_COMMAND[@]}" chown root:3000 "${state_file}"
+        "${SUDO_COMMAND[@]}" chmod 0640 "${state_file}"
+        return
+    fi
+    install_disabled_notifier_control "${data_root}"
 }
 
 init_sudo() {
