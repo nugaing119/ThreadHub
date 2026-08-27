@@ -16,6 +16,34 @@ func TestLoadAcceptsValidatedRuntimeConfiguration(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsAndValidatesControlFile(t *testing.T) {
+	values := testValues()
+	delete(values, "NOTIFIER_CONTROL_FILE")
+	cfg, err := Load(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatalf("Load(default control file) error = %v", err)
+	}
+	if got, want := cfg.ControlFile, "/run/threadhub-notifier/state.json"; got != want {
+		t.Fatalf("ControlFile = %q, want %q", got, want)
+	}
+
+	for _, invalid := range []string{"relative/state.json", "/run/threadhub-notifier/../state.json"} {
+		values["NOTIFIER_CONTROL_FILE"] = invalid
+		if _, err := Load(func(key string) string { return values[key] }); err == nil {
+			t.Fatalf("Load(control file %q) error = nil", invalid)
+		}
+	}
+
+	values["NOTIFIER_CONTROL_FILE"] = "/run/threadhub-notifier/custom-state.json"
+	cfg, err = Load(func(key string) string { return values[key] })
+	if err != nil {
+		t.Fatalf("Load(custom control file) error = %v", err)
+	}
+	if got := cfg.ControlFile; got != values["NOTIFIER_CONTROL_FILE"] {
+		t.Fatalf("ControlFile = %q, want configured path", got)
+	}
+}
+
 func TestLoadRejectsUnsafeConfigurationWithoutSecretLeakage(t *testing.T) {
 	t.Parallel()
 	const password = "password-that-must-not-escape"
