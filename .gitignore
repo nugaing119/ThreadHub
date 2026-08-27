@@ -39,6 +39,14 @@ backups/
 logs/
 *.log
 
+# ThreadHub notifier build and runtime state
+notifier/dist/
+notifier/.cache/
+notifier/runtime/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
 # Local Docker overrides
 docker-compose.override.yml
 compose.override.yml
