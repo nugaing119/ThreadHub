@@ -39,6 +39,77 @@ require_file() {
     [[ -f "$1" ]] || die "Required file not found: $1"
 }
 
+runtime_env_mode() {
+    local path="$1"
+
+    if stat -c '%a' "${path}" >/dev/null 2>&1; then
+        stat -c '%a' "${path}"
+    else
+        stat -f '%Lp' "${path}"
+    fi
+}
+
+runtime_env_identity() {
+    local path="$1"
+
+    [[ -f "${path}" && ! -L "${path}" ]] || return 1
+    if stat -c '%d:%i' "${path}" >/dev/null 2>&1; then
+        stat -c '%d:%i' "${path}"
+    else
+        stat -f '%d:%i' "${path}"
+    fi
+}
+
+runtime_env_require_secure() {
+    local path="$1"
+    local mode
+
+    if [[ -L "${path}" || ! -f "${path}" ]]; then
+        printf '[ACTION REQUIRED] %s must be an existing regular file, not a symbolic link.\n' \
+            "${path}" >&2
+        return 20
+    fi
+    mode="$(runtime_env_mode "${path}")" || return 20
+    if [[ "${mode}" != 600 ]]; then
+        printf '[ACTION REQUIRED] Protect %s with mode 0600 before continuing; no value was read or changed.\n' \
+            "${path}" >&2
+        return 20
+    fi
+}
+
+runtime_env_publish_no_clobber() {
+    local temporary_env="$1"
+    local destination="$2"
+    local published_identity
+    local temporary_identity
+
+    [[ -f "${temporary_env}" && ! -L "${temporary_env}" ]] || return 1
+    [[ "$(runtime_env_mode "${temporary_env}")" == 600 ]] || return 1
+    [[ "$(dirname "${temporary_env}")" == "$(dirname "${destination}")" ]] || return 1
+    [[ ! -e "${destination}" && ! -L "${destination}" ]] || return 1
+    temporary_identity="$(runtime_env_identity "${temporary_env}")" || return 1
+    ln "${temporary_env}" "${destination}" || return 1
+    published_identity="$(runtime_env_identity "${destination}")" || return 1
+    if [[ "${published_identity}" != "${temporary_identity}" ]]; then
+        return 1
+    fi
+    rm -f "${temporary_env}"
+}
+
+runtime_env_replace_if_unchanged() {
+    local replacement="$1"
+    local destination="$2"
+    local expected_identity="$3"
+    local expected_hash="$4"
+
+    [[ -f "${replacement}" && ! -L "${replacement}" ]] || return 1
+    [[ "$(runtime_env_mode "${replacement}")" == 600 ]] || return 1
+    runtime_env_require_secure "${destination}" >/dev/null 2>&1 || return 1
+    [[ "$(runtime_env_identity "${destination}")" == "${expected_identity}" ]] || return 1
+    [[ "$(sha256_file "${destination}")" == "${expected_hash}" ]] || return 1
+    mv -f "${replacement}" "${destination}"
+}
+
 env_value() {
     local key="$1"
     local file="$2"
@@ -300,6 +371,35 @@ validate_notifier_host_path() {
         || die "Existing notifier Mailer directory must be 65532:65532 with mode 0700"
     notifier_assert_existing_directory_policy "${data_root}/notifier/release" 0 0 750 \
         || die "Existing notifier release directory must be root:root with mode 0750"
+}
+
+validate_notifier_emergency_control_path() {
+    local state_file="$1"
+    local data_root=/srv/threadhub
+    local notifier_root="${data_root}/notifier"
+    local control_dir="${notifier_root}/control"
+    local srv_identity
+    local srv_mode
+
+    [[ "${state_file}" == "${control_dir}/state.json" ]] \
+        || die "Refusing emergency control outside the fixed notifier state path"
+    for path in "${data_root}" "${notifier_root}" "${control_dir}" "${state_file}"; do
+        "${SUDO_COMMAND[@]}" test ! -L "${path}" \
+            || die "Refusing a symbolic-link emergency control path"
+    done
+    "${SUDO_COMMAND[@]}" test -d /srv || die "/srv must be an existing directory"
+    srv_identity="$("${SUDO_COMMAND[@]}" stat -c '%u' /srv)"
+    srv_mode="$("${SUDO_COMMAND[@]}" stat -c '%a' /srv)"
+    [[ "${srv_identity}" == 0 && "${srv_mode}" =~ ^[0-7]{3,4}$ ]] \
+        || die "/srv must be owned by root with a valid mode"
+    (( (8#${srv_mode} & 0022) == 0 )) \
+        || die "/srv must not be writable by group or other users"
+    notifier_assert_existing_directory_policy "${data_root}" 0 0 750 \
+        || die "Existing ThreadHub data root must be root:root with mode 0750"
+    notifier_assert_existing_directory_policy "${notifier_root}" 0 0 750 \
+        || die "Existing notifier root must be root:root with mode 0750"
+    notifier_assert_existing_directory_policy "${control_dir}" 0 3000 750 \
+        || die "Existing notifier control directory must be root:3000 with mode 0750"
 }
 
 install_disabled_notifier_control() {

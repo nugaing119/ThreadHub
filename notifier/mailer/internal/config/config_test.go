@@ -16,6 +16,47 @@ func TestLoadAcceptsValidatedRuntimeConfiguration(t *testing.T) {
 	}
 }
 
+func TestSMTPConfigFingerprintBindsOnlyCredentialRelevantFields(t *testing.T) {
+	t.Parallel()
+	cfg, err := Load(testEnvironment)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	const want = "806cc2a3463b7b29a0e62eef78a08879c492ebd781059b82e7cd51c4d55542c1"
+	if got := cfg.SMTPConfigFingerprint(); got != want {
+		t.Fatalf("SMTPConfigFingerprint() = %q, want hand-derived %q", got, want)
+	}
+
+	mutations := []struct {
+		name   string
+		mutate func(*Config)
+	}{
+		{"server", func(value *Config) { value.SMTPHost = "smtp.email.us-phoenix-1.oci.oraclecloud.com" }},
+		{"port", func(value *Config) { value.SMTPPort = 2587 }},
+		{"username", func(value *Config) { value.SMTPUsername = "rotated-user" }},
+		{"password", func(value *Config) { value.SMTPPassword = "rotated-password" }},
+		{"from", func(value *Config) { value.FromAddress = "rotated@example.test" }},
+		{"hmac key", func(value *Config) { value.HMACSecret = []byte(strings.Repeat("\x02", 32)) }},
+	}
+	for _, test := range mutations {
+		t.Run(test.name, func(t *testing.T) {
+			changed := cfg
+			test.mutate(&changed)
+			if got := changed.SMTPConfigFingerprint(); got == want {
+				t.Fatalf("SMTPConfigFingerprint() did not change after %s rotation", test.name)
+			}
+		})
+	}
+
+	nonCredential := cfg
+	nonCredential.ReplyTo = "changed-reply@example.test"
+	nonCredential.FeedbackName = "Changed display name"
+	nonCredential.QueuePath = "/changed/queue.db"
+	if got := nonCredential.SMTPConfigFingerprint(); got != want {
+		t.Fatalf("SMTPConfigFingerprint() changed for non-credential fields: %q", got)
+	}
+}
+
 func TestLoadDefaultsAndValidatesControlFile(t *testing.T) {
 	values := testValues()
 	delete(values, "NOTIFIER_CONTROL_FILE")

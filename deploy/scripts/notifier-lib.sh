@@ -158,30 +158,43 @@ notifier_read_control_state_or_disabled() {
     fi
 }
 
-notifier_hmac_hex() {
-    local secret="$1"
-    local value="$2"
+notifier_config_fingerprint_from_json() {
+    local json_file="$1"
 
-    printf '%s' "${value}" \
-        | openssl dgst -sha256 -mac HMAC -macopt "hexkey:${secret}" \
-        | awk '{ print $NF }'
+    jq -er '
+        if type == "object" and
+           (keys == ["config_fingerprint"]) and
+           (.config_fingerprint | type == "string" and test("^[a-f0-9]{64}$"))
+        then .config_fingerprint
+        else error("invalid config fingerprint")
+        end
+    ' "${json_file}" 2>/dev/null
 }
 
-notifier_smtp_fingerprint() {
-    local runtime_env="${THREADHUB_ENV_FILE:-${ENV_FILE}}"
-    local secret
-    local password_hmac
-    local material
+notifier_target_config_fingerprint() {
+    local output_file
 
-    require_command openssl
-    secret="$(env_value NOTIFIER_HMAC_SECRET "${runtime_env}")"
-    password_hmac="$(notifier_hmac_hex "${secret}" "$(env_value SMTP_PASSWORD "${runtime_env}")")"
-    material="$(env_value SMTP_SERVER "${runtime_env}")"$'\n'
-    material+="$(env_value SMTP_PORT "${runtime_env}")"$'\n'
-    material+="$(env_value SMTP_USERNAME "${runtime_env}")"$'\n'
-    material+="${password_hmac}"$'\n'
-    material+="$(env_value SMTP_FROM_ADDRESS "${runtime_env}")"
-    notifier_hmac_hex "${secret}" "${material}"
+    require_command jq
+    output_file="$(mktemp)"
+    trap 'rm -f "${output_file}"' RETURN
+    compose run --rm --no-deps -T \
+        --entrypoint /threadhub-mailer \
+        threadhub-mailer config-fingerprint --json > "${output_file}" \
+        || return 1
+    notifier_config_fingerprint_from_json "${output_file}"
+}
+
+notifier_run_smtp_acceptance() {
+    local output_file
+
+    require_command jq
+    output_file="$(mktemp)"
+    trap 'rm -f "${output_file}"' RETURN
+    compose run --rm --no-deps -T \
+        --entrypoint /threadhub-mailer \
+        threadhub-mailer smtp-test --recipient-stdin > "${output_file}" \
+        || return 1
+    notifier_config_fingerprint_from_json "${output_file}"
 }
 
 notifier_write_smtp_marker() {
@@ -208,7 +221,7 @@ notifier_smtp_marker_is_current() {
 
     "${SUDO_COMMAND[@]}" test -f "${marker_file}" || return 1
     "${SUDO_COMMAND[@]}" test ! -L "${marker_file}" || return 1
-    fingerprint="$(notifier_smtp_fingerprint)" || return 1
+    fingerprint="$(notifier_target_config_fingerprint)" || return 1
     # The jq variable is intentionally expanded by jq, not by the shell.
     # shellcheck disable=SC2016
     "${SUDO_COMMAND[@]}" jq -e --arg fingerprint "${fingerprint}" '
@@ -217,6 +230,15 @@ notifier_smtp_marker_is_current() {
         .fingerprint == $fingerprint and
         (.accepted_at | type == "number" and floor == . and . > 0)
     ' "${marker_file}" >/dev/null 2>&1
+}
+
+notifier_require_smtp_handoff() {
+    local non_interactive="$1"
+
+    [[ "${non_interactive}" == true ]] || return 0
+    printf '[ACTION REQUIRED] Run ./deploy/scripts/notifier-smtp-test.sh in an interactive terminal.\n' >&2
+    printf 'Then rerun: ./deploy/scripts/setup-wizard.sh --resume --non-interactive\n' >&2
+    return 20
 }
 
 notifier_mailer_status_is_valid() {

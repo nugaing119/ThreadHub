@@ -304,9 +304,13 @@ log "Notifier build, release and manual plugin installation invariants are valid
 
 require_file "${SCRIPT_DIR}/notifier-lib.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
+require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
+    || die "Notifier installer security regression test must be executable"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
+"${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
 
 if grep -F '[READY]' "${SCRIPT_DIR}/setup-wizard.sh" >/dev/null; then

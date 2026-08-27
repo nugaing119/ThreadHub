@@ -32,14 +32,14 @@ printf '\n' >&2
 [[ "${recipient}" =~ ^[^[:space:]@]+@[^[:space:]@]+\.[^[:space:]@]+$ ]] \
     || die "A valid test recipient is required"
 
-compose exec -T threadhub-mailer /threadhub-mailer healthcheck >/dev/null
-printf '%s\n' "${recipient}" \
-    | compose exec -T threadhub-mailer \
-        /threadhub-mailer smtp-test --recipient-stdin >/dev/null
+if ! fingerprint="$(printf '%s\n' "${recipient}" | notifier_run_smtp_acceptance)"; then
+    recipient=
+    unset recipient
+    die "OCI SMTP did not accept the generic notifier test message"
+fi
 recipient=
 unset recipient
 
-fingerprint="$(notifier_smtp_fingerprint)"
 notifier_write_smtp_marker \
     "${marker_file}" "${fingerprint}" "$(notifier_epoch_millis)"
 log "OCI SMTP accepted the generic notifier test message"

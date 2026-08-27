@@ -138,8 +138,12 @@ write_env_value() {
 
 data_root=/srv/threadhub
 
-if [[ -f "${ENV_FILE}" ]]; then
-    chmod 0600 "${ENV_FILE}"
+if [[ -e "${ENV_FILE}" || -L "${ENV_FILE}" ]]; then
+    set +e
+    runtime_env_require_secure "${ENV_FILE}"
+    secure_env_result=$?
+    set -e
+    ((secure_env_result == 0)) || exit "${secure_env_result}"
     case "$(notifier_env_key_state "${ENV_FILE}")" in
         complete)
             validate_runtime_env
@@ -233,7 +237,10 @@ else
     validate_runtime_env
     ENV_FILE="${original_env_file}"
 
-    mv "${temporary_env}" "${ENV_FILE}"
+    if ! runtime_env_publish_no_clobber "${temporary_env}" "${ENV_FILE}"; then
+        printf '[ACTION REQUIRED] Runtime environment appeared during configuration; it was not overwritten.\n' >&2
+        exit 20
+    fi
     trap - EXIT
     log "Created ${ENV_FILE} with mode 0600 and automatically generated protected secrets"
 fi
@@ -295,6 +302,7 @@ data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
 smtp_marker="${data_root}/notifier/control/smtp-acceptance.json"
 if [[ "${target_notifier_enabled}" == true ]] \
     && ! notifier_smtp_marker_is_current "${smtp_marker}"; then
+    notifier_require_smtp_handoff "${non_interactive}"
     "${SCRIPT_DIR}/notifier-smtp-test.sh"
 fi
 "${SCRIPT_DIR}/notifier-control.sh" activate --from-env

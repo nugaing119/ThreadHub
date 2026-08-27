@@ -55,6 +55,10 @@ type statusOutput struct {
 	LastSMTPCode         int    `json:"last_smtp_code"`
 }
 
+type configFingerprintOutput struct {
+	ConfigFingerprint string `json:"config_fingerprint"`
+}
+
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -126,8 +130,9 @@ func runCommand(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 		if !result.Accepted || result.Code != 250 {
 			return errSMTPAcceptance
 		}
-		_, err = io.WriteString(stdout, "accepted\n")
-		return err
+		return writeConfigFingerprint(stdout, cfg)
+	case "config-fingerprint":
+		return writeConfigFingerprint(stdout, cfg)
 	case "retry-failed":
 		if operations.retryFailed == nil {
 			return errUsage
@@ -163,6 +168,8 @@ func parseCommand(args []string) (string, error) {
 		return "status", nil
 	case len(args) == 2 && args[0] == "smtp-test" && args[1] == "--recipient-stdin":
 		return "smtp-test", nil
+	case len(args) == 2 && args[0] == "config-fingerprint" && args[1] == "--json":
+		return "config-fingerprint", nil
 	case len(args) == 1 && args[0] == "retry-failed":
 		return "retry-failed", nil
 	case len(args) == 1 && args[0] == "cancel-failed":
@@ -170,6 +177,12 @@ func parseCommand(args []string) (string, error) {
 	default:
 		return "", errUsage
 	}
+}
+
+func writeConfigFingerprint(output io.Writer, cfg config.Config) error {
+	return json.NewEncoder(output).Encode(configFingerprintOutput{
+		ConfigFingerprint: cfg.SMTPConfigFingerprint(),
+	})
 }
 
 func readRecipient(stdin io.Reader) (string, error) {

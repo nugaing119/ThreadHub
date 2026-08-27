@@ -2,6 +2,10 @@
 package config
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/binary"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -73,6 +77,24 @@ func Load(getenv func(string) string) (Config, error) {
 func isPlaceholderOCIHost(host string) bool {
 	_, found := placeholderOCIHosts[host]
 	return found
+}
+
+func (c Config) SMTPConfigFingerprint() string {
+	digest := hmac.New(sha256.New, c.HMACSecret)
+	for _, value := range []string{
+		"threadhub-smtp-config-v1",
+		c.SMTPHost,
+		strconv.Itoa(c.SMTPPort),
+		c.SMTPUsername,
+		c.SMTPPassword,
+		c.FromAddress,
+	} {
+		var length [4]byte
+		binary.BigEndian.PutUint32(length[:], uint32(len(value)))
+		_, _ = digest.Write(length[:])
+		_, _ = digest.Write([]byte(value))
+	}
+	return hex.EncodeToString(digest.Sum(nil))
 }
 
 func (c Config) String() string {

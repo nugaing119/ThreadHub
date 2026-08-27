@@ -52,13 +52,19 @@ jobs:
         run: shellcheck -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh
 
       - name: Test notifier installer gates
-        run: ./deploy/tests/notifier-installer-test.sh
+        run: |
+          ./deploy/tests/notifier-installer-test.sh
+          ./deploy/tests/notifier-installer-security-test.sh
 
       - name: Exercise guided configuration and unattended handoff
         shell: bash
         run: |
           set -Eeuo pipefail
-          trap 'rm -f deploy/.env /tmp/wizard-configure-output /tmp/wizard-existing-output' EXIT
+          privacy_patterns=/tmp/wizard-private-patterns
+          trap 'rm -f deploy/.env /tmp/wizard-configure-output /tmp/wizard-existing-output "${privacy_patterns}"' EXIT
+          umask 077
+          : > "${privacy_patterns}"
+          chmod 0600 "${privacy_patterns}"
 
           expect <<'EOF'
           set timeout 30
@@ -94,8 +100,11 @@ jobs:
           notifier_hmac="$(awk -F= '$1 == "NOTIFIER_HMAC_SECRET" { gsub(/\047/, "", $2); print $2 }' deploy/.env)"
           test "${#notifier_hmac}" -eq 64
           test -z "${notifier_hmac//[0-9a-f]/}"
-          ! grep -F -- "${notifier_hmac}" /tmp/wizard-configure-output
-          ! grep -F -- 'fixture_smtp_password' /tmp/wizard-configure-output
+          builtin printf '%s\n' "${notifier_hmac}" 'fixture_smtp_password' > "${privacy_patterns}"
+          if grep -F -q -f "${privacy_patterns}" /tmp/wizard-configure-output; then
+            printf '%s\n' '[redacted privacy failure] Wizard output disclosed protected configuration.' >&2
+            exit 1
+          fi
           ./deploy/scripts/deploy.sh --validate-only
 
           sed -i '/^NOTIFIER_/d' deploy/.env

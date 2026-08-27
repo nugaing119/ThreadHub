@@ -63,10 +63,27 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 	for _, args := range [][]string{
 		nil, {"unknown"}, {"serve", "extra"}, {"healthcheck", "--json"}, {"status"},
 		{"status", "--json", "extra"}, {"smtp-test"}, {"smtp-test", "recipient@example.test"},
-		{"smtp-test", "--recipient-stdin", "recipient@example.test"}, {"retry-failed", "extra"}, {"cancel-failed", "extra"},
+		{"smtp-test", "--recipient-stdin", "recipient@example.test"}, {"config-fingerprint"},
+		{"config-fingerprint", "--json", "extra"}, {"retry-failed", "extra"}, {"cancel-failed", "extra"},
 	} {
 		if err := runCommand(context.Background(), args, strings.NewReader("recipient@example.test\n"), io.Discard, testEnvironment, commandOperations{}); err == nil {
 			t.Errorf("runCommand(%v) error = nil, want exact syntax rejection", args)
+		}
+	}
+}
+
+func TestConfigFingerprintJSONContainsOnlyTargetDigest(t *testing.T) {
+	var stdout bytes.Buffer
+	if err := runCommand(context.Background(), []string{"config-fingerprint", "--json"}, strings.NewReader(""), &stdout, testEnvironment, commandOperations{}); err != nil {
+		t.Fatalf("runCommand(config-fingerprint) error = %v", err)
+	}
+	const want = "{\"config_fingerprint\":\"fb86fe31f59c02f5907b182c20137f54f7af6de1c34efd0e3225e7e3ab26cc96\"}\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("config fingerprint output = %q, want strict JSON %q", got, want)
+	}
+	for _, forbidden := range []string{"fixture-user", "fixture-password", "no-reply@example.test"} {
+		if strings.Contains(stdout.String(), forbidden) {
+			t.Fatalf("config fingerprint output leaked %q", forbidden)
 		}
 	}
 }
@@ -131,6 +148,10 @@ func TestSMTPTestReadsOneBoundedRecipientOnlyFromStdin(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), recipient) {
 		t.Fatalf("SMTP output exposed recipient: %q", stdout.String())
+	}
+	const want = "{\"config_fingerprint\":\"fb86fe31f59c02f5907b182c20137f54f7af6de1c34efd0e3225e7e3ab26cc96\"}\n"
+	if got := stdout.String(); got != want {
+		t.Fatalf("SMTP acceptance output = %q, want strict fingerprint JSON %q", got, want)
 	}
 
 	for _, test := range []struct {

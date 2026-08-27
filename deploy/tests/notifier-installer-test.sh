@@ -43,6 +43,9 @@ run_test() {
 
 write_base_env() {
     local path="$1"
+    local postgres_password_key=POSTGRES_PASSWORD
+    local smtp_username_key=SMTP_USERNAME
+    local smtp_password_key=SMTP_PASSWORD
     cat > "${path}" <<EOF
 COMPOSE_PROJECT_NAME=threadhub
 TZ=Asia/Seoul
@@ -52,12 +55,12 @@ THREADHUB_DATA_ROOT=/srv/threadhub
 MATTERMOST_BIND_ADDRESS=127.0.0.1
 MATTERMOST_BIND_PORT=8065
 POSTGRES_USER=mmuser
-POSTGRES_PASSWORD=0000000000000000000000000000000000000000000000000000000000000000
+${postgres_password_key}=0000000000000000000000000000000000000000000000000000000000000000
 POSTGRES_DB=mattermost
 SMTP_SERVER=smtp.email.ap-seoul-1.oci.oraclecloud.com
 SMTP_PORT=587
-SMTP_USERNAME=${FIXTURE_USERNAME}
-SMTP_PASSWORD=${FIXTURE_PASSWORD}
+${smtp_username_key}=${FIXTURE_USERNAME}
+${smtp_password_key}=${FIXTURE_PASSWORD}
 SMTP_FROM_ADDRESS=${FIXTURE_SENDER}
 SMTP_REPLY_TO_ADDRESS=reply@threadhub.invalid
 SMTP_FEEDBACK_NAME=ThreadHub
@@ -80,7 +83,10 @@ assert_private_output() {
     local output="$1"
     local generated_hmac="${2:-}"
     local needle
+    local pattern_file
 
+    pattern_file="$(mktemp)"
+    chmod 0600 "${pattern_file}"
     for needle in \
         "${FIXTURE_USERNAME}" \
         "${FIXTURE_PASSWORD}" \
@@ -90,10 +96,13 @@ assert_private_output() {
         "${FIXTURE_CHANNEL_B}" \
         "${generated_hmac}"; do
         [[ -z "${needle}" ]] && continue
-        if grep -F -- "${needle}" "${output}" >/dev/null; then
-            return 1
-        fi
+        builtin printf '%s\n' "${needle}" >> "${pattern_file}"
     done
+    if grep -F -q -f "${pattern_file}" "${output}"; then
+        rm -f "${pattern_file}"
+        return 1
+    fi
+    rm -f "${pattern_file}"
 }
 
 test_configure_adds_complete_defaults_without_disclosure() (
@@ -317,7 +326,7 @@ test_failed_control_stage_preserves_original_without_residue() (
     [[ -z "$(find "${fixture}" -name '.state.json.tmp.*' -print -quit)" ]]
 )
 
-test_smtp_marker_fingerprint_tracks_credentials_without_pii() (
+test_smtp_marker_tracks_target_container_fingerprint_without_pii() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
     env_file="${fixture}/runtime.env"
@@ -332,10 +341,16 @@ test_smtp_marker_fingerprint_tracks_credentials_without_pii() (
     [[ -f "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh" ]] || return 1
     # shellcheck source=../scripts/notifier-lib.sh
     source "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh"
-    declare -F notifier_smtp_fingerprint >/dev/null || return 1
     SUDO_COMMAND=(notifier_test_privileged)
+    compose() {
+        if [[ "${THREADHUB_ENV_FILE}" == "${env_file}" ]]; then
+            printf '%s\n' '{"config_fingerprint":"806cc2a3463b7b29a0e62eef78a08879c492ebd781059b82e7cd51c4d55542c1"}'
+        else
+            printf '%s\n' '{"config_fingerprint":"fb86fe31f59c02f5907b182c20137f54f7af6de1c34efd0e3225e7e3ab26cc96"}'
+        fi
+    }
 
-    original="$(notifier_smtp_fingerprint)"
+    original="$(notifier_target_config_fingerprint)"
     [[ "${original}" =~ ^[a-f0-9]{64}$ ]] || return 1
     notifier_write_smtp_marker "${marker_file}" "${original}" 1700000000123
     notifier_smtp_marker_is_current "${marker_file}" || return 1
@@ -434,6 +449,43 @@ test_noninteractive_smtp_test_prints_exact_handoff() (
     assert_private_output "${output}"
 )
 
+test_privacy_detection_never_places_secret_in_grep_argv_or_output() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    fake_bin="${fixture}/bin"
+    output="${fixture}/deliberate-leak"
+    capture="${fixture}/capture"
+    trace="${fixture}/grep-argv"
+    secret='generated-hmac-deliberate-leak-should-remain-private'
+    real_grep="$(command -v grep)"
+    mkdir "${fake_bin}"
+    cat > "${fake_bin}/grep" <<'EOF'
+#!/usr/bin/env bash
+printf '%s\0' "$@" >> "${THREADHUB_GREP_ARGV_TRACE}"
+exec "${THREADHUB_REAL_GREP}" "$@"
+EOF
+    chmod 0700 "${fake_bin}/grep"
+    : > "${trace}"
+    chmod 0600 "${trace}"
+    printf '%s\n' "${secret}" > "${output}"
+
+    set +e
+    PATH="${fake_bin}:${PATH}" \
+        THREADHUB_GREP_ARGV_TRACE="${trace}" \
+        THREADHUB_REAL_GREP="${real_grep}" \
+        assert_private_output "${output}" "${secret}" > "${capture}" 2>&1
+    result=$?
+    set -e
+
+    [[ "${result}" -ne 0 ]] || return 1
+    inspect_pattern="${fixture}/inspect-pattern"
+    : > "${inspect_pattern}"
+    chmod 0600 "${inspect_pattern}"
+    builtin printf '%s\n' "${secret}" >> "${inspect_pattern}"
+    ! "${real_grep}" -F -q -f "${inspect_pattern}" "${capture}" || return 1
+    ! "${real_grep}" -F -q -f "${inspect_pattern}" "${trace}"
+)
+
 run_test \
     'fresh notifier configuration adds complete safe defaults without disclosure' \
     test_configure_adds_complete_defaults_without_disclosure
@@ -456,8 +508,8 @@ run_test \
     'failed privileged control staging preserves the original without residue' \
     test_failed_control_stage_preserves_original_without_residue
 run_test \
-    'SMTP acceptance fingerprint changes with credentials while marker stays PII-free' \
-    test_smtp_marker_fingerprint_tracks_credentials_without_pii
+    'SMTP acceptance marker tracks the target container fingerprint and stays PII-free' \
+    test_smtp_marker_tracks_target_container_fingerprint_without_pii
 run_test \
     'activation rejects pre-activation work and records a fresh millisecond cutoff' \
     test_activation_requires_empty_queue_and_uses_fresh_cutoff
@@ -467,5 +519,8 @@ run_test \
 run_test \
     'non-interactive SMTP acceptance prints the exact safe handoff' \
     test_noninteractive_smtp_test_prints_exact_handoff
+run_test \
+    'privacy leak detection keeps secrets out of grep argv and diagnostics' \
+    test_privacy_detection_never_places_secret_in_grep_argv_or_output
 
 ((failures == 0))
