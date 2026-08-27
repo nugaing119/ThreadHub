@@ -1,5 +1,6 @@
 ARG GO_BUILDER_IMAGE
 FROM ${GO_BUILDER_IMAGE} AS build
+SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 
 WORKDIR /src
 COPY go.mod go.sum ./

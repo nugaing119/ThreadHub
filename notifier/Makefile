@@ -1,6 +1,7 @@
 SHELL := /bin/sh
 
 CONTAINER_CLI ?= docker
+CONTAINER_BUILD_FLAGS := $(if $(filter podman,$(notdir $(CONTAINER_CLI))),--format docker,)
 VERSIONS_FILE := ../deploy/versions.env
 include $(VERSIONS_FILE)
 
@@ -23,7 +24,7 @@ MAILER_PROBE_ENV := \
 	-e SMTP_FEEDBACK_NAME=ThreadHub \
 	-e NOTIFIER_RATE_PER_MINUTE=10
 
-.PHONY: verify fmt-check mod-verify vet test verify-pins plugin-bundle mailer verify-artifacts verify-reproducible clean
+.PHONY: verify fmt-check mod-verify vet test verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-reproducible clean
 
 verify:
 	@$(MAKE) fmt-check
@@ -62,13 +63,20 @@ verify-pins:
 		case "$${digest#sha256:}" in *[!0-9a-f]*) exit 1;; esac; \
 	done
 
+verify-dockerfile:
+	@awk 'BEGIN { shell=0; pipeline=0 } \
+		$$0 == "SHELL [\"/bin/bash\", \"-o\", \"pipefail\", \"-c\"]" { shell=NR } \
+		index($$0, "| gzip -n -9 > /out/bundle/com.threadhub.channel-email-notifier-0.1.0.tar.gz") { pipeline=NR } \
+		END { if (shell == 0 || pipeline == 0 || shell >= pipeline) { print "Dockerfile bundle pipeline must use the exact bash pipefail SHELL" > "/dev/stderr"; exit 1 } }' Dockerfile
+
 plugin-bundle: verify-pins
+	@$(MAKE) verify-dockerfile
 	@set -eu; \
 	mkdir -p dist; \
 	tmp="$$(mktemp -d "dist/.plugin-bundle.XXXXXX")"; \
 	cid=""; \
 	trap 'if [ -n "$$cid" ]; then "$(CONTAINER_CLI)" rm -f "$$cid" >/dev/null 2>&1 || true; fi; rm -rf "$$tmp"' EXIT HUP INT TERM; \
-	"$(CONTAINER_CLI)" build --platform linux/amd64 \
+	"$(CONTAINER_CLI)" build $(CONTAINER_BUILD_FLAGS) --platform linux/amd64 \
 		--build-arg "GO_BUILDER_IMAGE=$(GO_BUILDER_IMAGE)" \
 		--target plugin-bundle \
 		--tag "$(PLUGIN_BUNDLE_IMAGE)" .; \
@@ -78,7 +86,7 @@ plugin-bundle: verify-pins
 	install -m 0644 "$$tmp/bundle.tar.gz" "$(PLUGIN_BUNDLE)"
 
 mailer: verify-pins
-	@"$(CONTAINER_CLI)" build --platform linux/amd64 \
+	@"$(CONTAINER_CLI)" build $(CONTAINER_BUILD_FLAGS) --platform linux/amd64 \
 		--build-arg "GO_BUILDER_IMAGE=$(GO_BUILDER_IMAGE)" \
 		--target mailer \
 		--tag "$(MAILER_IMAGE)" .
@@ -169,7 +177,7 @@ verify-reproducible: verify-pins
 	cid=""; \
 	trap 'if [ -n "$$cid" ]; then "$(CONTAINER_CLI)" rm -f "$$cid" >/dev/null 2>&1 || true; fi; rm -rf "$$tmp"' EXIT HUP INT TERM; \
 	for build in first second; do \
-		"$(CONTAINER_CLI)" build --no-cache --platform linux/amd64 \
+		"$(CONTAINER_CLI)" build $(CONTAINER_BUILD_FLAGS) --no-cache --platform linux/amd64 \
 			--build-arg "GO_BUILDER_IMAGE=$(GO_BUILDER_IMAGE)" \
 			--target plugin-bundle \
 			--tag "threadhub/notifier-plugin-bundle:reproducible-$$build" .; \
