@@ -208,20 +208,17 @@ notifier_assert_no_symlink_components() {
     done
 }
 
-notifier_assert_existing_owner() {
+notifier_assert_existing_directory_policy() {
     local path="$1"
     local expected_uid="$2"
-    local expected_gid="${3:-}"
+    local expected_gid="$3"
+    local expected_mode="$4"
     local identity
 
     "${SUDO_COMMAND[@]}" test ! -e "${path}" && return 0
     "${SUDO_COMMAND[@]}" test -d "${path}" || return 1
-    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g' "${path}")" || return 1
-    if [[ -n "${expected_gid}" ]]; then
-        [[ "${identity}" == "${expected_uid}:${expected_gid}" ]]
-    else
-        [[ "${identity%%:*}" == "${expected_uid}" ]]
-    fi
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${path}")" || return 1
+    [[ "${identity}" == "${expected_uid}:${expected_gid}:${expected_mode}" ]]
 }
 
 validate_notifier_host_path() {
@@ -240,16 +237,16 @@ validate_notifier_host_path() {
         || die "/srv must be owned by root with a valid mode"
     (( (8#${srv_mode} & 0022) == 0 )) \
         || die "/srv must not be writable by group or other users"
-    notifier_assert_existing_owner "${data_root}" 0 \
-        || die "Existing ThreadHub data root must be a root-owned directory"
-    notifier_assert_existing_owner "${data_root}/notifier" 0 \
-        || die "Existing notifier root must be a root-owned directory"
-    notifier_assert_existing_owner "${data_root}/notifier/control" 0 3000 \
-        || die "Existing notifier control directory owner is invalid"
-    notifier_assert_existing_owner "${data_root}/notifier/mailer" 65532 65532 \
-        || die "Existing notifier Mailer directory owner is invalid"
-    notifier_assert_existing_owner "${data_root}/notifier/release" 0 0 \
-        || die "Existing notifier release directory owner is invalid"
+    notifier_assert_existing_directory_policy "${data_root}" 0 0 750 \
+        || die "Existing ThreadHub data root must be root:root with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/notifier" 0 0 750 \
+        || die "Existing notifier root must be root:root with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/notifier/control" 0 3000 750 \
+        || die "Existing notifier control directory must be root:3000 with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/notifier/mailer" 65532 65532 700 \
+        || die "Existing notifier Mailer directory must be 65532:65532 with mode 0700"
+    notifier_assert_existing_directory_policy "${data_root}/notifier/release" 0 0 750 \
+        || die "Existing notifier release directory must be root:root with mode 0750"
 }
 
 install_disabled_notifier_control() {

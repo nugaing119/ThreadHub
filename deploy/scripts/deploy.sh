@@ -31,7 +31,15 @@ notifier_root="${data_root}/notifier"
 require_command jq
 log "Creating explicit PostgreSQL, Mattermost and notifier bind-mount paths"
 validate_notifier_host_path "${data_root}"
-"${SUDO_COMMAND[@]}" install -d -m 0750 "${data_root}"
+"${SUDO_COMMAND[@]}" install -d -o root -g root -m 0750 "${data_root}"
+validate_notifier_host_path "${data_root}"
+"${SUDO_COMMAND[@]}" install -d -o root -g root -m 0750 "${notifier_root}"
+validate_notifier_host_path "${data_root}"
+"${SUDO_COMMAND[@]}" install -d -o root -g 3000 -m 0750 "${notifier_root}/control"
+"${SUDO_COMMAND[@]}" install -d -o 65532 -g 65532 -m 0700 "${notifier_root}/mailer"
+"${SUDO_COMMAND[@]}" install -d -o root -g root -m 0750 "${notifier_root}/release"
+validate_notifier_host_path "${data_root}"
+
 # PostgreSQL 18 initializes a versioned PGDATA directory as root, then drops
 # to the postgres user. The bind-mount root must remain traversable afterward.
 "${SUDO_COMMAND[@]}" install -d -m 0755 "${data_root}/postgres"
@@ -44,11 +52,6 @@ validate_notifier_host_path "${data_root}"
     "${mattermost_root}/bleve-indexes"
 "${SUDO_COMMAND[@]}" chown -R 2000:2000 "${mattermost_root}"
 "${SUDO_COMMAND[@]}" chmod -R u=rwX,g=rX,o= "${mattermost_root}"
-"${SUDO_COMMAND[@]}" install -d -o root -g root -m 0750 "${notifier_root}"
-"${SUDO_COMMAND[@]}" install -d -o root -g 3000 -m 0750 "${notifier_root}/control"
-"${SUDO_COMMAND[@]}" install -d -o 65532 -g 65532 -m 0700 "${notifier_root}/mailer"
-"${SUDO_COMMAND[@]}" install -d -o root -g root -m 0750 "${notifier_root}/release"
-validate_notifier_host_path "${data_root}"
 ensure_disabled_notifier_control "${data_root}"
 
 if [[ -f "${DEPLOY_DIR}/logrotate/threadhub" ]]; then

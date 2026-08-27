@@ -86,7 +86,9 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
         config --format json > "${validation_tmp_dir}/compose.json"
     jq -e \
         --arg builder "$(env_value GO_BUILDER_IMAGE_REPOSITORY "${VERSIONS_FILE}"):$(env_value GO_BUILDER_IMAGE_TAG "${VERSIONS_FILE}")@${go_builder_digest}" \
-        --arg hmac '0000000000000000000000000000000000000000000000000000000000000000' '
+        --arg build_context "${REPOSITORY_ROOT}/notifier" \
+        --arg hmac '0000000000000000000000000000000000000000000000000000000000000000' \
+        --arg mailer_image "threadhub/notifier-mailer:$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" '
         .services as $services |
         $services.postgres as $postgres |
         $services.mattermost as $mattermost |
@@ -109,7 +111,7 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
         (($postgres.networks | keys) == ["database"]) and
         (($mailer.networks | keys | sort) == ["notifier", "outbound"]) and
         (($mattermost.networks | keys | sort) == ["database", "notifier", "outbound"]) and
-        ([$mailer.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/mailer" and .target == "/var/lib/threadhub-notifier" and .read_only == false)] | length == 1) and
+        ([$mailer.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/mailer" and .target == "/var/lib/threadhub-notifier" and ((.read_only // false) == false))] | length == 1) and
         ([$mailer.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/control" and .target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
         ([$mattermost.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/control" and .target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
         ($mattermost.group_add == ["3000"]) and
@@ -120,8 +122,13 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
         ($mailer.cap_drop == ["ALL"]) and
         ($mailer.security_opt == ["no-new-privileges:true"]) and
         ($mailer.platform == "linux/amd64") and
+        ($mailer.image == $mailer_image) and
+        ($mailer.build.context == $build_context) and
         ($mailer.build.target == "mailer") and
         ($mailer.build.args.GO_BUILDER_IMAGE == $builder) and
+        ($mailer.healthcheck.test == ["CMD", "/threadhub-mailer", "healthcheck"]) and
+        ($mailer.logging.driver == "json-file") and
+        ($mailer.logging.options == {"max-file":"3", "max-size":"10m"}) and
         ($mattermost.environment.THREADHUB_DOMAIN == "threadhub.internal") and
         ($mattermost.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
         ($mattermost.environment.NOTIFIER_HMAC_SECRET == $hmac) and
@@ -206,8 +213,8 @@ assert(mailer["read_only"] == true, "Mailer root filesystem must be read-only")
 assert(mailer.fetch("cap_drop") == ["ALL"], "Mailer must drop every Linux capability")
 assert(mailer.fetch("security_opt") == ["no-new-privileges:true"], "Mailer must set no-new-privileges")
 assert(mailer.dig("healthcheck", "test") == ["CMD", "/threadhub-mailer", "healthcheck"], "Mailer healthcheck is invalid")
-assert(mailer.dig("logging", "options", "max-size") == "10m", "Mailer log size rotation is missing")
-assert(mailer.dig("logging", "options", "max-file") == "3", "Mailer log count rotation is missing")
+assert(mailer.dig("logging", "driver") == "json-file", "Mailer logging driver is invalid")
+assert(mailer.dig("logging", "options") == {"max-size" => "10m", "max-file" => "3"}, "Mailer log rotation is invalid")
 
 assert(mm_env["THREADHUB_DOMAIN"] == "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}", "Plugin must receive THREADHUB_DOMAIN")
 assert(mm_env["NOTIFIER_MAILER_URL"] == "http://threadhub-mailer:8080", "Plugin Mailer URL must be fixed")
