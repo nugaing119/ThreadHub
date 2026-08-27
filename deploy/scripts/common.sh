@@ -193,19 +193,63 @@ notifier_control_is_valid() {
     ' "${path}" >/dev/null 2>&1
 }
 
-validate_notifier_host_path() {
+notifier_assert_no_symlink_components() {
     local data_root="$1"
     local path
 
-    [[ "${data_root}" == "/srv/threadhub" ]] \
-        || die "Refusing notifier state outside /srv/threadhub"
     for path in \
         "${data_root}" \
         "${data_root}/notifier" \
-        "${data_root}/notifier/control"; do
+        "${data_root}/notifier/control" \
+        "${data_root}/notifier/mailer" \
+        "${data_root}/notifier/release"; do
         "${SUDO_COMMAND[@]}" test ! -L "${path}" \
-            || die "Refusing symbolic-link notifier path: ${path}"
+            || return 1
     done
+}
+
+notifier_assert_existing_owner() {
+    local path="$1"
+    local expected_uid="$2"
+    local expected_gid="${3:-}"
+    local identity
+
+    "${SUDO_COMMAND[@]}" test ! -e "${path}" && return 0
+    "${SUDO_COMMAND[@]}" test -d "${path}" || return 1
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g' "${path}")" || return 1
+    if [[ -n "${expected_gid}" ]]; then
+        [[ "${identity}" == "${expected_uid}:${expected_gid}" ]]
+    else
+        [[ "${identity%%:*}" == "${expected_uid}" ]]
+    fi
+}
+
+validate_notifier_host_path() {
+    local data_root="$1"
+    local srv_identity
+    local srv_mode
+
+    [[ "${data_root}" == "/srv/threadhub" ]] \
+        || die "Refusing notifier state outside /srv/threadhub"
+    notifier_assert_no_symlink_components "${data_root}" \
+        || die "Refusing a symbolic-link notifier host path"
+    "${SUDO_COMMAND[@]}" test -d /srv || die "/srv must be an existing directory"
+    srv_identity="$("${SUDO_COMMAND[@]}" stat -c '%u' /srv)"
+    srv_mode="$("${SUDO_COMMAND[@]}" stat -c '%a' /srv)"
+    [[ "${srv_identity}" == "0" && "${srv_mode}" =~ ^[0-7]{3,4}$ ]] \
+        || die "/srv must be owned by root with a valid mode"
+    (( (8#${srv_mode} & 0022) == 0 )) \
+        || die "/srv must not be writable by group or other users"
+    notifier_assert_existing_owner "${data_root}" 0 \
+        || die "Existing ThreadHub data root must be a root-owned directory"
+    notifier_assert_existing_owner "${data_root}/notifier" 0 \
+        || die "Existing notifier root must be a root-owned directory"
+    notifier_assert_existing_owner "${data_root}/notifier/control" 0 3000 \
+        || die "Existing notifier control directory owner is invalid"
+    notifier_assert_existing_owner "${data_root}/notifier/mailer" 65532 65532 \
+        || die "Existing notifier Mailer directory owner is invalid"
+    notifier_assert_existing_owner "${data_root}/notifier/release" 0 0 \
+        || die "Existing notifier release directory owner is invalid"
 }
 
 install_disabled_notifier_control() {

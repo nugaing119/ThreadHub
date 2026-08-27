@@ -5,6 +5,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck source=notifier-plugin-transaction.sh
+source "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
 
 require_file "${ENV_FILE}"
 require_file "${VERSIONS_FILE}"
@@ -159,21 +161,24 @@ ensure_plugin_active() {
         || return 1
 }
 
-installed_tree_exact() {
-    "${SUDO_COMMAND[@]}" find "${target_root}" -mindepth 1 -printf '%P\t%y\n' \
-        | LC_ALL=C sort > "${tmp_dir}/installed-tree"
+plugin_tree_exact() {
+    local root="$1"
+    local output_name="$2"
+
+    "${SUDO_COMMAND[@]}" find "${root}" -mindepth 1 -printf '%P\t%y\n' \
+        | LC_ALL=C sort > "${tmp_dir}/${output_name}"
     printf '%s\n' \
         $'plugin.json\tf' \
         $'server\td' \
         $'server/dist\td' \
         $'server/dist/plugin-linux-amd64\tf' \
         > "${tmp_dir}/expected-tree"
-    cmp -s "${tmp_dir}/installed-tree" "${tmp_dir}/expected-tree"
+    cmp -s "${tmp_dir}/${output_name}" "${tmp_dir}/expected-tree"
 }
 
 if "${SUDO_COMMAND[@]}" test -d "${target_root}" \
     && "${SUDO_COMMAND[@]}" test ! -L "${target_root}" \
-    && installed_tree_exact \
+    && plugin_tree_exact "${target_root}" installed-tree \
     && "${SUDO_COMMAND[@]}" cmp -s "${manifest}" "${target_root}/plugin.json" \
     && "${SUDO_COMMAND[@]}" cmp -s "${executable}" "${target_root}/server/dist/plugin-linux-amd64"; then
     "${SUDO_COMMAND[@]}" chown -R 2000:2000 "${target_root}"
@@ -185,29 +190,43 @@ if "${SUDO_COMMAND[@]}" test -d "${target_root}" \
     exit 0
 fi
 
-install_disabled_notifier_control "${data_root}"
 plugin_was_active=false
+previous_plugin_version=""
 if [[ "${was_running}" == true ]]; then
     plugin_list_json > "${tmp_dir}/plugin-list-before.json"
-    if jq -e --arg id "${plugin_id}" '[.active[] | select(.id == $id)] | length > 0' \
-        "${tmp_dir}/plugin-list-before.json" >/dev/null; then
+    active_count="$(jq -r --arg id "${plugin_id}" '[.active[] | select(.id == $id)] | length' \
+        "${tmp_dir}/plugin-list-before.json")"
+    [[ "${active_count}" =~ ^[0-9]+$ && "${active_count}" -le 1 ]] \
+        || die "Mattermost reported duplicate active notifier plugin entries"
+    if [[ "${active_count}" == "1" ]]; then
         plugin_was_active=true
-        compose exec -T mattermost \
-            mmctl plugin disable "${plugin_id}" --local --suppress-warnings >/dev/null
+        previous_plugin_version="$(jq -r --arg id "${plugin_id}" \
+            '.active[] | select(.id == $id) | .version' \
+            "${tmp_dir}/plugin-list-before.json")"
+        [[ "${previous_plugin_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$ ]] \
+            || die "Existing active notifier plugin version is invalid"
     fi
-    compose stop mattermost
 fi
 
-stage_root="${plugins_root}/.${plugin_id}.stage.$$"
+stage_root="${release_dir}/.${plugin_id}.stage.$$"
 backup_dir="${release_dir}/plugin-backups"
 backup_root="${backup_dir}/${plugin_id}-$(date -u +%Y%m%dT%H%M%SZ)-$$"
 failed_root="${backup_dir}/${plugin_id}-failed-$(date -u +%Y%m%dT%H%M%SZ)-$$"
+for path in "${backup_dir}" "${stage_root}" "${backup_root}" "${failed_root}"; do
+    "${SUDO_COMMAND[@]}" test ! -L "${path}" \
+        || die "Refusing symbolic-link notifier plugin staging or backup path"
+done
 for path in "${stage_root}" "${backup_root}" "${failed_root}"; do
     "${SUDO_COMMAND[@]}" test ! -e "${path}" || die "Refusing existing notifier plugin staging or backup path"
-    "${SUDO_COMMAND[@]}" test ! -L "${path}" || die "Refusing symbolic-link notifier plugin staging or backup path"
 done
-"${SUDO_COMMAND[@]}" test ! -L "${backup_dir}" \
-    || die "Refusing symbolic-link notifier plugin backup directory"
+if "${SUDO_COMMAND[@]}" test -e "${backup_dir}" \
+    && ! "${SUDO_COMMAND[@]}" test -d "${backup_dir}"; then
+    die "Refusing non-directory notifier plugin backup path"
+fi
+plugins_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "${plugins_root}")"
+release_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "${release_dir}")"
+[[ "${plugins_device}" == "${release_device}" ]] \
+    || die "Notifier plugin staging and target paths must share one filesystem"
 
 "${SUDO_COMMAND[@]}" install -d -o root -g root -m 0750 "${backup_dir}"
 "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0750 \
@@ -218,34 +237,67 @@ done
     "${manifest}" "${stage_root}/plugin.json"
 "${SUDO_COMMAND[@]}" install -o 2000 -g 2000 -m 0750 \
     "${executable}" "${stage_root}/server/dist/plugin-linux-amd64"
+"${SUDO_COMMAND[@]}" test ! -L "${stage_root}" \
+    || die "Notifier plugin stage became a symbolic link"
+plugin_tree_exact "${stage_root}" staged-tree \
+    || die "Materialized notifier plugin stage is incomplete"
+"${SUDO_COMMAND[@]}" cmp -s "${manifest}" "${stage_root}/plugin.json" \
+    || die "Materialized notifier manifest differs from the reviewed bundle"
+"${SUDO_COMMAND[@]}" cmp -s "${executable}" "${stage_root}/server/dist/plugin-linux-amd64" \
+    || die "Materialized notifier executable differs from the reviewed bundle"
 
-backup_present=false
-if "${SUDO_COMMAND[@]}" test -d "${target_root}"; then
-    "${SUDO_COMMAND[@]}" mv -T "${target_root}" "${backup_root}"
-    backup_present=true
-fi
-"${SUDO_COMMAND[@]}" mv -T "${stage_root}" "${target_root}"
+plugin_tx_disable_control() {
+    install_disabled_notifier_control "${data_root}"
+}
+
+plugin_tx_disable_plugin() {
+    compose exec -T mattermost \
+        mmctl plugin disable "${plugin_id}" --local --suppress-warnings >/dev/null
+}
+
+plugin_tx_stop_service() {
+    compose stop mattermost >/dev/null
+}
+
+plugin_tx_start_service() {
+    compose up -d --wait --wait-timeout 240 mattermost >/dev/null
+}
+
+plugin_tx_enable_plugin() {
+    compose exec -T mattermost \
+        mmctl plugin enable "${plugin_id}" --local --suppress-warnings >/dev/null
+}
+
+plugin_tx_verify_plugin() {
+    plugin_list_json > "${tmp_dir}/plugin-list-transaction.json" \
+        && plugin_is_active "${tmp_dir}/plugin-list-transaction.json" "${notifier_version}"
+}
+
+plugin_tx_verify_previous_plugin() {
+    plugin_list_json > "${tmp_dir}/plugin-list-rollback.json" \
+        && plugin_is_active "${tmp_dir}/plugin-list-rollback.json" "${previous_plugin_version}"
+}
+
+plugin_tx_path_exists() {
+    "${SUDO_COMMAND[@]}" test -e "$1"
+}
+
+plugin_tx_move() {
+    "${SUDO_COMMAND[@]}" mv -T "$1" "$2"
+}
 
 set +e
-ensure_plugin_active
-activation_result=$?
+notifier_plugin_transaction \
+    "${target_root}" \
+    "${stage_root}" \
+    "${backup_root}" \
+    "${failed_root}" \
+    "${was_running}" \
+    "${plugin_was_active}"
+transaction_result=$?
 set -e
-if ((activation_result != 0)); then
-    compose stop mattermost >/dev/null 2>&1 || true
-    if "${SUDO_COMMAND[@]}" test -d "${target_root}"; then
-        "${SUDO_COMMAND[@]}" mv -T "${target_root}" "${failed_root}" || true
-    fi
-    if [[ "${backup_present}" == true ]] && "${SUDO_COMMAND[@]}" test -d "${backup_root}"; then
-        "${SUDO_COMMAND[@]}" mv -T "${backup_root}" "${target_root}" || true
-    fi
-    if [[ "${was_running}" == true ]]; then
-        compose up -d --wait --wait-timeout 240 mattermost >/dev/null 2>&1 || true
-        if [[ "${plugin_was_active}" == true ]]; then
-            compose exec -T mattermost \
-                mmctl plugin enable "${plugin_id}" --local --suppress-warnings >/dev/null 2>&1 || true
-        fi
-    fi
-    die "Notifier plugin activation failed; the previous plugin was restored when available"
+if ((transaction_result != 0)); then
+    die "Notifier plugin replacement transaction failed; review the rollback result above"
 fi
 
 log "Notifier plugin ${plugin_id} ${notifier_version} is installed and active; runtime delivery remains controlled by state.json"

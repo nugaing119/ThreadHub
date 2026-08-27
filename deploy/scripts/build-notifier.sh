@@ -23,6 +23,7 @@ builder_repository="$(env_value GO_BUILDER_IMAGE_REPOSITORY "${VERSIONS_FILE}")"
 builder_tag="$(env_value GO_BUILDER_IMAGE_TAG "${VERSIONS_FILE}")"
 builder_digest="$(env_value GO_BUILDER_IMAGE_DIGEST "${VERSIONS_FILE}")"
 data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
+validate_notifier_host_path "${data_root}"
 
 [[ "${notifier_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "NOTIFIER_VERSION is invalid"

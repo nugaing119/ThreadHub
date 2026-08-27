@@ -34,6 +34,7 @@ container_health() {
     || die "Notifier Mailer container is not healthy"
 
 data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
+validate_notifier_host_path "${data_root}"
 postgres_root_mode="$("${SUDO_COMMAND[@]}" stat -c '%a' "${data_root}/postgres")"
 [[ "${postgres_root_mode}" == "755" ]] \
     || die "PostgreSQL bind-mount root must have mode 0755"

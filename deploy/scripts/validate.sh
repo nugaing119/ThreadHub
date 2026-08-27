@@ -50,7 +50,102 @@ go_builder_index_digest="$(env_value GO_BUILDER_IMAGE_INDEX_DIGEST "${VERSIONS_F
 [[ "${go_builder_index_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "GO_BUILDER_IMAGE_INDEX_DIGEST is invalid"
 
-if command -v ruby >/dev/null 2>&1; then
+validation_tmp_dir="$(mktemp -d)"
+cleanup() {
+    rm -rf "${validation_tmp_dir}"
+}
+trap cleanup EXIT
+runtime_env_fixture="${validation_tmp_dir}/runtime.env"
+sed \
+    -e 's#^THREADHUB_DOMAIN=.*#THREADHUB_DOMAIN=threadhub.internal#' \
+    -e 's#^LETSENCRYPT_EMAIL=.*#LETSENCRYPT_EMAIL=admin@threadhub.internal#' \
+    -e 's#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=0000000000000000000000000000000000000000000000000000000000000000#' \
+    -e 's#^SMTP_SERVER=.*#SMTP_SERVER=smtp.email.ap-singapore-1.oci.oraclecloud.com#' \
+    -e 's#^SMTP_USERNAME=.*#SMTP_USERNAME=fixture_user#' \
+    -e 's#^SMTP_PASSWORD=.*#SMTP_PASSWORD=fixture_password#' \
+    -e 's#^SMTP_FROM_ADDRESS=.*#SMTP_FROM_ADDRESS=no-reply@threadhub.internal#' \
+    -e 's#^SMTP_REPLY_TO_ADDRESS=.*#SMTP_REPLY_TO_ADDRESS=admin@threadhub.internal#' \
+    "${ENV_EXAMPLE_FILE}" > "${runtime_env_fixture}"
+printf '%s\n' \
+    'NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000' \
+    'NOTIFIER_RATE_PER_MINUTE=10' \
+    >> "${runtime_env_fixture}"
+chmod 0600 "${runtime_env_fixture}"
+
+if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
+    require_command jq
+    docker compose \
+        --env-file "${runtime_env_fixture}" \
+        --env-file "${VERSIONS_FILE}" \
+        -f "${COMPOSE_FILE}" \
+        config --quiet
+    docker compose \
+        --env-file "${runtime_env_fixture}" \
+        --env-file "${VERSIONS_FILE}" \
+        -f "${COMPOSE_FILE}" \
+        config --format json > "${validation_tmp_dir}/compose.json"
+    jq -e \
+        --arg builder "$(env_value GO_BUILDER_IMAGE_REPOSITORY "${VERSIONS_FILE}"):$(env_value GO_BUILDER_IMAGE_TAG "${VERSIONS_FILE}")@${go_builder_digest}" \
+        --arg hmac '0000000000000000000000000000000000000000000000000000000000000000' '
+        .services as $services |
+        $services.postgres as $postgres |
+        $services.mattermost as $mattermost |
+        $services["threadhub-mailer"] as $mailer |
+        ($mattermost.environment.MM_PLUGINSETTINGS_ENABLE == "true") and
+        ([
+          "MM_PLUGINSETTINGS_ENABLEUPLOADS",
+          "MM_PLUGINSETTINGS_ENABLEMARKETPLACE",
+          "MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE",
+          "MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS",
+          "MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS",
+          "MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS",
+          "MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS",
+          "MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS",
+          "MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION",
+          "MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS"
+        ] | all(. as $key | $mattermost.environment[$key] == "false")) and
+        (($mailer.ports // []) | length == 0) and
+        (.networks.notifier.internal == true) and
+        (($postgres.networks | keys) == ["database"]) and
+        (($mailer.networks | keys | sort) == ["notifier", "outbound"]) and
+        (($mattermost.networks | keys | sort) == ["database", "notifier", "outbound"]) and
+        ([$mailer.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/mailer" and .target == "/var/lib/threadhub-notifier" and .read_only == false)] | length == 1) and
+        ([$mailer.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/control" and .target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
+        ([$mattermost.volumes[] | select(.type == "bind" and .source == "/srv/threadhub/notifier/control" and .target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
+        ($mattermost.group_add == ["3000"]) and
+        ($mailer.group_add == ["3000"]) and
+        ([($services | to_entries[]) | select(.key != "mattermost" and .key != "threadhub-mailer") | (.value.group_add // [])[] | select(. == "3000")] | length == 0) and
+        ($mailer.user == "65532:65532") and
+        ($mailer.read_only == true) and
+        ($mailer.cap_drop == ["ALL"]) and
+        ($mailer.security_opt == ["no-new-privileges:true"]) and
+        ($mailer.platform == "linux/amd64") and
+        ($mailer.build.target == "mailer") and
+        ($mailer.build.args.GO_BUILDER_IMAGE == $builder) and
+        ($mattermost.environment.THREADHUB_DOMAIN == "threadhub.internal") and
+        ($mattermost.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
+        ($mattermost.environment.NOTIFIER_HMAC_SECRET == $hmac) and
+        ($mattermost.environment.NOTIFIER_CONTROL_FILE == "/run/threadhub-notifier/state.json") and
+        ($mattermost.environment.NOTIFIER_POLL_EVERY == "1s") and
+        ($mailer.environment == {
+          "NOTIFIER_CONTROL_FILE":"/run/threadhub-notifier/state.json",
+          "NOTIFIER_HMAC_SECRET":$hmac,
+          "NOTIFIER_LISTEN_ADDRESS":":8080",
+          "NOTIFIER_QUEUE_PATH":"/var/lib/threadhub-notifier/queue.db",
+          "NOTIFIER_RATE_PER_MINUTE":"10",
+          "SMTP_FEEDBACK_NAME":"ThreadHub",
+          "SMTP_FROM_ADDRESS":"no-reply@threadhub.internal",
+          "SMTP_PASSWORD":"fixture_password",
+          "SMTP_PORT":"587",
+          "SMTP_REPLY_TO_ADDRESS":"admin@threadhub.internal",
+          "SMTP_SERVER":"smtp.email.ap-singapore-1.oci.oraclecloud.com",
+          "SMTP_USERNAME":"fixture_user",
+          "THREADHUB_DOMAIN":"threadhub.internal"
+        })
+    ' "${validation_tmp_dir}/compose.json" >/dev/null \
+        || die "Canonical Docker Compose model violates notifier security invariants"
+    log "Docker Compose canonical JSON satisfies notifier security invariants"
+elif command -v ruby >/dev/null 2>&1; then
     ruby - "${COMPOSE_FILE}" <<'RUBY'
 require "yaml"
 
@@ -60,6 +155,7 @@ end
 
 compose = YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], aliases: false)
 services = compose.fetch("services")
+postgres = services.fetch("postgres")
 mattermost = services.fetch("mattermost")
 mailer = services.fetch("threadhub-mailer")
 mm_env = mattermost.fetch("environment")
@@ -83,6 +179,7 @@ end
 
 assert(!mailer.key?("ports"), "Mailer must not publish a host port")
 assert(compose.dig("networks", "notifier", "internal") == true, "notifier network must be internal")
+assert(postgres.fetch("networks") == ["database"], "PostgreSQL must use only the database network")
 assert(mailer.fetch("networks").sort == %w[notifier outbound], "Mailer networks must be notifier and outbound")
 assert(mattermost.fetch("networks").sort == %w[database notifier outbound], "Mattermost networks must be database, notifier and outbound")
 
@@ -136,21 +233,7 @@ expected_mailer_env = {
 assert(mailer_env == expected_mailer_env, "Mailer environment must contain only the required runtime values")
 RUBY
 else
-    # Match literal Compose interpolation text; expansion is not intended.
-    # shellcheck disable=SC2016
-    for invariant in \
-        'MM_PLUGINSETTINGS_ENABLE: "true"' \
-        'NOTIFIER_MAILER_URL: http://threadhub-mailer:8080' \
-        'NOTIFIER_HMAC_SECRET: "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}"' \
-        'user: "65532:65532"' \
-        'internal: true'; do
-        grep -F "${invariant}" "${COMPOSE_FILE}" >/dev/null \
-            || die "Notifier Compose invariant is missing: ${invariant}"
-    done
-    mailer_block="$(awk '/^  threadhub-mailer:$/ { found=1 } found { if ($0 ~ /^  [A-Za-z0-9_-]+:$/ && $0 !~ /^  threadhub-mailer:$/) exit; print }' "${COMPOSE_FILE}")"
-    [[ -n "${mailer_block}" && "${mailer_block}" != *$'\n    ports:'* ]] \
-        || die "Notifier Mailer service is missing or publishes a host port"
-    warn "Ruby is unavailable; notifier structure used strict text checks and Docker Compose will validate interpolation"
+    die "Docker Compose or Ruby is required for exact notifier Compose-model validation; CI must provide Docker Compose"
 fi
 log "Notifier Compose isolation, mounts, settings and hardening are valid"
 
@@ -160,6 +243,7 @@ for script in \
     require_file "${script}"
     [[ -x "${script}" ]] || die "Notifier deployment script must be executable: ${script}"
 done
+require_file "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
 # Match the literal build-script expression; expansion is not intended.
 # shellcheck disable=SC2016
 grep -F -- '--build-arg "GO_BUILDER_IMAGE=${builder_image}"' \
@@ -213,42 +297,6 @@ log "Notifier build, release and manual plugin installation invariants are valid
 if grep -R -n -E 'image:[[:space:]]+[^#]*:latest([[:space:]]|$)' "${DEPLOY_DIR}"; then
     die "Floating latest image tag found"
 fi
-
-if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-    NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000 \
-    docker compose \
-        --env-file "${ENV_EXAMPLE_FILE}" \
-        --env-file "${VERSIONS_FILE}" \
-        -f "${COMPOSE_FILE}" \
-        config --quiet
-    log "Docker Compose configuration is valid"
-elif command -v ruby >/dev/null 2>&1; then
-    ruby -e 'require "yaml"; YAML.load_file(ARGV.fetch(0))' "${COMPOSE_FILE}"
-    warn "Docker Compose is unavailable; only generic YAML parsing was performed"
-else
-    die "Docker Compose or Ruby is required to validate docker-compose.yml"
-fi
-
-runtime_env_fixture="$(mktemp)"
-cleanup() {
-    rm -f "${runtime_env_fixture}"
-}
-trap cleanup EXIT
-
-sed \
-    -e 's#^THREADHUB_DOMAIN=.*#THREADHUB_DOMAIN=threadhub.internal#' \
-    -e 's#^LETSENCRYPT_EMAIL=.*#LETSENCRYPT_EMAIL=admin@threadhub.internal#' \
-    -e 's#^POSTGRES_PASSWORD=.*#POSTGRES_PASSWORD=0000000000000000000000000000000000000000000000000000000000000000#' \
-    -e 's#^SMTP_SERVER=.*#SMTP_SERVER=smtp.email.ap-singapore-1.oci.oraclecloud.com#' \
-    -e 's#^SMTP_USERNAME=.*#SMTP_USERNAME=fixture_user#' \
-    -e 's#^SMTP_PASSWORD=.*#SMTP_PASSWORD=fixture_password#' \
-    -e 's#^SMTP_FROM_ADDRESS=.*#SMTP_FROM_ADDRESS=no-reply@threadhub.internal#' \
-    -e 's#^SMTP_REPLY_TO_ADDRESS=.*#SMTP_REPLY_TO_ADDRESS=admin@threadhub.internal#' \
-    "${ENV_EXAMPLE_FILE}" > "${runtime_env_fixture}"
-printf '%s\n' \
-    'NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000' \
-    'NOTIFIER_RATE_PER_MINUTE=10' \
-    >> "${runtime_env_fixture}"
 
 original_env_file="${ENV_FILE}"
 ENV_FILE="${runtime_env_fixture}"
