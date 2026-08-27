@@ -5,6 +5,7 @@
 .omc/
 .omx/
 .codex/
+.worktrees/
 
 # Secrets and environment files
 .env
