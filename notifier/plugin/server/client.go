@@ -33,10 +33,13 @@ type MailerClient struct {
 }
 
 func NewMailerClient(baseURL *url.URL, domain string, secret []byte, client *http.Client) *MailerClient {
+	var clonedClient http.Client
 	if client == nil {
-		client = http.DefaultClient
+		clonedClient = http.Client{}
+	} else {
+		clonedClient = *client
 	}
-	clonedClient := *client
+	clonedClient.Transport = directMailerTransport(clonedClient.Transport)
 	clonedClient.Timeout = mailerTimeout
 	clonedClient.CheckRedirect = func(*http.Request, []*http.Request) error {
 		return http.ErrUseLastResponse
@@ -51,6 +54,25 @@ func NewMailerClient(baseURL *url.URL, domain string, secret []byte, client *htt
 		endpoint: endpoint, domain: domain, secret: append([]byte(nil), secret...),
 		httpClient: &clonedClient, now: time.Now, nonceReader: rand.Reader,
 	}
+}
+
+func directMailerTransport(roundTripper http.RoundTripper) http.RoundTripper {
+	if roundTripper == nil {
+		if defaultTransport, ok := http.DefaultTransport.(*http.Transport); ok {
+			roundTripper = defaultTransport
+		} else {
+			return &http.Transport{}
+		}
+	}
+	if transport, ok := roundTripper.(*http.Transport); ok {
+		direct := transport.Clone()
+		// Never route signed recipient payloads through environment proxies.
+		direct.Proxy = nil
+		return direct
+	}
+	// A non-Transport RoundTripper is an explicit dependency injection seam;
+	// ambient production clients never reach this branch.
+	return roundTripper
 }
 
 func (c *MailerClient) Enqueue(ctx context.Context, event OutboxEvent, recipients []protocol.Recipient) error {

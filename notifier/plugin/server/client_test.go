@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"sort"
 	"strconv"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -209,6 +210,74 @@ func TestMailerClientClonesTransportAndEnforcesThreeSecondTimeout(t *testing.T) 
 	}
 	if provided.Timeout != time.Minute {
 		t.Fatalf("provided client timeout mutated to %s", provided.Timeout)
+	}
+}
+
+func TestMailerClientDisablesAmbientProxyForDefaultTransports(t *testing.T) {
+	defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+	if !ok {
+		t.Fatalf("http.DefaultTransport type = %T, want *http.Transport", http.DefaultTransport)
+	}
+	var proxyCalls atomic.Int32
+	ambientTransport := defaultTransport.Clone()
+	ambientTransport.Proxy = func(*http.Request) (*url.URL, error) {
+		proxyCalls.Add(1)
+		return nil, nil
+	}
+	previousDefault := http.DefaultTransport
+	http.DefaultTransport = ambientTransport
+	t.Cleanup(func() { http.DefaultTransport = previousDefault })
+
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	probe, err := http.Get(server.URL)
+	if err != nil {
+		t.Fatalf("ambient proxy probe: %v", err)
+	}
+	_ = probe.Body.Close()
+	if calls := proxyCalls.Swap(0); calls != 1 {
+		t.Fatalf("ambient default proxy callback calls = %d, want 1 before hardening", calls)
+	}
+
+	providedTransport := ambientTransport.Clone()
+	providedTransport.Proxy = ambientTransport.Proxy
+	for _, test := range []struct {
+		name      string
+		provided  *http.Client
+		transport *http.Transport
+	}{
+		{name: "nil client"},
+		{name: "nil transport", provided: &http.Client{}},
+		{name: "explicit http transport", provided: &http.Client{Transport: providedTransport}, transport: providedTransport},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			baseURL, err := url.Parse(server.URL)
+			if err != nil {
+				t.Fatal(err)
+			}
+			client := NewMailerClient(baseURL, "threadhub.example.test", bytes.Repeat([]byte{0x42}, 32), test.provided)
+			direct, ok := client.httpClient.Transport.(*http.Transport)
+			if !ok {
+				t.Fatalf("Mailer transport type = %T, want cloned *http.Transport", client.httpClient.Transport)
+			}
+			if direct == ambientTransport || direct == test.transport {
+				t.Fatal("Mailer client reused a caller-owned or ambient transport")
+			}
+			if direct.Proxy != nil {
+				t.Fatal("Mailer client retained ambient proxy selection")
+			}
+			if err := client.Enqueue(context.Background(), testOutboxEvent(testPostID), testRecipients(1)); err != nil {
+				t.Fatalf("Enqueue() error = %v", err)
+			}
+			if calls := proxyCalls.Load(); calls != 0 {
+				t.Fatalf("proxy callback calls during Enqueue() = %d, want 0", calls)
+			}
+			if test.transport != nil && test.transport.Proxy == nil {
+				t.Fatal("NewMailerClient mutated caller-owned transport Proxy")
+			}
+		})
 	}
 }
 
