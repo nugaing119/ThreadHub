@@ -36,3 +36,20 @@ COPY --from=build /out/threadhub-mailer /threadhub-mailer
 USER 65532:65532
 ENTRYPOINT ["/threadhub-mailer"]
 CMD ["serve"]
+
+FROM ${GO_BUILDER_IMAGE} AS smtp-fixture-build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY protocol ./protocol
+COPY integration/cmd/smtp-fixture/main.go ./integration/cmd/smtp-fixture/main.go
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOPROXY=off GOSUMDB=off go build \
+        -trimpath -buildvcs=false \
+        -ldflags='-s -w' \
+        -o /out/smtp-fixture \
+        ./integration/cmd/smtp-fixture
+
+FROM scratch AS smtp-fixture
+COPY --from=smtp-fixture-build /out/smtp-fixture /smtp-fixture
+USER 65532:65532
+ENTRYPOINT ["/smtp-fixture"]
+CMD ["serve"]

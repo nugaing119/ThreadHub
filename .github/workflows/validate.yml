@@ -173,3 +173,51 @@ jobs:
             > "${temp_config}"
           sudo install -m 0644 "${temp_config}" /etc/nginx/conf.d/threadhub.conf
           sudo nginx -t
+
+  notifier-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Go 1.25.10
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.25.10
+          cache-dependency-path: notifier/go.sum
+
+      - name: Run notifier unit and race tests
+        working-directory: notifier
+        run: make test
+
+      - name: Build notifier artifacts
+        working-directory: notifier
+        run: make plugin-bundle mailer
+
+      - name: Record privacy-safe bundle identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/threadhub-notifier-integration-artifacts"
+          install -d -m 0755 "${artifact_dir}"
+          bundle_sha="$(sha256sum notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz | awk '{print $1}')"
+          [[ "${bundle_sha}" =~ ^[a-f0-9]{64}$ ]]
+          printf 'bundle_sha256=%s\n' "${bundle_sha}" >"${artifact_dir}/bundle-sha256.txt"
+          chmod 0644 "${artifact_dir}/bundle-sha256.txt"
+
+      - name: Run isolated real-image integration
+        working-directory: notifier
+        env:
+          INTEGRATION_RESULT_FILE: ${{ runner.temp }}/threadhub-notifier-integration-artifacts/results.txt
+        run: make integration
+
+      - name: Upload privacy-safe integration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: notifier-integration-evidence
+          path: ${{ runner.temp }}/threadhub-notifier-integration-artifacts
+          if-no-files-found: error
+          retention-days: 7

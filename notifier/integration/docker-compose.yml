@@ -1,0 +1,295 @@
+name: ${COMPOSE_PROJECT_NAME:?set COMPOSE_PROJECT_NAME in the generated integration env}
+
+services:
+  volume-init:
+    image: "${GO_BUILDER_IMAGE_REPOSITORY:?load versions}:${GO_BUILDER_IMAGE_TAG:?load versions}@${GO_BUILDER_IMAGE_DIGEST:?load versions}"
+    platform: linux/amd64
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    entrypoint:
+      - /bin/bash
+      - -c
+    command:
+      - >-
+        chown -R 999:999 /integration/postgres &&
+        chown -R 2000:2000 /integration/mattermost &&
+        chown -R 65532:65532 /integration/mailer &&
+        chown -R 65532:65532 /integration/smtp-private &&
+        chown -R 65532:65532 /integration/smtp-ca &&
+        chmod 0700 /integration/smtp-private &&
+        chmod 0700 /integration/smtp-ca &&
+        chown -R ${INTEGRATION_HOST_UID:?set INTEGRATION_HOST_UID}:3000 /integration/control &&
+        chmod 2770 /integration/control &&
+        chmod 0640 /integration/control/state.json
+    volumes:
+      - "${INTEGRATION_DATA_ROOT:?set INTEGRATION_DATA_ROOT}/postgres:/integration/postgres:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost:/integration/mattermost:rw"
+      - "${INTEGRATION_DATA_ROOT}/mailer:/integration/mailer:rw"
+      - "${INTEGRATION_DATA_ROOT}/control:/integration/control:rw"
+      - smtp-private:/integration/smtp-private:rw
+      - smtp-ca:/integration/smtp-ca:rw
+
+  plugin-bundle:
+    image: "threadhub/notifier-plugin-bundle:${NOTIFIER_VERSION:?load versions}"
+    pull_policy: never
+    build:
+      context: ..
+      target: plugin-bundle
+      args:
+        GO_BUILDER_IMAGE: "${GO_BUILDER_IMAGE_REPOSITORY}:${GO_BUILDER_IMAGE_TAG}@${GO_BUILDER_IMAGE_DIGEST}"
+    platform: linux/amd64
+    command:
+      - "/${NOTIFIER_PLUGIN_ID:?load versions}-${NOTIFIER_VERSION}.tar.gz"
+    network_mode: none
+
+  plugin-install:
+    image: "${GO_BUILDER_IMAGE_REPOSITORY:?load versions}:${GO_BUILDER_IMAGE_TAG:?load versions}@${GO_BUILDER_IMAGE_DIGEST:?load versions}"
+    platform: linux/amd64
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    entrypoint:
+      - /bin/bash
+      - -c
+    command:
+      - >-
+        test ! -e "/plugins/${NOTIFIER_PLUGIN_ID:?load versions}" &&
+        test ! -e "/filestore/plugins/${NOTIFIER_PLUGIN_ID}.tar.gz" &&
+        test ! -e "/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage" &&
+        tar --extract --gzip --file /bundle/plugin.tar.gz --directory /plugins --no-same-owner --no-same-permissions &&
+        find "/plugins/${NOTIFIER_PLUGIN_ID}" -type d -exec chmod 0750 '{}' + &&
+        find "/plugins/${NOTIFIER_PLUGIN_ID}" -type f -exec chmod 0640 '{}' + &&
+        chmod 0750 "/plugins/${NOTIFIER_PLUGIN_ID}/server/dist/plugin-linux-amd64" &&
+        chown -R 2000:2000 "/plugins/${NOTIFIER_PLUGIN_ID}" &&
+        install -d -o 2000 -g 2000 -m 0750 /filestore/plugins &&
+        install -o 2000 -g 2000 -m 0640 /bundle/plugin.tar.gz "/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage" &&
+        mv -T -- "/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage" "/filestore/plugins/${NOTIFIER_PLUGIN_ID}.tar.gz"
+    volumes:
+      - "${INTEGRATION_PLUGIN_BUNDLE:?set INTEGRATION_PLUGIN_BUNDLE}:/bundle/plugin.tar.gz:ro"
+      - "${INTEGRATION_DATA_ROOT:?set INTEGRATION_DATA_ROOT}/mattermost/plugins:/plugins:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost/data:/filestore:rw"
+
+  postgres:
+    image: "${POSTGRES_IMAGE_REPOSITORY:?load versions}:${POSTGRES_IMAGE_TAG:?load versions}@${POSTGRES_IMAGE_DIGEST:?load versions}"
+    platform: linux/amd64
+    restart: "no"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 256m
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+      - /var/run/postgresql:rw,nosuid,nodev,size=16m
+    environment:
+      POSTGRES_USER: threadhub
+      POSTGRES_PASSWORD: "${INTEGRATION_DB_PASSWORD:?generated integration secret required}"
+      POSTGRES_DB: threadhub
+    volumes:
+      - "${INTEGRATION_DATA_ROOT}/postgres:/var/lib/postgresql:rw"
+    networks:
+      - database
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U threadhub -d threadhub
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    logging: &safe-logging
+      driver: json-file
+      options:
+        max-size: 2m
+        max-file: "1"
+
+  smtp-fixture:
+    image: "threadhub/notifier-smtp-fixture:${NOTIFIER_VERSION:?load versions}"
+    pull_policy: never
+    build:
+      context: ..
+      target: smtp-fixture
+      args:
+        GO_BUILDER_IMAGE: "${GO_BUILDER_IMAGE_REPOSITORY}:${GO_BUILDER_IMAGE_TAG}@${GO_BUILDER_IMAGE_DIGEST}"
+    platform: linux/amd64
+    user: "65532:65532"
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    cap_add:
+      - NET_BIND_SERVICE
+    security_opt:
+      - no-new-privileges:true
+    environment:
+      FIXTURE_SMTP_ADDRESS: ":587"
+      FIXTURE_API_ADDRESS: ":8081"
+      FIXTURE_SMTP_HOST: smtp.email.ap-singapore-1.oci.oraclecloud.com
+      FIXTURE_SMTP_USERNAME: integration-smtp-user
+      FIXTURE_SMTP_PASSWORD: "${INTEGRATION_SMTP_PASSWORD:?generated integration secret required}"
+      FIXTURE_HASH_SECRET: "${INTEGRATION_HASH_SECRET:?generated integration secret required}"
+      FIXTURE_CERT_DIR: /run/smtp-private
+      FIXTURE_CA_PATH: /run/smtp-ca/ca.crt
+      FIXTURE_STATE_PATH: /run/smtp-private/captures.json
+      FIXTURE_THREADHUB_DOMAIN: threadhub.integration.test
+    ports:
+      - "127.0.0.1::8081"
+    volumes:
+      - smtp-private:/run/smtp-private:rw
+      - smtp-ca:/run/smtp-ca:rw
+    networks:
+      notifier:
+        aliases:
+          - smtp.email.ap-singapore-1.oci.oraclecloud.com
+    healthcheck:
+      test:
+        - CMD
+        - /smtp-fixture
+        - healthcheck
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    logging: *safe-logging
+
+  mattermost:
+    image: "${MATTERMOST_IMAGE_REPOSITORY:?load versions}:${MATTERMOST_IMAGE_TAG:?load versions}@${MATTERMOST_IMAGE_DIGEST:?load versions}"
+    platform: linux/amd64
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    security_opt:
+      - no-new-privileges:true
+    group_add:
+      - "3000"
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=128m
+    ports:
+      - "127.0.0.1::8065"
+    environment:
+      TZ: UTC
+      MM_SQLSETTINGS_DRIVERNAME: postgres
+      MM_SQLSETTINGS_DATASOURCE: "postgres://threadhub:${INTEGRATION_DB_PASSWORD}@postgres:5432/threadhub?sslmode=disable&connect_timeout=10"
+      MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
+      MM_SERVICESETTINGS_SITEURL: https://threadhub.integration.test
+      MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
+      MM_TEAMSETTINGS_ENABLEUSERCREATION: "true"
+      MM_TEAMSETTINGS_ENABLEOPENSERVER: "false"
+      MM_EMAILSETTINGS_REQUIREEMAILVERIFICATION: "true"
+      MM_EMAILSETTINGS_ENABLESIGNUPWITHEMAIL: "true"
+      MM_EMAILSETTINGS_ENABLESIGNINWITHEMAIL: "true"
+      MM_EMAILSETTINGS_ENABLESIGNINWITHUSERNAME: "true"
+      MM_PASSWORDSETTINGS_MINIMUMLENGTH: "12"
+      MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS: "false"
+      MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS: "false"
+      MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS: "false"
+      MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS: "false"
+      MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS: "false"
+      MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION: "false"
+      MM_PLUGINSETTINGS_ENABLE: "true"
+      MM_PLUGINSETTINGS_ENABLEUPLOADS: "false"
+      MM_PLUGINSETTINGS_ENABLEMARKETPLACE: "false"
+      MM_PLUGINSETTINGS_ENABLEREMOTEMARKETPLACE: "false"
+      MM_PLUGINSETTINGS_AUTOMATICPREPACKAGEDPLUGINS: "false"
+      THREADHUB_DOMAIN: threadhub.integration.test
+      NOTIFIER_MAILER_URL: http://threadhub-mailer:8080
+      NOTIFIER_HMAC_SECRET: "${INTEGRATION_HMAC_SECRET:?generated integration secret required}"
+      NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
+      NOTIFIER_POLL_EVERY: 1s
+      MM_LOGSETTINGS_ENABLECONSOLE: "true"
+      MM_LOGSETTINGS_CONSOLELEVEL: ERROR
+      MM_LOGSETTINGS_CONSOLEJSON: "true"
+      MM_LOGSETTINGS_ENABLEFILE: "true"
+      MM_LOGSETTINGS_FILELEVEL: ERROR
+      MM_LOGSETTINGS_FILEJSON: "true"
+      MM_LOGSETTINGS_FILELOCATION: /mattermost/logs/mattermost.log
+      MM_LOGSETTINGS_ENABLEWEBHOOKDEBUGGING: "false"
+      MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
+    volumes:
+      - "${INTEGRATION_DATA_ROOT}/mattermost/config:/mattermost/config:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost/data:/mattermost/data:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost/logs:/mattermost/logs:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost/plugins:/mattermost/plugins:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost/client/plugins:/mattermost/client/plugins:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost/bleve-indexes:/mattermost/bleve-indexes:rw"
+      - "${INTEGRATION_DATA_ROOT}/control:/run/threadhub-notifier:ro"
+    networks:
+      - database
+      - notifier
+    logging: *safe-logging
+
+  threadhub-mailer:
+    image: "threadhub/notifier-mailer:${NOTIFIER_VERSION:?load versions}"
+    pull_policy: never
+    build:
+      context: ..
+      target: mailer
+      args:
+        GO_BUILDER_IMAGE: "${GO_BUILDER_IMAGE_REPOSITORY}:${GO_BUILDER_IMAGE_TAG}@${GO_BUILDER_IMAGE_DIGEST}"
+    platform: linux/amd64
+    user: "65532:65532"
+    group_add:
+      - "3000"
+    restart: "no"
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      smtp-fixture:
+        condition: service_healthy
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+    ports:
+      - "127.0.0.1::8080"
+    environment:
+      NOTIFIER_LISTEN_ADDRESS: ":8080"
+      THREADHUB_DOMAIN: threadhub.integration.test
+      NOTIFIER_HMAC_SECRET: "${INTEGRATION_HMAC_SECRET}"
+      NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
+      NOTIFIER_QUEUE_PATH: /var/lib/threadhub-notifier/queue.db
+      NOTIFIER_RATE_PER_MINUTE: "60"
+      SMTP_SERVER: smtp.email.ap-singapore-1.oci.oraclecloud.com
+      SMTP_PORT: "587"
+      SMTP_USERNAME: integration-smtp-user
+      SMTP_PASSWORD: "${INTEGRATION_SMTP_PASSWORD}"
+      SMTP_FROM_ADDRESS: no-reply@integration.invalid
+      SMTP_REPLY_TO_ADDRESS: feedback@integration.invalid
+      SMTP_FEEDBACK_NAME: ThreadHub
+      SSL_CERT_FILE: /run/smtp-ca/ca.crt
+    volumes:
+      - "${INTEGRATION_DATA_ROOT}/mailer:/var/lib/threadhub-notifier:rw"
+      - "${INTEGRATION_DATA_ROOT}/control:/run/threadhub-notifier:ro"
+      - smtp-ca:/run/smtp-ca:ro
+    networks:
+      - notifier
+    healthcheck:
+      test:
+        - CMD
+        - /threadhub-mailer
+        - healthcheck
+      interval: 2s
+      timeout: 3s
+      retries: 60
+      start_period: 10s
+    logging: *safe-logging
+
+networks:
+  database:
+    internal: true
+  notifier:
+    internal: true
+
+volumes:
+  smtp-private: {}
+  smtp-ca: {}

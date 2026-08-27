@@ -1,6 +1,8 @@
 SHELL := /bin/sh
 
 CONTAINER_CLI ?= docker
+COMPOSE_COMMAND ?= docker compose
+CONTAINER_COMMAND ?= $(CONTAINER_CLI)
 CONTAINER_BUILD_FLAGS := $(if $(filter podman,$(notdir $(CONTAINER_CLI))),--format docker,)
 VERSIONS_FILE := ../deploy/versions.env
 include $(VERSIONS_FILE)
@@ -24,7 +26,7 @@ MAILER_PROBE_ENV := \
 	-e SMTP_FEEDBACK_NAME=ThreadHub \
 	-e NOTIFIER_RATE_PER_MINUTE=10
 
-.PHONY: verify fmt-check mod-verify vet test verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-reproducible clean
+.PHONY: verify fmt-check mod-verify vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-reproducible clean
 
 verify:
 	@$(MAKE) fmt-check
@@ -48,6 +50,9 @@ vet:
 
 test:
 	@go test -race ./...
+
+integration:
+	@COMPOSE_COMMAND="$(COMPOSE_COMMAND)" CONTAINER_COMMAND="$(CONTAINER_COMMAND)" ./integration/run.sh
 
 verify-pins:
 	@set -eu; \

@@ -15,3 +15,11 @@ dist
 *.sqlite-shm
 *.sqlite-wal
 runtime
+integration
+!integration/
+integration/*
+!integration/cmd/
+integration/cmd/*
+!integration/cmd/smtp-fixture/
+integration/cmd/smtp-fixture/*
+!integration/cmd/smtp-fixture/main.go
