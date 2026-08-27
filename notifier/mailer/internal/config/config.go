@@ -17,6 +17,11 @@ var errInvalidConfig = errors.New("invalid mailer configuration")
 
 var ociSMTPHost = regexp.MustCompile(`^smtp\.email\.[a-z0-9-]+\.oci\.oraclecloud\.com$`)
 
+var placeholderOCIHosts = map[string]struct{}{
+	"smtp.email.region.oci.oraclecloud.com":      {},
+	"smtp.email.your-region.oci.oraclecloud.com": {},
+}
+
 type Config struct {
 	ListenAddress string
 	Domain        string
@@ -51,13 +56,18 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.RatePerMinute, err = strconv.Atoi(getenv("NOTIFIER_RATE_PER_MINUTE")); err != nil || cfg.RatePerMinute < 1 || cfg.RatePerMinute > 60 {
 		return Config{}, errInvalidConfig
 	}
-	if _, _, err := net.SplitHostPort(cfg.ListenAddress); err != nil || cfg.Domain == "" || strings.ContainsAny(cfg.Domain, "\r\n") || !filepath.IsAbs(cfg.QueuePath) || !ociSMTPHost.MatchString(cfg.SMTPHost) || cfg.SMTPUsername == "" || cfg.SMTPPassword == "" || cfg.FeedbackName == "" || strings.ContainsAny(cfg.FeedbackName, "\r\n") {
+	if _, _, err := net.SplitHostPort(cfg.ListenAddress); err != nil || cfg.Domain == "" || strings.ContainsAny(cfg.Domain, "\r\n") || !filepath.IsAbs(cfg.QueuePath) || !ociSMTPHost.MatchString(cfg.SMTPHost) || isPlaceholderOCIHost(cfg.SMTPHost) || cfg.SMTPUsername == "" || cfg.SMTPPassword == "" || cfg.FeedbackName == "" || strings.ContainsAny(cfg.FeedbackName, "\r\n") {
 		return Config{}, errInvalidConfig
 	}
 	if protocol.ValidateEmail(cfg.FromAddress) != nil || protocol.ValidateEmail(cfg.ReplyTo) != nil {
 		return Config{}, errInvalidConfig
 	}
 	return cfg, nil
+}
+
+func isPlaceholderOCIHost(host string) bool {
+	_, found := placeholderOCIHosts[host]
+	return found
 }
 
 func (c Config) String() string {

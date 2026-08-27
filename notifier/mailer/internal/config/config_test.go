@@ -21,20 +21,22 @@ func TestLoadRejectsUnsafeConfigurationWithoutSecretLeakage(t *testing.T) {
 	const password = "password-that-must-not-escape"
 	const username = "username-that-must-not-escape"
 	const secret = "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff"
-	for name, value := range map[string]string{
-		"NOTIFIER_HMAC_SECRET":     "not-hex",
-		"NOTIFIER_QUEUE_PATH":      "relative/queue.db",
-		"SMTP_PORT":                "25",
-		"SMTP_SERVER":              "smtp.email.REGION.oci.oraclecloud.com",
-		"SMTP_FROM_ADDRESS":        "from@example.test\r\nBcc: attacker@example.test",
-		"NOTIFIER_RATE_PER_MINUTE": "61",
+	for _, test := range []struct{ name, key, value string }{
+		{"invalid HMAC", "NOTIFIER_HMAC_SECRET", "not-hex"},
+		{"relative queue path", "NOTIFIER_QUEUE_PATH", "relative/queue.db"},
+		{"non-587 port", "SMTP_PORT", "25"},
+		{"uppercase region placeholder", "SMTP_SERVER", "smtp.email.REGION.oci.oraclecloud.com"},
+		{"lowercase region placeholder", "SMTP_SERVER", "smtp.email.region.oci.oraclecloud.com"},
+		{"lowercase your-region placeholder", "SMTP_SERVER", "smtp.email.your-region.oci.oraclecloud.com"},
+		{"injected From address", "SMTP_FROM_ADDRESS", "from@example.test\r\nBcc: attacker@example.test"},
+		{"rate over maximum", "NOTIFIER_RATE_PER_MINUTE", "61"},
 	} {
-		t.Run(name, func(t *testing.T) {
+		t.Run(test.name, func(t *testing.T) {
 			env := testValues()
 			env["SMTP_PASSWORD"] = password
 			env["SMTP_USERNAME"] = username
 			env["NOTIFIER_HMAC_SECRET"] = secret
-			env[name] = value
+			env[test.key] = test.value
 			cfg, err := Load(func(key string) string { return env[key] })
 			if err == nil {
 				t.Fatal("Load() error = nil, want validation error")

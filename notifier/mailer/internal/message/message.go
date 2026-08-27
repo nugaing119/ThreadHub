@@ -42,9 +42,10 @@ func Render(in Input) (Message, error) {
 	headers := []string{
 		"From: " + from, "To: " + to, "Reply-To: " + in.ReplyTo,
 		"Subject: " + mime.BEncoding.Encode("UTF-8", subject), "Date: " + in.Date.UTC().Format(time.RFC1123Z),
-		"Message-ID: " + messageID, "MIME-Version: 1.0", "Content-Type: multipart/alternative; boundary=\"" + boundary + "\"", "",
+		"Message-ID: " + messageID, "MIME-Version: 1.0", "Content-Type: multipart/alternative; boundary=\"" + boundary + "\"",
 	}
 	body.WriteString(strings.Join(headers, "\r\n"))
+	body.WriteString("\r\n\r\n")
 	writer := multipart.NewWriter(&body)
 	if err := writer.SetBoundary(boundary); err != nil {
 		return Message{}, errInvalidInput

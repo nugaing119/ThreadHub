@@ -2,7 +2,10 @@ package message
 
 import (
 	"bytes"
+	"io"
 	"mime"
+	"mime/multipart"
+	"net/mail"
 	"strings"
 	"testing"
 	"time"
@@ -48,6 +51,42 @@ func TestRenderCreatesPrivateGenericMultipartNotice(t *testing.T) {
 	}
 	if bytes.Contains(bytes.ReplaceAll(msg.Data, []byte("\r\n"), nil), []byte("\n")) {
 		t.Fatal("Render() emitted a non-CRLF line ending")
+	}
+}
+
+func TestRenderProducesParseableMultipartBody(t *testing.T) {
+	t.Parallel()
+	rendered, err := Render(testInput())
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(rendered.Data))
+	if err != nil {
+		t.Fatalf("mail.ReadMessage() error = %v", err)
+	}
+	mediaType, params, err := mime.ParseMediaType(parsed.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/alternative" || params["boundary"] == "" {
+		t.Fatalf("Content-Type = %q (%v), want multipart/alternative boundary", parsed.Header.Get("Content-Type"), err)
+	}
+	reader := multipart.NewReader(parsed.Body, params["boundary"])
+	plain, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("plain NextPart() error = %v", err)
+	}
+	plainBody, err := io.ReadAll(plain)
+	if err != nil || !strings.Contains(string(plainBody), "ThreadHub에 새 메시지가 등록되었습니다.") {
+		t.Fatalf("plain body = %q, error = %v", plainBody, err)
+	}
+	html, err := reader.NextPart()
+	if err != nil {
+		t.Fatalf("HTML NextPart() error = %v", err)
+	}
+	htmlBody, err := io.ReadAll(html)
+	if err != nil || !strings.Contains(string(htmlBody), "메시지 확인") {
+		t.Fatalf("HTML body = %q, error = %v", htmlBody, err)
+	}
+	if _, err := reader.NextPart(); err != io.EOF {
+		t.Fatalf("NextPart() error = %v, want EOF", err)
 	}
 }
 
