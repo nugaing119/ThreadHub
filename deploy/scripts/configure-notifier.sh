@@ -13,12 +13,17 @@ require_command openssl
 require_command stat
 require_command mv
 require_command ln
-recovery_file="${ENV_FILE}.configure-displaced"
-if [[ -e "${recovery_file}" || -L "${recovery_file}" ]]; then
-    printf '[ACTION REQUIRED] An interrupted notifier configuration recovery file is present at %s; no value was read or changed.\n' \
-        "${recovery_file}" >&2
-    exit 20
-fi
+set +e
+runtime_env_require_atomic_tools
+atomic_tools_result=$?
+set -e
+((atomic_tools_result == 0)) || exit "${atomic_tools_result}"
+recovery_file="$(runtime_env_recovery_path "${ENV_FILE}")"
+set +e
+runtime_env_require_no_recovery "${ENV_FILE}"
+recovery_result=$?
+set -e
+((recovery_result == 0)) || exit "${recovery_result}"
 if [[ ! -e "${ENV_FILE}" && ! -L "${ENV_FILE}" ]]; then
     printf '[ACTION REQUIRED] Create %s with ./deploy/scripts/setup-wizard.sh --configure-only\n' \
         "${ENV_FILE}" >&2

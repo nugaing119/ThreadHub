@@ -79,6 +79,43 @@ NOTIFIER_RATE_PER_MINUTE=10
 EOF
 }
 
+make_gnu_publication_fakes() {
+    local fake_bin="$1"
+
+    mkdir -p "${fake_bin}"
+    cat > "${fake_bin}/uname" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == -s ]] || exit 2
+printf '%s\n' Linux
+EOF
+    cat > "${fake_bin}/mv" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == --help ]]; then
+    printf '%s\n' '--no-target-directory --no-clobber'
+    exit 0
+fi
+[[ "${1:-}" != -T ]] || shift
+exec "${THREADHUB_TEST_REAL_MV}" "$@"
+EOF
+    cat > "${fake_bin}/ln" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == --help ]]; then
+    printf '%s\n' '--no-target-directory'
+    exit 0
+fi
+if [[ "${1:-}" == -T ]]; then
+    shift
+    [[ "${1:-}" == -- ]] && shift
+    destination="${@: -1}"
+    [[ ! -d "${destination}" && ! -L "${destination}" ]] || exit 1
+fi
+exec "${THREADHUB_TEST_REAL_LN}" "$@"
+EOF
+    chmod 0700 "${fake_bin}/uname" "${fake_bin}/mv" "${fake_bin}/ln"
+}
+
 assert_private_output() {
     local output="$1"
     local generated_hmac="${2:-}"
@@ -110,9 +147,16 @@ test_configure_adds_complete_defaults_without_disclosure() (
     trap 'rm -rf "${fixture}"' EXIT
     env_file="${fixture}/runtime.env"
     output="${fixture}/output"
+    fake_bin="${fixture}/bin"
+    real_mv="$(command -v mv)"
+    real_ln="$(command -v ln)"
     write_base_env "${env_file}"
+    make_gnu_publication_fakes "${fake_bin}"
 
-    THREADHUB_ENV_FILE="${env_file}" \
+    PATH="${fake_bin}:${PATH}" \
+        THREADHUB_ENV_FILE="${env_file}" \
+        THREADHUB_TEST_REAL_MV="${real_mv}" \
+        THREADHUB_TEST_REAL_LN="${real_ln}" \
         "${TEST_DEPLOY_DIR}/scripts/configure-notifier.sh" > "${output}" 2>&1 \
         || return 1
 
@@ -132,11 +176,18 @@ test_configure_reuses_complete_env_byte_for_byte() (
     trap 'rm -rf "${fixture}"' EXIT
     env_file="${fixture}/runtime.env"
     output="${fixture}/output"
+    fake_bin="${fixture}/bin"
+    real_mv="$(command -v mv)"
+    real_ln="$(command -v ln)"
     write_base_env "${env_file}"
     append_complete_notifier_env "${env_file}"
+    make_gnu_publication_fakes "${fake_bin}"
     before="$(openssl dgst -sha256 "${env_file}" | awk '{ print $NF }')"
 
-    THREADHUB_ENV_FILE="${env_file}" \
+    PATH="${fake_bin}:${PATH}" \
+        THREADHUB_ENV_FILE="${env_file}" \
+        THREADHUB_TEST_REAL_MV="${real_mv}" \
+        THREADHUB_TEST_REAL_LN="${real_ln}" \
         "${TEST_DEPLOY_DIR}/scripts/configure-notifier.sh" > "${output}" 2>&1 \
         || return 1
 
@@ -150,19 +201,27 @@ test_configure_rejects_partial_notifier_env_without_mutation() (
     trap 'rm -rf "${fixture}"' EXIT
     env_file="${fixture}/runtime.env"
     output="${fixture}/output"
+    fake_bin="${fixture}/bin"
+    real_mv="$(command -v mv)"
+    real_ln="$(command -v ln)"
     write_base_env "${env_file}"
     printf '%s\n' 'NOTIFIER_ENABLED=true' >> "${env_file}"
     before="$(openssl dgst -sha256 "${env_file}" | awk '{ print $NF }')"
+    make_gnu_publication_fakes "${fake_bin}"
 
     set +e
-    THREADHUB_ENV_FILE="${env_file}" \
+    PATH="${fake_bin}:${PATH}" \
+        THREADHUB_ENV_FILE="${env_file}" \
+        THREADHUB_TEST_REAL_MV="${real_mv}" \
+        THREADHUB_TEST_REAL_LN="${real_ln}" \
         "${TEST_DEPLOY_DIR}/scripts/configure-notifier.sh" > "${output}" 2>&1
     result=$?
     set -e
 
     [[ "${result}" == 20 ]] || return 1
     [[ "${before}" == "$(openssl dgst -sha256 "${env_file}" | awk '{ print $NF }')" ]] || return 1
-    grep -F '[ACTION REQUIRED]' "${output}" >/dev/null || return 1
+    grep -F '[ACTION REQUIRED] Notifier configuration is partial;' \
+        "${output}" >/dev/null || return 1
     assert_private_output "${output}"
 )
 

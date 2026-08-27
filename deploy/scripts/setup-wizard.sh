@@ -63,6 +63,16 @@ require_command openssl
 require_command stat
 require_command mv
 require_command ln
+set +e
+runtime_env_require_atomic_tools
+atomic_tools_result=$?
+set -e
+((atomic_tools_result == 0)) || exit "${atomic_tools_result}"
+set +e
+runtime_env_require_no_recovery "${ENV_FILE}"
+recovery_result=$?
+set -e
+((recovery_result == 0)) || exit "${recovery_result}"
 
 prompt_required() {
     local variable_name="$1"

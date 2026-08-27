@@ -320,6 +320,8 @@ if [[ "$(uname -s)" == Linux ]]; then
         || die "Target mv must support GNU --no-target-directory for atomic env publication"
     mv --help 2>&1 | grep -F -- '--no-clobber' >/dev/null \
         || die "Target mv must support GNU --no-clobber for atomic env publication"
+    ln --help 2>&1 | grep -F -- '--no-target-directory' >/dev/null \
+        || die "Target ln must support GNU --no-target-directory for exact env publication"
     publication_fixture="${validation_tmp_dir}/env-publication"
     mkdir -m 0700 "${publication_fixture}"
     printf '%s\n' 'replacement' > "${publication_fixture}/source"
@@ -340,7 +342,34 @@ if [[ "$(uname -s)" == Linux ]]; then
         || die "GNU mv -T -n did not move into an absent target"
     [[ "$(<"${publication_fixture}/destination")" == replacement ]] \
         || die "GNU mv -T -n published unexpected content"
-    ln "${publication_fixture}/destination" "${publication_fixture}/linked"
+    mkdir "${publication_fixture}/directory-target"
+    set +e
+    ln -T -- \
+        "${publication_fixture}/destination" "${publication_fixture}/directory-target" \
+        >/dev/null 2>&1
+    directory_link_result=$?
+    set -e
+    ((directory_link_result != 0)) \
+        || die "GNU ln -T must reject a directory target"
+    [[ -z "$(find "${publication_fixture}/directory-target" -mindepth 1 -print -quit)" ]] \
+        || die "GNU ln -T created a nested link under a directory target"
+    ln -s "${publication_fixture}/directory-target" \
+        "${publication_fixture}/symlink-directory-target"
+    set +e
+    ln -T -- \
+        "${publication_fixture}/destination" \
+        "${publication_fixture}/symlink-directory-target" >/dev/null 2>&1
+    symlink_directory_link_result=$?
+    set -e
+    ((symlink_directory_link_result != 0)) \
+        || die "GNU ln -T must reject a symlink-to-directory target"
+    [[ -z "$(find "${publication_fixture}/directory-target" -mindepth 1 -print -quit)" ]] \
+        || die "GNU ln -T created a nested link through a directory symlink"
+    [[ -L "${publication_fixture}/symlink-directory-target" ]] \
+        || die "GNU ln -T replaced a symlink-to-directory target"
+    [[ "$(<"${publication_fixture}/destination")" == replacement ]] \
+        || die "GNU ln -T changed its source while rejecting a directory target"
+    ln -T -- "${publication_fixture}/destination" "${publication_fixture}/linked"
     [[ "$(stat -c '%d:%i' "${publication_fixture}/destination")" \
         == "$(stat -c '%d:%i' "${publication_fixture}/linked")" ]] \
         || die "Target ln must create a same-filesystem hard link"

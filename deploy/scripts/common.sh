@@ -77,6 +77,53 @@ runtime_env_require_secure() {
     fi
 }
 
+runtime_env_atomic_tools_available() {
+    [[ "$(uname -s)" == Linux ]] || return 1
+    command -v mv >/dev/null 2>&1 || return 1
+    command -v ln >/dev/null 2>&1 || return 1
+    command -v stat >/dev/null 2>&1 || return 1
+    mv --help 2>&1 | grep -F -- '--no-target-directory' >/dev/null 2>&1 \
+        || return 1
+    mv --help 2>&1 | grep -F -- '--no-clobber' >/dev/null 2>&1 \
+        || return 1
+    ln --help 2>&1 | grep -F -- '--no-target-directory' >/dev/null 2>&1
+}
+
+runtime_env_require_atomic_tools() {
+    if ! runtime_env_atomic_tools_available; then
+        printf '[ACTION REQUIRED] Atomic runtime environment publication requires Ubuntu GNU Coreutils.\n' >&2
+        return 20
+    fi
+}
+
+runtime_env_recovery_path() {
+    printf '%s.configure-displaced\n' "$1"
+}
+
+runtime_env_require_no_recovery() {
+    local env_file="$1"
+    local recovery_file
+
+    recovery_file="$(runtime_env_recovery_path "${env_file}")"
+    if [[ -e "${recovery_file}" || -L "${recovery_file}" ]]; then
+        printf '[ACTION REQUIRED] An interrupted notifier configuration recovery entry is present at %s; no value was read or changed.\n' \
+            "${recovery_file}" >&2
+        return 20
+    fi
+}
+
+runtime_env_link_exact_no_clobber() {
+    local source_path="$1"
+    local destination_path="$2"
+    local source_identity
+
+    [[ -f "${source_path}" && ! -L "${source_path}" ]] || return 1
+    [[ ! -e "${destination_path}" && ! -L "${destination_path}" ]] || return 1
+    source_identity="$(runtime_env_identity "${source_path}")" || return 1
+    ln -T -- "${source_path}" "${destination_path}" >/dev/null 2>&1 || return 1
+    [[ "$(runtime_env_identity "${destination_path}")" == "${source_identity}" ]]
+}
+
 runtime_env_publish_no_clobber() {
     local temporary_env="$1"
     local destination="$2"
@@ -88,7 +135,7 @@ runtime_env_publish_no_clobber() {
     [[ "$(dirname "${temporary_env}")" == "$(dirname "${destination}")" ]] || return 1
     [[ ! -e "${destination}" && ! -L "${destination}" ]] || return 1
     temporary_identity="$(runtime_env_identity "${temporary_env}")" || return 1
-    ln "${temporary_env}" "${destination}" || return 1
+    runtime_env_link_exact_no_clobber "${temporary_env}" "${destination}" || return 1
     published_identity="$(runtime_env_identity "${destination}")" || return 1
     if [[ "${published_identity}" != "${temporary_identity}" ]]; then
         return 1
@@ -129,9 +176,9 @@ runtime_env_replace_if_unchanged() {
         return 1
     fi
 
-    if ! ln "${replacement}" "${destination}"; then
+    if ! runtime_env_link_exact_no_clobber "${replacement}" "${destination}"; then
         if [[ -e "${destination}" || -L "${destination}" ]]; then
-            rm -f "${displaced}"
+            return 2
         else
             runtime_env_restore_no_clobber "${displaced}" "${destination}" || return 2
         fi
@@ -139,15 +186,14 @@ runtime_env_replace_if_unchanged() {
     fi
     if ! published_identity="$(runtime_env_identity "${destination}")"; then
         if [[ -e "${destination}" || -L "${destination}" ]]; then
-            rm -f "${displaced}"
+            return 2
         else
             runtime_env_restore_no_clobber "${displaced}" "${destination}" || return 2
         fi
         return 1
     fi
     if [[ "${published_identity}" != "${replacement_identity}" ]]; then
-        rm -f "${displaced}"
-        return 1
+        return 2
     fi
     rm -f "${replacement}" "${displaced}"
 }
@@ -158,12 +204,7 @@ runtime_env_move_no_clobber() {
 
     [[ -e "${source_path}" || -L "${source_path}" ]] || return 1
     [[ ! -e "${destination_path}" && ! -L "${destination_path}" ]] || return 1
-    if mv --help 2>&1 \
-        | grep -F -- '--no-target-directory' >/dev/null 2>&1; then
-        mv -T -n "${source_path}" "${destination_path}" >/dev/null 2>&1 || return 1
-    else
-        mv -n "${source_path}" "${destination_path}" >/dev/null 2>&1 || return 1
-    fi
+    mv -T -n "${source_path}" "${destination_path}" >/dev/null 2>&1 || return 1
     [[ ! -e "${source_path}" && ! -L "${source_path}" ]] || return 1
     [[ -e "${destination_path}" || -L "${destination_path}" ]]
 }
@@ -174,7 +215,7 @@ runtime_env_restore_no_clobber() {
 
     [[ -f "${displaced}" && ! -L "${displaced}" ]] || return 1
     [[ ! -e "${destination}" && ! -L "${destination}" ]] || return 1
-    ln "${displaced}" "${destination}" || return 1
+    runtime_env_link_exact_no_clobber "${displaced}" "${destination}" || return 1
     rm -f "${displaced}"
 }
 

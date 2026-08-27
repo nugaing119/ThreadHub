@@ -76,6 +76,72 @@ EOF
     chmod 0600 "${path}"
 }
 
+make_gnu_publication_fakes() {
+    local fake_bin="$1"
+
+    mkdir -p "${fake_bin}"
+    cat > "${fake_bin}/uname" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == -s ]] || exit 2
+printf '%s\n' Linux
+EOF
+    cat > "${fake_bin}/mv" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == --help ]]; then
+    printf '%s\n' '--no-target-directory --no-clobber'
+    exit 0
+fi
+if [[ "${1:-}" == -T ]]; then
+    shift
+fi
+exec "${THREADHUB_TEST_REAL_MV}" "$@"
+EOF
+    cat > "${fake_bin}/ln" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "${1:-}" == --help ]]; then
+    printf '%s\n' '--no-target-directory'
+    exit 0
+fi
+if [[ "${1:-}" == -T ]]; then
+    shift
+    [[ "${1:-}" == -- ]] && shift
+    destination="${@: -1}"
+    [[ ! -d "${destination}" && ! -L "${destination}" ]] || exit 1
+fi
+exec "${THREADHUB_TEST_REAL_LN}" "$@"
+EOF
+    chmod 0700 "${fake_bin}/uname" "${fake_bin}/mv" "${fake_bin}/ln"
+}
+
+notifier_test_exact_ln() {
+    local source_path
+    local destination_path
+
+    if [[ "${1:-}" == -T ]]; then
+        shift
+        [[ "${1:-}" == -- ]] && shift
+        source_path="$1"
+        destination_path="$2"
+        [[ ! -d "${destination_path}" && ! -L "${destination_path}" ]] || return 1
+        command ln "${source_path}" "${destination_path}"
+    else
+        command ln "$@"
+    fi
+}
+
+notifier_test_gnu_mv() {
+    if [[ "${1:-}" == --help ]]; then
+        printf '%s\n' '--no-target-directory --no-clobber'
+        return
+    fi
+    if [[ "${1:-}" == -T ]]; then
+        shift
+    fi
+    command mv "$@"
+}
+
 notifier_test_privileged() {
     local command_name="$1"
     shift
@@ -255,6 +321,8 @@ test_env_publication_never_clobbers_fresh_or_concurrent_sentinel() (
     sentinel="${fixture}/sentinel"
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    mv() { notifier_test_gnu_mv "$@"; }
+    ln() { notifier_test_exact_ln "$@"; }
     printf '%s\n' 'fresh-content' > "${temporary}"
     chmod 0600 "${temporary}"
     printf '%s\n' 'sentinel-content' > "${sentinel}"
@@ -281,6 +349,96 @@ test_env_publication_never_clobbers_fresh_or_concurrent_sentinel() (
         return 1
     fi
     [[ "${concurrent_hash}" == "$(file_hash "${destination}")" ]]
+)
+
+test_exact_target_links_reject_directory_races_without_nested_secrets() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=../scripts/common.sh
+    source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    mv() { notifier_test_gnu_mv "$@"; }
+
+    for operation in fresh publish restore; do
+        for target_kind in directory symlink_directory; do
+            case_dir="${fixture}/${operation}-${target_kind}"
+            destination="${case_dir}/runtime.env"
+            source_file="${case_dir}/source.env"
+            referent="${case_dir}/target-directory"
+            injected="${case_dir}/injected"
+            mkdir -p "${case_dir}"
+            write_runtime_env "${source_file}"
+            source_hash="$(file_hash "${source_file}")"
+            source_identity="$(runtime_env_identity "${source_file}")"
+            ln() {
+                local -a link_arguments=("$@")
+                local source_argument="${link_arguments[${#link_arguments[@]} - 2]}"
+                local destination_argument="${link_arguments[${#link_arguments[@]} - 1]}"
+                if [[ "${destination_argument}" == "${destination}" && ! -e "${injected}" ]]; then
+                    : > "${injected}"
+                    mkdir "${referent}"
+                    if [[ "${target_kind}" == directory ]]; then
+                        mkdir "${destination}"
+                    else
+                        command ln -s "${referent}" "${destination}"
+                    fi
+                fi
+                if [[ "${1:-}" == -T ]]; then
+                    [[ ! -d "${destination_argument}" && ! -L "${destination_argument}" ]] \
+                        || return 1
+                    command ln "${source_argument}" "${destination_argument}"
+                else
+                    command ln "$@"
+                fi
+            }
+
+            case "${operation}" in
+                fresh)
+                    if runtime_env_publish_no_clobber \
+                        "${source_file}" "${destination}" >/dev/null 2>&1; then
+                        return 1
+                    fi
+                    ;;
+                publish)
+                    original="${case_dir}/original.env"
+                    mv "${source_file}" "${original}"
+                    cp "${original}" "${source_file}"
+                    printf '%s\n' 'NOTIFIER_ENABLED=true' >> "${source_file}"
+                    chmod 0600 "${source_file}"
+                    source_hash="$(file_hash "${source_file}")"
+                    source_identity="$(runtime_env_identity "${source_file}")"
+                    original_hash="$(file_hash "${original}")"
+                    original_identity="$(runtime_env_identity "${original}")"
+                    mv "${original}" "${destination}"
+                    if runtime_env_replace_if_unchanged \
+                        "${source_file}" "${destination}" \
+                        "${original_identity}" "${original_hash}" >/dev/null 2>&1; then
+                        return 1
+                    fi
+                    [[ "$(file_hash "${destination}.configure-displaced")" \
+                        == "${original_hash}" ]] || return 1
+                    ;;
+                restore)
+                    mv "${source_file}" "${destination}.configure-displaced"
+                    if runtime_env_restore_no_clobber \
+                        "${destination}.configure-displaced" "${destination}" \
+                        >/dev/null 2>&1; then
+                        return 1
+                    fi
+                    source_file="${destination}.configure-displaced"
+                    ;;
+            esac
+
+            [[ "$(file_hash "${source_file}")" == "${source_hash}" ]] || return 1
+            [[ "$(runtime_env_identity "${source_file}")" == "${source_identity}" ]] \
+                || return 1
+            if [[ "${target_kind}" == directory ]]; then
+                [[ -d "${destination}" && ! -L "${destination}" ]] || return 1
+            else
+                [[ -L "${destination}" && -d "${destination}" ]] || return 1
+            fi
+            [[ -z "$(find "${referent}" -mindepth 1 -print -quit)" ]] || return 1
+        done
+    done
 )
 
 test_noninteractive_smtp_handoff_wins_even_with_tty() (
@@ -357,6 +515,7 @@ test_setup_wizard_resume_initializes_docker_before_valid_smtp_marker() (
 
     cat >> "${fixture_scripts}/common.sh" <<'EOF'
 require_ubuntu_amd64() { :; }
+runtime_env_require_atomic_tools() { :; }
 wizard_test_privileged() {
     local argument
     local -a mapped=()
@@ -439,6 +598,94 @@ EOF
     grep -F 'threadhub-mailer config-fingerprint --json' "${docker_trace}" >/dev/null
 )
 
+test_setup_wizard_stops_on_recovery_before_env_branch_or_external_work() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+
+    for env_state in present absent; do
+        case_dir="${fixture}/${env_state}"
+        fixture_deploy="${case_dir}/deploy"
+        fixture_scripts="${fixture_deploy}/scripts"
+        fake_bin="${case_dir}/bin"
+        env_file="${fixture_deploy}/runtime.env"
+        recovery_file="${env_file}.configure-displaced"
+        recovery_referent="${case_dir}/recovery-referent"
+        recovery_sentinel="${recovery_referent}/sentinel"
+        output="${case_dir}/output"
+        external_trace="${case_dir}/external.trace"
+        mkdir -p "${fixture_scripts}" "${fake_bin}" "${recovery_referent}"
+        cp "${TEST_DEPLOY_DIR}/scripts/setup-wizard.sh" \
+            "${TEST_DEPLOY_DIR}/scripts/common.sh" \
+            "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh" \
+            "${fixture_scripts}/"
+        cp "${TEST_DEPLOY_DIR}/versions.env" "${fixture_deploy}/versions.env"
+        : > "${fixture_deploy}/docker-compose.yml"
+        builtin printf '%s\n' 'recovery-content-must-not-be-disclosed' \
+            > "${recovery_sentinel}"
+        recovery_hash="$(file_hash "${recovery_sentinel}")"
+        if [[ "${env_state}" == present ]]; then
+            write_runtime_env "${env_file}"
+            env_hash="$(file_hash "${env_file}")"
+            ln -s "${recovery_referent}" "${recovery_file}"
+        else
+            mkdir "${recovery_file}"
+        fi
+
+        cat >> "${fixture_scripts}/common.sh" <<'EOF'
+require_ubuntu_amd64() { :; }
+init_sudo() { SUDO_COMMAND=(); }
+runtime_env_require_atomic_tools() { :; }
+EOF
+        cat > "${fake_bin}/docker" <<'EOF'
+#!/usr/bin/env bash
+: > "${WIZARD_TEST_EXTERNAL_TRACE}"
+exit 99
+EOF
+        cat > "${fake_bin}/getent" <<'EOF'
+#!/usr/bin/env bash
+: > "${WIZARD_TEST_EXTERNAL_TRACE}"
+exit 99
+EOF
+        chmod 0700 "${fake_bin}/docker" "${fake_bin}/getent"
+        for child in \
+            install-docker.sh deploy.sh configure-nginx.sh reload-nginx.sh \
+            notifier-control.sh readiness-check.sh install-status.sh \
+            notifier-smtp-test.sh; do
+            cat > "${fixture_scripts}/${child}" <<'EOF'
+#!/usr/bin/env bash
+: > "${WIZARD_TEST_EXTERNAL_TRACE}"
+exit 99
+EOF
+            chmod 0700 "${fixture_scripts}/${child}"
+        done
+
+        set +e
+        PATH="${fake_bin}:${PATH}" \
+            THREADHUB_ENV_FILE="${env_file}" \
+            THREADHUB_VERSIONS_FILE="${fixture_deploy}/versions.env" \
+            WIZARD_TEST_EXTERNAL_TRACE="${external_trace}" \
+            "${fixture_scripts}/setup-wizard.sh" --resume --non-interactive \
+                > "${output}" 2>&1
+        result=$?
+        set -e
+
+        [[ "${result}" == 20 ]] || return 1
+        grep -F '[ACTION REQUIRED] An interrupted notifier configuration recovery entry is present at' \
+            "${output}" >/dev/null || return 1
+        ! grep -F 'recovery-content-must-not-be-disclosed' "${output}" >/dev/null \
+            || return 1
+        [[ ! -e "${external_trace}" ]] || return 1
+        [[ "${recovery_hash}" == "$(file_hash "${recovery_sentinel}")" ]] \
+            || return 1
+        if [[ "${env_state}" == present ]]; then
+            [[ "${env_hash}" == "$(file_hash "${env_file}")" ]] || return 1
+            [[ -L "${recovery_file}" ]] || return 1
+        else
+            [[ ! -e "${env_file}" && -d "${recovery_file}" ]] || return 1
+        fi
+    done
+)
+
 test_configure_commit_boundary_preserves_concurrent_sentinel() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -447,23 +694,30 @@ test_configure_commit_boundary_preserves_concurrent_sentinel() (
     output="${fixture}/output"
     injected="${fixture}/injected"
     real_mv="$(command -v mv)"
-    mkdir "${fake_bin}"
+    real_ln="$(command -v ln)"
+    make_gnu_publication_fakes "${fake_bin}"
     write_runtime_env "${env_file}"
     sed -i.bak '/^NOTIFIER_/d' "${env_file}"
     rm -f "${env_file}.bak"
-    cat > "${fake_bin}/mv" <<'EOF'
+cat > "${fake_bin}/mv" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
+if [[ "${1:-}" == --help ]]; then
+    printf '%s\n' '--no-target-directory --no-clobber'
+    exit 0
+fi
+translated=()
 for argument in "$@"; do
+    [[ "${argument}" == -T ]] && continue
+    translated+=("${argument}")
     if [[ "${argument}" == "${THREADHUB_TEST_RACE_TARGET}" && ! -e "${THREADHUB_TEST_RACE_INJECTED}" ]]; then
         : > "${THREADHUB_TEST_RACE_INJECTED}"
         rm -f "${THREADHUB_TEST_RACE_TARGET}"
         builtin printf '%s\n' 'concurrent-sentinel-at-commit-boundary' > "${THREADHUB_TEST_RACE_TARGET}"
         chmod 0600 "${THREADHUB_TEST_RACE_TARGET}"
-        break
     fi
 done
-exec "${THREADHUB_TEST_REAL_MV}" "$@"
+exec "${THREADHUB_TEST_REAL_MV}" "${translated[@]}"
 EOF
     chmod 0700 "${fake_bin}/mv"
 
@@ -473,6 +727,7 @@ EOF
         THREADHUB_TEST_RACE_TARGET="${env_file}" \
         THREADHUB_TEST_RACE_INJECTED="${injected}" \
         THREADHUB_TEST_REAL_MV="${real_mv}" \
+        THREADHUB_TEST_REAL_LN="${real_ln}" \
         "${TEST_DEPLOY_DIR}/scripts/configure-notifier.sh" > "${output}" 2>&1
     result=$?
     set -e
@@ -493,6 +748,7 @@ test_env_publication_preserves_target_when_no_clobber_publish_loses_race() (
     original_identity=
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    mv() { notifier_test_gnu_mv "$@"; }
     write_runtime_env "${destination}"
     original_identity="$(runtime_env_identity "${destination}")"
     original_hash="$(file_hash "${destination}")"
@@ -500,11 +756,15 @@ test_env_publication_preserves_target_when_no_clobber_publish_loses_race() (
     printf '%s\n' 'NOTIFIER_ENABLED=true' >> "${replacement}"
     chmod 0600 "${replacement}"
     ln() {
-        if [[ "$1" == "${replacement}" && "$2" == "${destination}" ]]; then
+        local -a link_arguments=("$@")
+        local source_argument="${link_arguments[${#link_arguments[@]} - 2]}"
+        local destination_argument="${link_arguments[${#link_arguments[@]} - 1]}"
+        if [[ "${source_argument}" == "${replacement}" \
+            && "${destination_argument}" == "${destination}" ]]; then
             builtin printf '%s\n' 'publish-race-sentinel' > "${destination}"
             chmod 0600 "${destination}"
         fi
-        command ln "$@"
+        notifier_test_exact_ln "$@"
     }
 
     if runtime_env_replace_if_unchanged \
@@ -513,7 +773,12 @@ test_env_publication_preserves_target_when_no_clobber_publish_loses_race() (
         return 1
     fi
     [[ "$(<"${destination}")" == 'publish-race-sentinel' ]] || return 1
-    [[ -z "$(find "${fixture}" -name '*.configure-displaced*' -print -quit)" ]]
+    [[ -f "${destination}.configure-displaced" ]] || return 1
+    [[ "$(file_hash "${destination}.configure-displaced")" == "${original_hash}" ]] \
+        || return 1
+    [[ "$(runtime_env_identity "${destination}.configure-displaced")" \
+        == "${original_identity}" ]] || return 1
+    [[ "$(portable_mode "${destination}.configure-displaced")" == 600 ]]
 )
 
 test_env_mismatch_recovery_never_overwrites_a_newer_target() (
@@ -524,6 +789,7 @@ test_env_mismatch_recovery_never_overwrites_a_newer_target() (
     injected="${fixture}/injected"
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    ln() { notifier_test_exact_ln "$@"; }
     write_runtime_env "${destination}"
     original_identity="$(runtime_env_identity "${destination}")"
     original_hash="$(file_hash "${destination}")"
@@ -545,7 +811,7 @@ test_env_mismatch_recovery_never_overwrites_a_newer_target() (
             builtin printf '%s\n' 'boundary-mismatch-sentinel' > "${destination}"
             chmod 0600 "${destination}"
         fi
-        command mv "$@"
+        notifier_test_gnu_mv "$@"
         move_result=$?
         if [[ "${inject}" == true ]]; then
             builtin printf '%s\n' 'newer-target-after-displacement' > "${destination}"
@@ -570,6 +836,7 @@ test_env_publication_preserves_replacement_after_successful_link_boundary() (
     replacement="${fixture}/replacement.tmp"
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    mv() { notifier_test_gnu_mv "$@"; }
     write_runtime_env "${destination}"
     original_identity="$(runtime_env_identity "${destination}")"
     original_hash="$(file_hash "${destination}")"
@@ -577,8 +844,12 @@ test_env_publication_preserves_replacement_after_successful_link_boundary() (
     printf '%s\n' 'NOTIFIER_ENABLED=true' >> "${replacement}"
     chmod 0600 "${replacement}"
     ln() {
-        command ln "$@" || return
-        if [[ "$1" == "${replacement}" && "$2" == "${destination}" ]]; then
+        local -a link_arguments=("$@")
+        local source_argument="${link_arguments[${#link_arguments[@]} - 2]}"
+        local destination_argument="${link_arguments[${#link_arguments[@]} - 1]}"
+        notifier_test_exact_ln "$@" || return
+        if [[ "${source_argument}" == "${replacement}" \
+            && "${destination_argument}" == "${destination}" ]]; then
             rm -f "${destination}"
             builtin printf '%s\n' 'post-publish-concurrent-target' > "${destination}"
             chmod 0600 "${destination}"
@@ -591,7 +862,12 @@ test_env_publication_preserves_replacement_after_successful_link_boundary() (
         return 1
     fi
     [[ "$(<"${destination}")" == 'post-publish-concurrent-target' ]] || return 1
-    [[ -z "$(find "${fixture}" -name '*.configure-displaced*' -print -quit)" ]]
+    [[ -f "${destination}.configure-displaced" ]] || return 1
+    [[ "$(file_hash "${destination}.configure-displaced")" == "${original_hash}" ]] \
+        || return 1
+    [[ "$(runtime_env_identity "${destination}.configure-displaced")" \
+        == "${original_identity}" ]] || return 1
+    [[ "$(portable_mode "${destination}.configure-displaced")" == 600 ]]
 )
 
 test_env_publication_restores_original_after_post_link_delete() (
@@ -601,6 +877,7 @@ test_env_publication_restores_original_after_post_link_delete() (
     replacement="${fixture}/replacement.tmp"
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    mv() { notifier_test_gnu_mv "$@"; }
     write_runtime_env "${destination}"
     original_identity="$(runtime_env_identity "${destination}")"
     original_hash="$(file_hash "${destination}")"
@@ -608,8 +885,12 @@ test_env_publication_restores_original_after_post_link_delete() (
     printf '%s\n' 'NOTIFIER_ENABLED=true' >> "${replacement}"
     chmod 0600 "${replacement}"
     ln() {
-        command ln "$@" || return
-        if [[ "$1" == "${replacement}" && "$2" == "${destination}" ]]; then
+        local -a link_arguments=("$@")
+        local source_argument="${link_arguments[${#link_arguments[@]} - 2]}"
+        local destination_argument="${link_arguments[${#link_arguments[@]} - 1]}"
+        notifier_test_exact_ln "$@" || return
+        if [[ "${source_argument}" == "${replacement}" \
+            && "${destination_argument}" == "${destination}" ]]; then
             rm -f "${destination}"
         fi
     }
@@ -631,6 +912,8 @@ test_env_publication_success_cleans_replacement_and_displaced_state() (
     replacement="${fixture}/replacement.tmp"
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    mv() { notifier_test_gnu_mv "$@"; }
+    ln() { notifier_test_exact_ln "$@"; }
     write_runtime_env "${destination}"
     original_identity="$(runtime_env_identity "${destination}")"
     original_hash="$(file_hash "${destination}")"
@@ -649,9 +932,12 @@ test_env_publication_success_cleans_replacement_and_displaced_state() (
 test_configure_refuses_interrupted_recovery_without_disclosure() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
+    fake_bin="${fixture}/bin"
     env_file="${fixture}/runtime.env"
     recovery_file="${env_file}.configure-displaced"
     output="${fixture}/output"
+    real_mv="$(command -v mv)"
+    real_ln="$(command -v ln)"
     write_runtime_env "${env_file}"
     sed -i.bak '/^NOTIFIER_/d' "${env_file}"
     rm -f "${env_file}.bak"
@@ -659,9 +945,13 @@ test_configure_refuses_interrupted_recovery_without_disclosure() (
     builtin printf '%s\n' 'interrupted-recovery-sentinel' > "${recovery_file}"
     chmod 0600 "${recovery_file}"
     recovery_hash="$(file_hash "${recovery_file}")"
+    make_gnu_publication_fakes "${fake_bin}"
 
     set +e
-    THREADHUB_ENV_FILE="${env_file}" \
+    PATH="${fake_bin}:${PATH}" \
+        THREADHUB_ENV_FILE="${env_file}" \
+        THREADHUB_TEST_REAL_MV="${real_mv}" \
+        THREADHUB_TEST_REAL_LN="${real_ln}" \
         "${TEST_DEPLOY_DIR}/scripts/configure-notifier.sh" > "${output}" 2>&1
     result=$?
     set -e
@@ -669,8 +959,42 @@ test_configure_refuses_interrupted_recovery_without_disclosure() (
     [[ "${result}" == 20 ]] || return 1
     [[ "${env_hash}" == "$(file_hash "${env_file}")" ]] || return 1
     [[ "${recovery_hash}" == "$(file_hash "${recovery_file}")" ]] || return 1
-    grep -F '[ACTION REQUIRED]' "${output}" >/dev/null || return 1
+    grep -F '[ACTION REQUIRED] An interrupted notifier configuration recovery entry is present at' \
+        "${output}" >/dev/null || return 1
     ! grep -F 'interrupted-recovery-sentinel' "${output}" >/dev/null
+)
+
+test_configure_refuses_non_linux_publication_tools_before_mutation() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    fake_bin="${fixture}/bin"
+    env_file="${fixture}/runtime.env"
+    output="${fixture}/output"
+    mkdir "${fake_bin}"
+    cat > "${fake_bin}/uname" <<'EOF'
+#!/usr/bin/env bash
+[[ "${1:-}" == -s ]] || exit 2
+printf '%s\n' Darwin
+EOF
+    chmod 0700 "${fake_bin}/uname"
+    write_runtime_env "${env_file}"
+    sed -i.bak '/^NOTIFIER_/d' "${env_file}"
+    rm -f "${env_file}.bak"
+    env_hash="$(file_hash "${env_file}")"
+    env_mode="$(portable_mode "${env_file}")"
+
+    set +e
+    PATH="${fake_bin}:${PATH}" THREADHUB_ENV_FILE="${env_file}" \
+        "${TEST_DEPLOY_DIR}/scripts/configure-notifier.sh" > "${output}" 2>&1
+    result=$?
+    set -e
+
+    [[ "${result}" == 20 ]] || return 1
+    [[ "${env_hash}" == "$(file_hash "${env_file}")" ]] || return 1
+    [[ "${env_mode}" == "$(portable_mode "${env_file}")" ]] || return 1
+    [[ "$(grep -c '^NOTIFIER_' "${env_file}")" == 0 ]] || return 1
+    grep -F '[ACTION REQUIRED] Atomic runtime environment publication requires Ubuntu GNU Coreutils.' \
+        "${output}" >/dev/null
 )
 
 run_test \
@@ -686,11 +1010,17 @@ run_test \
     'fresh and configured env publication preserves concurrent sentinels' \
     test_env_publication_never_clobbers_fresh_or_concurrent_sentinel
 run_test \
+    'exact-target links reject directory races without nested secret links' \
+    test_exact_target_links_reject_directory_races_without_nested_secrets
+run_test \
     'non-interactive SMTP handoff wins even when stdin is a TTY' \
     test_noninteractive_smtp_handoff_wins_even_with_tty
 run_test \
     'setup wizard initializes Docker before checking a valid SMTP marker' \
     test_setup_wizard_resume_initializes_docker_before_valid_smtp_marker
+run_test \
+    'setup wizard stops on recovery before env branching or external work' \
+    test_setup_wizard_stops_on_recovery_before_env_branch_or_external_work
 run_test \
     'configure preserves a concurrent sentinel injected at the commit boundary' \
     test_configure_commit_boundary_preserves_concurrent_sentinel
@@ -712,5 +1042,8 @@ run_test \
 run_test \
     'configure refuses interrupted recovery state without disclosure' \
     test_configure_refuses_interrupted_recovery_without_disclosure
+run_test \
+    'configure refuses non-Linux publication tools before mutation' \
+    test_configure_refuses_non_linux_publication_tools_before_mutation
 
 ((failures == 0))
