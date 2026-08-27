@@ -48,6 +48,13 @@ cd ThreadHub
 
 마법사는 실제 `.env` 값을 출력하지 않습니다.
 
+`deploy/.env`의 신규 생성과 notifier 설정 추가는 같은 파일시스템 안에서
+no-clobber 이동과 hard link로 게시됩니다. Ubuntu 24.04 기본 GNU Coreutils의
+`mv -T -n`과 `ln`을 사용하며, `validate.sh`가 이 전제를 확인합니다. 설정 도중
+중단되어 `.env.configure-displaced` recovery 파일이 남으면 설치기는 값을
+출력하거나 임의로 덮지 않고 `[ACTION REQUIRED]`로 중단합니다. recovery 파일을
+삭제하지 말고 로컬 관리자에게 원본/현재 파일 복구 판단을 요청합니다.
+
 ## 4. 외부 작업 후 재개
 
 DNS 등의 외부 조건이 준비되지 않으면 설치된 컨테이너와 데이터는 유지되고

@@ -101,13 +101,81 @@ runtime_env_replace_if_unchanged() {
     local destination="$2"
     local expected_identity="$3"
     local expected_hash="$4"
+    local displaced="${destination}.configure-displaced"
+    local replacement_identity
+    local published_identity
 
     [[ -f "${replacement}" && ! -L "${replacement}" ]] || return 1
     [[ "$(runtime_env_mode "${replacement}")" == 600 ]] || return 1
+    [[ "$(dirname "${replacement}")" == "$(dirname "${destination}")" ]] || return 1
+    [[ ! -e "${displaced}" && ! -L "${displaced}" ]] || return 2
     runtime_env_require_secure "${destination}" >/dev/null 2>&1 || return 1
     [[ "$(runtime_env_identity "${destination}")" == "${expected_identity}" ]] || return 1
     [[ "$(sha256_file "${destination}")" == "${expected_hash}" ]] || return 1
-    mv -f "${replacement}" "${destination}"
+    replacement_identity="$(runtime_env_identity "${replacement}")" || return 1
+
+    runtime_env_move_no_clobber "${destination}" "${displaced}" || return 1
+    if ! runtime_env_require_secure "${displaced}" >/dev/null 2>&1 \
+        || [[ "$(runtime_env_identity "${displaced}")" != "${expected_identity}" ]] \
+        || [[ "$(sha256_file "${displaced}")" != "${expected_hash}" ]]; then
+        runtime_env_restore_no_clobber "${displaced}" "${destination}" || return 2
+        return 1
+    fi
+
+    if [[ ! -f "${replacement}" || -L "${replacement}" ]] \
+        || [[ "$(runtime_env_mode "${replacement}")" != 600 ]] \
+        || [[ "$(runtime_env_identity "${replacement}")" != "${replacement_identity}" ]]; then
+        runtime_env_restore_no_clobber "${displaced}" "${destination}" || return 2
+        return 1
+    fi
+
+    if ! ln "${replacement}" "${destination}"; then
+        if [[ -e "${destination}" || -L "${destination}" ]]; then
+            rm -f "${displaced}"
+        else
+            runtime_env_restore_no_clobber "${displaced}" "${destination}" || return 2
+        fi
+        return 1
+    fi
+    if ! published_identity="$(runtime_env_identity "${destination}")"; then
+        if [[ -e "${destination}" || -L "${destination}" ]]; then
+            rm -f "${displaced}"
+        else
+            runtime_env_restore_no_clobber "${displaced}" "${destination}" || return 2
+        fi
+        return 1
+    fi
+    if [[ "${published_identity}" != "${replacement_identity}" ]]; then
+        rm -f "${displaced}"
+        return 1
+    fi
+    rm -f "${replacement}" "${displaced}"
+}
+
+runtime_env_move_no_clobber() {
+    local source_path="$1"
+    local destination_path="$2"
+
+    [[ -e "${source_path}" || -L "${source_path}" ]] || return 1
+    [[ ! -e "${destination_path}" && ! -L "${destination_path}" ]] || return 1
+    if mv --help 2>&1 \
+        | grep -F -- '--no-target-directory' >/dev/null 2>&1; then
+        mv -T -n "${source_path}" "${destination_path}" >/dev/null 2>&1 || return 1
+    else
+        mv -n "${source_path}" "${destination_path}" >/dev/null 2>&1 || return 1
+    fi
+    [[ ! -e "${source_path}" && ! -L "${source_path}" ]] || return 1
+    [[ -e "${destination_path}" || -L "${destination_path}" ]]
+}
+
+runtime_env_restore_no_clobber() {
+    local displaced="$1"
+    local destination="$2"
+
+    [[ -f "${displaced}" && ! -L "${displaced}" ]] || return 1
+    [[ ! -e "${destination}" && ! -L "${destination}" ]] || return 1
+    ln "${displaced}" "${destination}" || return 1
+    rm -f "${displaced}"
 }
 
 env_value() {

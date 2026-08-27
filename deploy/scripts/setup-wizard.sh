@@ -61,6 +61,8 @@ require_ubuntu_amd64
 init_sudo
 require_command openssl
 require_command stat
+require_command mv
+require_command ln
 
 prompt_required() {
     local variable_name="$1"
@@ -300,10 +302,12 @@ fi
 target_notifier_enabled="$(env_value NOTIFIER_ENABLED "${ENV_FILE}")"
 data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
 smtp_marker="${data_root}/notifier/control/smtp-acceptance.json"
-if [[ "${target_notifier_enabled}" == true ]] \
-    && ! notifier_smtp_marker_is_current "${smtp_marker}"; then
-    notifier_require_smtp_handoff "${non_interactive}"
-    "${SCRIPT_DIR}/notifier-smtp-test.sh"
+if [[ "${target_notifier_enabled}" == true ]]; then
+    init_docker
+    if ! notifier_smtp_marker_is_current "${smtp_marker}"; then
+        notifier_require_smtp_handoff "${non_interactive}"
+        "${SCRIPT_DIR}/notifier-smtp-test.sh"
+    fi
 fi
 "${SCRIPT_DIR}/notifier-control.sh" activate --from-env
 "${SCRIPT_DIR}/readiness-check.sh"

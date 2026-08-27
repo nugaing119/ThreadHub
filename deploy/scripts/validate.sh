@@ -313,6 +313,42 @@ require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
 
+require_command mv
+require_command ln
+if [[ "$(uname -s)" == Linux ]]; then
+    mv --help 2>&1 | grep -F -- '--no-target-directory' >/dev/null \
+        || die "Target mv must support GNU --no-target-directory for atomic env publication"
+    mv --help 2>&1 | grep -F -- '--no-clobber' >/dev/null \
+        || die "Target mv must support GNU --no-clobber for atomic env publication"
+    publication_fixture="${validation_tmp_dir}/env-publication"
+    mkdir -m 0700 "${publication_fixture}"
+    printf '%s\n' 'replacement' > "${publication_fixture}/source"
+    printf '%s\n' 'concurrent-target' > "${publication_fixture}/destination"
+    set +e
+    mv -T -n \
+        "${publication_fixture}/source" "${publication_fixture}/destination" \
+        >/dev/null 2>&1
+    set -e
+    [[ "$(<"${publication_fixture}/source")" == replacement ]] \
+        || die "GNU mv -T -n must preserve its source when the target exists"
+    [[ "$(<"${publication_fixture}/destination")" == concurrent-target ]] \
+        || die "GNU mv -T -n overwrote a concurrent target"
+    rm -f "${publication_fixture}/destination"
+    mv -T -n \
+        "${publication_fixture}/source" "${publication_fixture}/destination"
+    [[ ! -e "${publication_fixture}/source" ]] \
+        || die "GNU mv -T -n did not move into an absent target"
+    [[ "$(<"${publication_fixture}/destination")" == replacement ]] \
+        || die "GNU mv -T -n published unexpected content"
+    ln "${publication_fixture}/destination" "${publication_fixture}/linked"
+    [[ "$(stat -c '%d:%i' "${publication_fixture}/destination")" \
+        == "$(stat -c '%d:%i' "${publication_fixture}/linked")" ]] \
+        || die "Target ln must create a same-filesystem hard link"
+fi
+log "Target env publication tools provide no-clobber move and hard-link primitives"
+grep -F 'GNU Coreutils' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
+    || die "Quick-install guide must document atomic env publication prerequisites"
+
 if grep -F '[READY]' "${SCRIPT_DIR}/setup-wizard.sh" >/dev/null; then
     die "The setup wizard must delegate the final READY verdict to install-status.sh"
 fi

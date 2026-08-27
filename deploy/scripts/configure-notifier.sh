@@ -10,6 +10,15 @@ source "${SCRIPT_DIR}/notifier-lib.sh"
 
 [[ "$#" -eq 0 ]] || die "Usage: $0"
 require_command openssl
+require_command stat
+require_command mv
+require_command ln
+recovery_file="${ENV_FILE}.configure-displaced"
+if [[ -e "${recovery_file}" || -L "${recovery_file}" ]]; then
+    printf '[ACTION REQUIRED] An interrupted notifier configuration recovery file is present at %s; no value was read or changed.\n' \
+        "${recovery_file}" >&2
+    exit 20
+fi
 if [[ ! -e "${ENV_FILE}" && ! -L "${ENV_FILE}" ]]; then
     printf '[ACTION REQUIRED] Create %s with ./deploy/scripts/setup-wizard.sh --configure-only\n' \
         "${ENV_FILE}" >&2
@@ -64,9 +73,18 @@ case "$(notifier_env_key_state "${ENV_FILE}")" in
         ENV_FILE="${temporary_env}"
         validate_runtime_env
         ENV_FILE="${original_env_file}"
-        if ! runtime_env_replace_if_unchanged \
-            "${temporary_env}" "${ENV_FILE}" "${original_identity}" "${original_hash}"; then
-            printf '[ACTION REQUIRED] Runtime environment changed during notifier configuration; it was not overwritten.\n' >&2
+        set +e
+        runtime_env_replace_if_unchanged \
+            "${temporary_env}" "${ENV_FILE}" "${original_identity}" "${original_hash}"
+        replace_result=$?
+        set -e
+        if ((replace_result != 0)); then
+            if [[ -e "${recovery_file}" || -L "${recovery_file}" ]]; then
+                printf '[ACTION REQUIRED] Runtime environment recovery could not complete; protected state remains at %s and no value was overwritten.\n' \
+                    "${recovery_file}" >&2
+            else
+                printf '[ACTION REQUIRED] Runtime environment changed during notifier configuration; it was not overwritten.\n' >&2
+            fi
             exit 20
         fi
         temporary_env=
