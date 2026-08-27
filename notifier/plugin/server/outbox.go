@@ -2,11 +2,13 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strings"
+	"time"
 
 	"github.com/mattermost/mattermost/server/public/model"
 )
@@ -17,6 +19,14 @@ const (
 )
 
 var ErrMalformedOutbox = errors.New("malformed outbox event")
+
+type malformedOutboxError struct {
+	stored StoredEvent
+}
+
+func (e *malformedOutboxError) Error() string { return ErrMalformedOutbox.Error() }
+
+func (e *malformedOutboxError) Unwrap() error { return ErrMalformedOutbox }
 
 type MattermostAPI interface {
 	GetChannel(channelID string) (*model.Channel, *model.AppError)
@@ -85,7 +95,7 @@ func (o *Outbox) List() ([]StoredEvent, error) {
 			}
 			event, err := decodeOutboxEvent(key, raw)
 			if err != nil {
-				return events, ErrMalformedOutbox
+				return events, &malformedOutboxError{stored: StoredEvent{Key: key, Raw: raw}}
 			}
 			events = append(events, StoredEvent{Key: key, Raw: raw, Event: event})
 		}
@@ -93,6 +103,23 @@ func (o *Outbox) List() ([]StoredEvent, error) {
 			return events, nil
 		}
 	}
+}
+
+func (o *Outbox) Quarantine(stored StoredEvent, at time.Time) error {
+	type deadLetter struct {
+		ErrorClass    string `json:"error_class"`
+		QuarantinedAt int64  `json:"quarantined_at"`
+	}
+	raw, err := json.Marshal(deadLetter{ErrorClass: "malformed_outbox", QuarantinedAt: at.UnixMilli()})
+	if err != nil {
+		return errors.New("dead letter encoding failed")
+	}
+	hash := sha256.Sum256([]byte(stored.Key))
+	deadKey := fmt.Sprintf("dead:%x", hash[:])
+	if _, appErr := o.api.KVSetWithOptions(deadKey, raw, model.PluginKVSetOptions{Atomic: true, OldValue: nil}); appErr != nil {
+		return appError("dead letter write failed", appErr)
+	}
+	return o.Complete(stored)
 }
 
 func decodeOutboxEvent(key string, raw []byte) (OutboxEvent, error) {

@@ -86,6 +86,7 @@ func TestOutboxCompleteUsesExactOriginalRawBytesForCASDelete(t *testing.T) {
 	api := newFakeMattermostAPI()
 	raw := []byte("{\n\t\"post_id\":\"" + testPostID + "\",\"channel_id\":\"" + testChannelID + "\",\"author_user_id\":\"" + testAuthorID + "\",\"create_at\":100\n}")
 	event := OutboxEvent{PostID: testPostID, ChannelID: testChannelID, AuthorUserID: testAuthorID, CreateAt: 100}
+	api.values["outbox:"+testPostID] = append([]byte(nil), raw...)
 	if err := NewOutbox(api).Complete(StoredEvent{Key: "outbox:" + testPostID, Raw: raw, Event: event}); err != nil {
 		t.Fatalf("Complete() error = %v", err)
 	}
@@ -100,6 +101,7 @@ type fakeMattermostAPI struct {
 	setKeys    []string
 	setOptions []model.PluginKVSetOptions
 	listCalls  []int
+	deletedKey string
 	deletedRaw []byte
 	setErr     *model.AppError
 }
@@ -135,7 +137,13 @@ func (f *fakeMattermostAPI) KVList(page, perPage int) ([]string, *model.AppError
 	f.listCalls = append(f.listCalls, page)
 	return append([]string(nil), f.pages[page]...), nil
 }
-func (f *fakeMattermostAPI) KVCompareAndDelete(_ string, value []byte) (bool, *model.AppError) {
+func (f *fakeMattermostAPI) KVCompareAndDelete(key string, value []byte) (bool, *model.AppError) {
+	current, exists := f.values[key]
+	if !exists || !bytes.Equal(current, value) {
+		return false, nil
+	}
+	delete(f.values, key)
+	f.deletedKey = key
 	f.deletedRaw = append([]byte(nil), value...)
 	return true, nil
 }
