@@ -49,16 +49,21 @@ jobs:
         run: ./deploy/scripts/validate.sh
 
       - name: Run ShellCheck
-        run: shellcheck -x -P deploy/scripts deploy/scripts/*.sh
+        run: shellcheck -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh
+
+      - name: Test notifier installer gates
+        run: ./deploy/tests/notifier-installer-test.sh
 
       - name: Exercise guided configuration and unattended handoff
         shell: bash
         run: |
           set -Eeuo pipefail
-          trap 'rm -f deploy/.env' EXIT
+          trap 'rm -f deploy/.env /tmp/wizard-configure-output /tmp/wizard-existing-output' EXIT
 
           expect <<'EOF'
           set timeout 30
+          log_user 0
+          log_file -noappend /tmp/wizard-configure-output
           spawn ./deploy/scripts/setup-wizard.sh --configure-only
           expect "ThreadHub public domain: "
           send "threadhub-ci.test.net\r"
@@ -82,7 +87,36 @@ jobs:
           EOF
 
           test "$(stat -c '%a' deploy/.env)" = 600
+          test "$(awk -F= '$1 == "NOTIFIER_ENABLED" { print $2 }' deploy/.env)" = true
+          test "$(awk -F= '$1 == "NOTIFIER_MODE" { print $2 }' deploy/.env)" = all_channels
+          test -z "$(awk -F= '$1 == "NOTIFIER_CHANNEL_IDS" { print $2 }' deploy/.env)"
+          test "$(awk -F= '$1 == "NOTIFIER_RATE_PER_MINUTE" { print $2 }' deploy/.env)" = 10
+          notifier_hmac="$(awk -F= '$1 == "NOTIFIER_HMAC_SECRET" { gsub(/\047/, "", $2); print $2 }' deploy/.env)"
+          test "${#notifier_hmac}" -eq 64
+          test -z "${notifier_hmac//[0-9a-f]/}"
+          ! grep -F -- "${notifier_hmac}" /tmp/wizard-configure-output
+          ! grep -F -- 'fixture_smtp_password' /tmp/wizard-configure-output
           ./deploy/scripts/deploy.sh --validate-only
+
+          sed -i '/^NOTIFIER_/d' deploy/.env
+          set +e
+          ./deploy/scripts/setup-wizard.sh --non-interactive \
+            >/tmp/wizard-existing-output 2>&1
+          existing_status=$?
+          set -e
+          test "${existing_status}" -eq 20
+          grep -Fx '[ACTION REQUIRED] Run ./deploy/scripts/configure-notifier.sh' \
+            /tmp/wizard-existing-output >/dev/null
+
+          printf '%s\n' 'NOTIFIER_ENABLED=true' >>deploy/.env
+          set +e
+          ./deploy/scripts/setup-wizard.sh --non-interactive \
+            >/tmp/wizard-existing-output 2>&1
+          partial_status=$?
+          set -e
+          test "${partial_status}" -eq 20
+          grep -F '[ACTION REQUIRED] Notifier configuration is partial;' \
+            /tmp/wizard-existing-output >/dev/null
           rm -f deploy/.env
 
           set +e

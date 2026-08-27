@@ -63,7 +63,7 @@ fi
 
 if command -v docker >/dev/null 2>&1; then
     if "${SCRIPT_DIR}/health-check.sh" >/dev/null 2>&1; then
-        ok "Mattermost and PostgreSQL container health and persistence checks"
+        ok "PostgreSQL, Mattermost and notifier Mailer health, isolation and persistence checks"
         containers_ready=true
     else
         action "Run ./deploy/scripts/setup-wizard.sh --resume to install or repair containers"
@@ -106,15 +106,18 @@ fi
 if [[ "${containers_ready}" == "true" && "${dns_ready}" == "true" \
     && "${https_ready}" == "true" && "${runtime_valid}" == "true" ]]; then
     if "${SCRIPT_DIR}/readiness-check.sh" >/dev/null 2>&1; then
-        ok "HTTPS, redirect and critical Mattermost security settings"
+        ok "HTTPS, redirect, exact notifier plugin and notifier activation or opt-out gates"
     else
         fail "Automated readiness check failed"
     fi
 fi
 
 printf '[MANUAL] Create or verify the first System Admin and enable MFA.\n'
-printf '[MANUAL] Test invitation, verification and password-reset email delivery.\n'
-printf '[MANUAL] Complete permissions, CJK search and mobile acceptance tests.\n'
+printf '[MANUAL] Verify the SMTP test message arrives and every message link opens correctly.\n'
+printf '[MANUAL] Verify SPF and DKIM results for the approved sender.\n'
+printf '[MANUAL] Verify public/private channel recipient permissions and membership changes.\n'
+printf '[MANUAL] Verify CJK notification content and search behavior.\n'
+printf '[MANUAL] Complete mobile notification and link acceptance tests.\n'
 
 if [[ "${failure}" == "true" ]]; then
     exit 1

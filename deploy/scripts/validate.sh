@@ -65,11 +65,8 @@ sed \
     -e 's#^SMTP_PASSWORD=.*#SMTP_PASSWORD=fixture_password#' \
     -e 's#^SMTP_FROM_ADDRESS=.*#SMTP_FROM_ADDRESS=no-reply@threadhub.internal#' \
     -e 's#^SMTP_REPLY_TO_ADDRESS=.*#SMTP_REPLY_TO_ADDRESS=admin@threadhub.internal#' \
+    -e 's#^NOTIFIER_HMAC_SECRET=.*#NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000#' \
     "${ENV_EXAMPLE_FILE}" > "${runtime_env_fixture}"
-printf '%s\n' \
-    'NOTIFIER_HMAC_SECRET=0000000000000000000000000000000000000000000000000000000000000000' \
-    'NOTIFIER_RATE_PER_MINUTE=10' \
-    >> "${runtime_env_fixture}"
 chmod 0600 "${runtime_env_fixture}"
 
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
@@ -246,7 +243,11 @@ log "Notifier Compose isolation, mounts, settings and hardening are valid"
 
 for script in \
     "${SCRIPT_DIR}/build-notifier.sh" \
-    "${SCRIPT_DIR}/install-notifier-plugin.sh"; do
+    "${SCRIPT_DIR}/install-notifier-plugin.sh" \
+    "${SCRIPT_DIR}/configure-notifier.sh" \
+    "${SCRIPT_DIR}/notifier-control.sh" \
+    "${SCRIPT_DIR}/notifier-smtp-test.sh" \
+    "${SCRIPT_DIR}/notifier-status.sh"; do
     require_file "${script}"
     [[ -x "${script}" ]] || die "Notifier deployment script must be executable: ${script}"
 done
@@ -300,6 +301,21 @@ else
         || die "Notifier manifest server executable is invalid"
 fi
 log "Notifier build, release and manual plugin installation invariants are valid"
+
+require_file "${SCRIPT_DIR}/notifier-lib.sh"
+require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
+[[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
+    || die "Notifier installer behavioral test must be executable"
+"${DEPLOY_DIR}/tests/notifier-installer-test.sh"
+log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
+
+if grep -F '[READY]' "${SCRIPT_DIR}/setup-wizard.sh" >/dev/null; then
+    die "The setup wizard must delegate the final READY verdict to install-status.sh"
+fi
+# Match the literal setup-wizard expression; expansion is not intended.
+# shellcheck disable=SC2016
+grep -F '"${SCRIPT_DIR}/install-status.sh"' "${SCRIPT_DIR}/setup-wizard.sh" >/dev/null \
+    || die "The setup wizard must finish through install-status.sh"
 
 if grep -R -n -E 'image:[[:space:]]+[^#]*:latest([[:space:]]|$)' "${DEPLOY_DIR}"; then
     die "Floating latest image tag found"

@@ -5,6 +5,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck source=notifier-lib.sh
+source "${SCRIPT_DIR}/notifier-lib.sh"
 
 configure_only=false
 non_interactive=false
@@ -18,6 +20,7 @@ smtp_from_address=
 smtp_reply_to_address=
 smtp_feedback_name=
 postgres_password=
+notifier_hmac_secret=
 
 usage() {
     cat <<'EOF'
@@ -137,8 +140,20 @@ data_root=/srv/threadhub
 
 if [[ -f "${ENV_FILE}" ]]; then
     chmod 0600 "${ENV_FILE}"
-    validate_runtime_env
-    log "Reusing the existing protected runtime environment; no value was replaced"
+    case "$(notifier_env_key_state "${ENV_FILE}")" in
+        complete)
+            validate_runtime_env
+            log "Reusing the existing protected runtime environment; no value was replaced"
+            ;;
+        none)
+            printf '[ACTION REQUIRED] Run ./deploy/scripts/configure-notifier.sh\n' >&2
+            exit 20
+            ;;
+        *)
+            printf '[ACTION REQUIRED] Notifier configuration is partial; restore either all or none of the notifier keys, then run ./deploy/scripts/configure-notifier.sh\n' >&2
+            exit 20
+            ;;
+    esac
 else
     if [[ "${non_interactive}" == "true" ]]; then
         printf '[ACTION REQUIRED] Create %s from deploy/.env.example and protect it with mode 0600.\n' \
@@ -177,6 +192,7 @@ else
     prompt_email smtp_reply_to_address "Reply-to address" "${letsencrypt_email}"
     prompt_required smtp_feedback_name "Sender display name" "ThreadHub"
     postgres_password="$(openssl rand -hex 32)"
+    notifier_hmac_secret="$(openssl rand -hex 32)"
 
     umask 077
     temporary_env="$(mktemp "${DEPLOY_DIR}/.env.tmp.XXXXXX")"
@@ -203,6 +219,12 @@ else
         write_env_value SMTP_FROM_ADDRESS "${smtp_from_address}"
         write_env_value SMTP_REPLY_TO_ADDRESS "${smtp_reply_to_address}"
         write_env_value SMTP_FEEDBACK_NAME "${smtp_feedback_name}"
+        printf '%s\n' \
+            'NOTIFIER_ENABLED=true' \
+            'NOTIFIER_MODE=all_channels' \
+            'NOTIFIER_CHANNEL_IDS='
+        write_env_value NOTIFIER_HMAC_SECRET "${notifier_hmac_secret}"
+        printf '%s\n' 'NOTIFIER_RATE_PER_MINUTE=10'
     } > "${temporary_env}"
     chmod 0600 "${temporary_env}"
 
@@ -213,7 +235,7 @@ else
 
     mv "${temporary_env}" "${ENV_FILE}"
     trap - EXIT
-    log "Created ${ENV_FILE} with mode 0600 and an automatically generated PostgreSQL password"
+    log "Created ${ENV_FILE} with mode 0600 and automatically generated protected secrets"
 fi
 
 if [[ "${configure_only}" == "true" ]]; then
@@ -268,16 +290,13 @@ else
     "${SCRIPT_DIR}/configure-nginx.sh"
 fi
 
+target_notifier_enabled="$(env_value NOTIFIER_ENABLED "${ENV_FILE}")"
+data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
+smtp_marker="${data_root}/notifier/control/smtp-acceptance.json"
+if [[ "${target_notifier_enabled}" == true ]] \
+    && ! notifier_smtp_marker_is_current "${smtp_marker}"; then
+    "${SCRIPT_DIR}/notifier-smtp-test.sh"
+fi
+"${SCRIPT_DIR}/notifier-control.sh" activate --from-env
 "${SCRIPT_DIR}/readiness-check.sh"
-
-cat <<EOF
-
-[READY] ThreadHub infrastructure installation passed automated checks.
-
-Open https://${domain} in a browser and create or verify the first System Admin.
-Then complete MFA, invitation email, password reset, permissions, CJK search,
-and mobile acceptance tests in deploy/docs/admin-guide.md.
-
-Status command:
-  ./deploy/scripts/install-status.sh
-EOF
+"${SCRIPT_DIR}/install-status.sh"

@@ -58,6 +58,32 @@ env_value() {
     printf '%s' "${value}"
 }
 
+env_optional_value() {
+    local key="$1"
+    local file="$2"
+    local value
+
+    value="$(awk -v key="${key}" '
+        index($0, key "=") == 1 {
+            count++
+            value = substr($0, length(key) + 2)
+        }
+        END {
+            if (count != 1) exit 1
+            print value
+        }
+    ' "${file}")" || die "Missing or duplicate ${key} in ${file}"
+    value="${value%$'\r'}"
+
+    if [[ "${value}" == \"*\" && "${value}" == *\" ]]; then
+        value="${value:1:${#value}-2}"
+    elif [[ "${value}" == \'*\' && "${value}" == *\' ]]; then
+        value="${value:1:${#value}-2}"
+    fi
+
+    printf '%s' "${value}"
+}
+
 is_placeholder() {
     local value="$1"
     [[ "${value}" == *REPLACE* || "${value}" == *example.com* || "${value}" == *REGION* ]]
@@ -134,16 +160,43 @@ validate_smtp_env() {
 }
 
 validate_notifier_env() {
+    local enabled
+    local mode
+    local channel_ids
     local hmac_secret
     local rate_per_minute
+    local channel_id
+    local seen_channel_ids=','
 
+    enabled="$(env_value NOTIFIER_ENABLED "${ENV_FILE}")"
+    mode="$(env_value NOTIFIER_MODE "${ENV_FILE}")"
+    channel_ids="$(env_optional_value NOTIFIER_CHANNEL_IDS "${ENV_FILE}")"
     hmac_secret="$(env_value NOTIFIER_HMAC_SECRET "${ENV_FILE}")"
-    if grep -q '^NOTIFIER_RATE_PER_MINUTE=' "${ENV_FILE}"; then
-        rate_per_minute="$(env_value NOTIFIER_RATE_PER_MINUTE "${ENV_FILE}")"
-    else
-        rate_per_minute=10
-    fi
+    rate_per_minute="$(env_value NOTIFIER_RATE_PER_MINUTE "${ENV_FILE}")"
 
+    [[ "${enabled}" == "true" || "${enabled}" == "false" ]] \
+        || die "NOTIFIER_ENABLED must be true or false"
+    [[ "${mode}" == "all_channels" || "${mode}" == "allowlist" ]] \
+        || die "NOTIFIER_MODE must be all_channels or allowlist"
+    if [[ -n "${channel_ids}" ]]; then
+        [[ "${channel_ids}" =~ ^[a-z0-9]{26}(,[a-z0-9]{26})*$ ]] \
+            || die "NOTIFIER_CHANNEL_IDS must contain comma-separated Mattermost channel IDs"
+        IFS=',' read -r -a notifier_channel_id_values <<< "${channel_ids}"
+        for channel_id in "${notifier_channel_id_values[@]}"; do
+            [[ "${channel_id}" =~ ^[a-z0-9]{26}$ ]] \
+                || die "NOTIFIER_CHANNEL_IDS must contain comma-separated Mattermost channel IDs"
+            [[ "${seen_channel_ids}" != *",${channel_id},"* ]] \
+                || die "NOTIFIER_CHANNEL_IDS must not contain duplicates"
+            seen_channel_ids+="${channel_id},"
+        done
+    fi
+    if [[ "${mode}" == "all_channels" ]]; then
+        [[ -z "${channel_ids}" ]] \
+            || die "NOTIFIER_CHANNEL_IDS must be empty in all_channels mode"
+    else
+        [[ -n "${channel_ids}" ]] \
+            || die "NOTIFIER_CHANNEL_IDS must contain at least one ID in allowlist mode"
+    fi
     [[ "${hmac_secret}" =~ ^[A-Fa-f0-9]{64}$ ]] \
         || die "NOTIFIER_HMAC_SECRET must contain exactly 64 hexadecimal characters"
     [[ "${rate_per_minute}" =~ ^[0-9]+$ ]] \
