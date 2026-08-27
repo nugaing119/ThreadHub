@@ -129,12 +129,12 @@ func classify(err error) Result {
 		}
 		return Result{Class: ClassProtocol, Code: smtpErr.Code}
 	}
-	var netErr net.Error
-	if errors.As(err, &netErr) && netErr.Timeout() {
-		return Result{Class: ClassTemporary}
-	}
 	if strings.Contains(err.Error(), "certificate") || strings.Contains(err.Error(), "x509") {
 		return Result{Class: ClassPermanent}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return Result{Class: ClassTemporary}
 	}
 	return Result{Class: ClassProtocol}
 }

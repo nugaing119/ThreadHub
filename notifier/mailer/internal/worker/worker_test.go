@@ -187,6 +187,39 @@ func TestDisableCancelsInflightSMTPAndStopsFurtherClaims(t *testing.T) {
 	}
 }
 
+func TestDisableWaitsForInflightSMTPToReturnBeforeAdvancing(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	controls := newFakeControls(activeState(1000))
+	queue := newFakeStore(delivery("recipient@example.test", 1))
+	marked := make(chan struct{})
+	queue.onMark = func() {
+		close(marked)
+		cancel()
+	}
+	sender := newTwoPhaseSender()
+	w := New(queue, renderDelivery, sender, controls, realClock{}, Config{})
+	done := startWorker(ctx, w)
+	waitSignal(t, sender.started, "SMTP start")
+
+	controls.set(control.State{})
+	waitSignal(t, sender.cancelAcknowledged, "SMTP cancellation acknowledgement")
+	select {
+	case <-sender.returned:
+		t.Fatal("sender returned before explicit release")
+	default:
+	}
+	select {
+	case <-marked:
+		t.Fatal("worker advanced delivery state before SMTP returned")
+	default:
+	}
+
+	close(sender.release)
+	waitSignal(t, sender.returned, "SMTP return")
+	waitSignal(t, marked, "delivery state update")
+	waitRun(t, done)
+}
+
 func TestDrainContinuesPendingDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	queue := newFakeStore(delivery("recipient@example.test", 1))
@@ -247,6 +280,42 @@ func TestAcceptedSMTPStoreFailureCanDuplicateAfterLeaseRecovery(t *testing.T) {
 	claims := queue.claimedAt()
 	if len(claims) != 2 || claims[1].Sub(claims[0]) < 2*time.Minute {
 		t.Fatalf("claim times = %v, want retry only after two-minute lease expiry", claims)
+	}
+}
+
+func TestBlankStoreEmailNeverInvokesRenderer(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	queue := newFakeStore(delivery(" \t\n", 1))
+	queue.onMark = cancel
+	renderCalls := 0
+	sender := &sequenceSender{}
+	w := New(queue, func(storepkg.Delivery) (message.Message, error) {
+		renderCalls++
+		return message.Message{EnvelopeTo: "recipient@example.test", Data: []byte("message")}, nil
+	}, sender, newFakeControls(activeState(1000)), newManualClock(workerTestNow), Config{})
+	runWorker(t, ctx, w)
+	if renderCalls != 0 {
+		t.Fatalf("render calls = %d, want 0", renderCalls)
+	}
+	if sender.callCount() != 0 {
+		t.Fatalf("SMTP calls = %d, want 0", sender.callCount())
+	}
+}
+
+func TestWhitespaceRenderedRecipientNeverReachesSender(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	queue := newFakeStore(delivery("recipient@example.test", 1))
+	queue.onMark = cancel
+	sender := &sequenceSender{}
+	w := New(queue, func(storepkg.Delivery) (message.Message, error) {
+		return message.Message{EnvelopeFrom: "sender@example.test", EnvelopeTo: " \t\n", Data: []byte("message")}, nil
+	}, sender, newFakeControls(activeState(1000)), newManualClock(workerTestNow), Config{})
+	runWorker(t, ctx, w)
+	if sender.callCount() != 0 {
+		t.Fatalf("SMTP calls = %d, want 0", sender.callCount())
+	}
+	if queue.permanentCount() != 1 {
+		t.Fatalf("permanent count = %d, want 1", queue.permanentCount())
 	}
 }
 
@@ -335,6 +404,31 @@ type blockingSender struct {
 	cancelled chan struct{}
 	onceStart sync.Once
 	onceStop  sync.Once
+}
+
+type twoPhaseSender struct {
+	started            chan struct{}
+	cancelAcknowledged chan struct{}
+	release            chan struct{}
+	returned           chan struct{}
+}
+
+func newTwoPhaseSender() *twoPhaseSender {
+	return &twoPhaseSender{
+		started:            make(chan struct{}),
+		cancelAcknowledged: make(chan struct{}),
+		release:            make(chan struct{}),
+		returned:           make(chan struct{}),
+	}
+}
+
+func (s *twoPhaseSender) Send(ctx context.Context, _ message.Message) smtpclient.Result {
+	close(s.started)
+	<-ctx.Done()
+	close(s.cancelAcknowledged)
+	<-s.release
+	close(s.returned)
+	return smtpclient.Result{Class: smtpclient.ClassTemporary}
 }
 
 func newBlockingSender() *blockingSender {

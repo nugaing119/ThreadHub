@@ -2,6 +2,7 @@ package smtpclient_test
 
 import (
 	"context"
+	"net"
 	"strings"
 	"testing"
 	"time"
@@ -37,8 +38,25 @@ func TestSendRejectsUntrustedOrWrongHostnameCertificate(t *testing.T) {
 	server := testutil.StartSMTP(t, testutil.SMTPOptions{STARTTLS: true, Username: "fixture-user", Password: "fixture-password"})
 	client := smtpclient.New(smtpclient.Config{Host: "localhost", Port: server.Port(), Username: "fixture-user", Password: "fixture-password", DialTimeout: time.Second}, nil)
 	result := client.Send(context.Background(), testMessage(t))
-	if result.Accepted {
-		t.Fatalf("Send() = %+v, accepted an untrusted certificate", result)
+	if result.Accepted || result.Class != smtpclient.ClassPermanent {
+		t.Fatalf("Send() = %+v, want permanent untrusted certificate failure", result)
+	}
+}
+
+func TestSendClassifiesNonTimeoutNetworkFailureAsTemporary(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err := listener.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	client := smtpclient.New(smtpclient.Config{Host: "127.0.0.1", Port: port, DialTimeout: time.Second}, nil)
+	result := client.Send(context.Background(), testMessage(t))
+	if result.Accepted || result.Class != smtpclient.ClassTemporary || result.Code != 0 {
+		t.Fatalf("Send(connection refused) = %+v, want temporary network failure", result)
 	}
 }
 

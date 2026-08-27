@@ -145,7 +145,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 
 		rendered, err := w.render(*delivery)
-		if err != nil || rendered.EnvelopeTo == "" {
+		if err != nil || strings.TrimSpace(rendered.EnvelopeTo) == "" {
 			w.markPermanent(ctx, *delivery, "protocol", 0)
 			continue
 		}
