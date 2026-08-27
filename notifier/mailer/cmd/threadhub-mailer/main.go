@@ -58,10 +58,17 @@ type statusOutput struct {
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	if err := runCommand(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Getenv, productionOperations()); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "threadhub-mailer: command failed")
-		os.Exit(1)
+	if exitCode := runMain(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr, os.Getenv, productionOperations()); exitCode != 0 {
+		os.Exit(exitCode)
 	}
+}
+
+func runMain(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, operations commandOperations) int {
+	if err := runCommand(ctx, args, stdin, stdout, getenv, operations); err != nil {
+		_, _ = fmt.Fprintln(stderr, "threadhub-mailer: command failed")
+		return 1
+	}
+	return 0
 }
 
 func runCommand(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer, getenv func(string) string, operations commandOperations) error {
@@ -343,6 +350,7 @@ func defaultServe(ctx context.Context, cfg config.Config) error {
 
 type runner interface {
 	Run(context.Context) error
+	Ready() <-chan struct{}
 }
 
 func serve(ctx context.Context, server *http.Server, queue *store.SQLiteStore, controls runner, deliveryWorker runner) error {
@@ -367,49 +375,118 @@ func serveOnListener(ctx context.Context, server *http.Server, queue *store.SQLi
 
 	watcherDone := make(chan error, 1)
 	go func() { watcherDone <- controls.Run(serviceCtx) }()
-	workerStarted := make(chan struct{})
 	workerDone := make(chan error, 1)
-	go func() {
-		close(workerStarted)
-		workerDone <- deliveryWorker.Run(serviceCtx)
-	}()
-	<-workerStarted
+	go func() { workerDone <- deliveryWorker.Run(serviceCtx) }()
+
+	watcherReady := controls.Ready()
+	workerReady := deliveryWorker.Ready()
+	var lifecycleErr error
+	var watcherFinished, workerFinished bool
+	for watcherReady != nil || workerReady != nil {
+		select {
+		case <-watcherReady:
+			watcherReady = nil
+		case <-workerReady:
+			workerReady = nil
+		case err := <-watcherDone:
+			watcherFinished = true
+			lifecycleErr = unexpectedRunnerExit("watcher", err)
+		case err := <-workerDone:
+			workerFinished = true
+			lifecycleErr = unexpectedRunnerExit("worker", err)
+		case <-ctx.Done():
+			lifecycleErr = nil
+		}
+		if lifecycleErr != nil || ctx.Err() != nil {
+			break
+		}
+	}
 
 	serverDone := make(chan error, 1)
-	go func() { serverDone <- server.Serve(listener) }()
-
-	var err error
-	select {
-	case err = <-serverDone:
-		cancel()
-	case <-ctx.Done():
-		err = nil
-		_ = listener.Close() // Stop HTTP accepts before cancelling delivery work.
-		cancel()
+	serverStarted := lifecycleErr == nil && ctx.Err() == nil
+	serverFinished := false
+	if serverStarted {
+		go func() { serverDone <- server.Serve(listener) }()
+		select {
+		case err := <-serverDone:
+			serverFinished = true
+			lifecycleErr = unexpectedServerExit(err)
+		case err := <-watcherDone:
+			watcherFinished = true
+			lifecycleErr = unexpectedRunnerExit("watcher", err)
+		case err := <-workerDone:
+			workerFinished = true
+			lifecycleErr = unexpectedRunnerExit("worker", err)
+		case <-ctx.Done():
+			lifecycleErr = nil
+		}
 	}
 
+	_ = listener.Close() // Stop HTTP accepts before cancelling delivery work.
+	cancel()
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer drainCancel()
-	shutdownErr := server.Shutdown(drainCtx)
-	if err != nil && !errors.Is(err, http.ErrServerClosed) && !errors.Is(err, net.ErrClosed) {
-		shutdownErr = err
-	}
-	select {
-	case <-workerDone:
-	case <-drainCtx.Done():
-		if shutdownErr == nil {
-			shutdownErr = drainCtx.Err()
+	var shutdownErr error
+	if serverStarted {
+		shutdownErr = server.Shutdown(drainCtx)
+		if !serverFinished {
+			select {
+			case err := <-serverDone:
+				serverFinished = true
+				if lifecycleErr == nil {
+					lifecycleErr = expectedServerShutdownError(err)
+				}
+			case <-drainCtx.Done():
+				shutdownErr = errors.Join(shutdownErr, drainCtx.Err())
+			}
 		}
 	}
-	select {
-	case <-watcherDone:
-	case <-drainCtx.Done():
-		if shutdownErr == nil {
-			shutdownErr = drainCtx.Err()
+	if !workerFinished {
+		select {
+		case err := <-workerDone:
+			workerFinished = true
+			if lifecycleErr == nil && err != nil {
+				lifecycleErr = fmt.Errorf("worker shutdown: %w", err)
+			}
+		case <-drainCtx.Done():
+			shutdownErr = errors.Join(shutdownErr, drainCtx.Err())
 		}
 	}
-	if closeErr := closeQueue(); shutdownErr == nil {
-		shutdownErr = closeErr
+	if !watcherFinished {
+		select {
+		case err := <-watcherDone:
+			watcherFinished = true
+			if lifecycleErr == nil && err != nil {
+				lifecycleErr = fmt.Errorf("watcher shutdown: %w", err)
+			}
+		case <-drainCtx.Done():
+			shutdownErr = errors.Join(shutdownErr, drainCtx.Err())
+		}
 	}
-	return shutdownErr
+	closeErr := closeQueue()
+	return errors.Join(lifecycleErr, shutdownErr, closeErr)
+}
+
+func unexpectedRunnerExit(name string, err error) error {
+	if err == nil {
+		return fmt.Errorf("%s exited unexpectedly", name)
+	}
+	return fmt.Errorf("%s exited unexpectedly: %w", name, err)
+}
+
+func unexpectedServerExit(err error) error {
+	if err == nil {
+		return errors.New("HTTP server exited unexpectedly")
+	}
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
+}
+
+func expectedServerShutdownError(err error) error {
+	if errors.Is(err, http.ErrServerClosed) || errors.Is(err, net.ErrClosed) {
+		return nil
+	}
+	return err
 }

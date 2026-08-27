@@ -5,6 +5,7 @@ import (
 	"context"
 	"log/slog"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/nugaing119/ThreadHub/notifier/control"
@@ -61,6 +62,8 @@ type Worker struct {
 	clock         Clock
 	rateInterval  time.Duration
 	leaseDuration time.Duration
+	ready         chan struct{}
+	readyDo       sync.Once
 }
 
 func New(queue Store, render RenderFunc, sender Sender, controls ControlReader, clock Clock, cfg Config) *Worker {
@@ -83,6 +86,7 @@ func New(queue Store, render RenderFunc, sender Sender, controls ControlReader, 
 		clock:         clock,
 		rateInterval:  time.Minute / time.Duration(rate),
 		leaseDuration: lease,
+		ready:         make(chan struct{}),
 	}
 }
 
@@ -90,6 +94,7 @@ func (w *Worker) Run(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
+	w.readyDo.Do(func() { close(w.ready) })
 	nextRecovery := w.clock.Now()
 	var nextClaim time.Time
 	for {
@@ -172,6 +177,13 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 		w.markPermanent(ctx, *delivery, class, result.Code)
 	}
+}
+
+func (w *Worker) Ready() <-chan struct{} {
+	if w == nil {
+		return nil
+	}
+	return w.ready
 }
 
 func (w *Worker) recoverLeases(ctx context.Context, now time.Time) {

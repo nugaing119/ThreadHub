@@ -218,17 +218,39 @@ func TestHealthIsExactAndFailsWhenStoreIsUnavailable(t *testing.T) {
 	}
 }
 
-func TestHandlerExposesNoExtraRoutesOrRedirects(t *testing.T) {
+func TestHandlerRoutesOnlyExactMethodAndRequestTargetWithoutRedirects(t *testing.T) {
 	handler, _, _ := newTestHandler(t, true)
-	for _, path := range []string{"/", "/healthz/", "/debug/pprof/", "/metrics", "/v1/events/"} {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
-		if response.Code != http.StatusNotFound {
-			t.Errorf("GET %s status = %d, want 404", path, response.Code)
-		}
-		if location := response.Header().Get("Location"); location != "" {
-			t.Errorf("GET %s redirected to %q", path, location)
-		}
+	for _, test := range []struct {
+		name, method, target string
+		want                 int
+	}{
+		{name: "head health", method: http.MethodHead, target: "/healthz", want: http.StatusMethodNotAllowed},
+		{name: "post health", method: http.MethodPost, target: "/healthz", want: http.StatusMethodNotAllowed},
+		{name: "get events", method: http.MethodGet, target: "/v1/events", want: http.StatusMethodNotAllowed},
+		{name: "unknown event method", method: http.MethodTrace, target: "/v1/events", want: http.StatusMethodNotAllowed},
+		{name: "unclean health alias", method: http.MethodGet, target: "/x/../healthz", want: http.StatusNotFound},
+		{name: "encoded health suffix", method: http.MethodGet, target: "/health%7a", want: http.StatusNotFound},
+		{name: "encoded health prefix", method: http.MethodGet, target: "/%68ealthz", want: http.StatusNotFound},
+		{name: "health query", method: http.MethodGet, target: "/healthz?probe=1", want: http.StatusNotFound},
+		{name: "empty health query", method: http.MethodGet, target: "/healthz?", want: http.StatusNotFound},
+		{name: "event query", method: http.MethodPost, target: "/v1/events?probe=1", want: http.StatusNotFound},
+		{name: "encoded event slash", method: http.MethodPost, target: "/v1%2fevents", want: http.StatusNotFound},
+		{name: "unknown path", method: http.MethodGet, target: "/metrics", want: http.StatusNotFound},
+		{name: "trailing slash", method: http.MethodGet, target: "/healthz/", want: http.StatusNotFound},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(test.method, test.target, nil))
+			if response.Code != test.want {
+				t.Errorf("%s %s status = %d, want %d", test.method, test.target, response.Code, test.want)
+			}
+			if location := response.Header().Get("Location"); location != "" {
+				t.Errorf("%s %s redirected to %q", test.method, test.target, location)
+			}
+			if response.Body.Len() != 0 {
+				t.Errorf("%s %s error body = %q, want status-only", test.method, test.target, response.Body.String())
+			}
+		})
 	}
 }
 

@@ -40,10 +40,31 @@ func NewHandler(queue *store.SQLiteStore, controls *control.Watcher, secret []by
 		queue: queue, controls: controls, secret: append([]byte(nil), secret...),
 		now: now, domain: os.Getenv("THREADHUB_DOMAIN"),
 	}
-	mux := http.NewServeMux()
-	mux.HandleFunc("GET /healthz", h.health)
-	mux.HandleFunc("POST /v1/events", h.acceptEvent)
-	return mux
+	return http.HandlerFunc(h.dispatch)
+}
+
+func (h *handler) dispatch(response http.ResponseWriter, request *http.Request) {
+	switch {
+	case exactTarget(request, "/healthz"):
+		if request.Method != http.MethodGet {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		h.health(response, request)
+	case exactTarget(request, "/v1/events"):
+		if request.Method != http.MethodPost {
+			response.WriteHeader(http.StatusMethodNotAllowed)
+			return
+		}
+		h.acceptEvent(response, request)
+	default:
+		response.WriteHeader(http.StatusNotFound)
+	}
+}
+
+func exactTarget(request *http.Request, path string) bool {
+	return request.URL != nil && request.URL.Path == path && request.URL.RawPath == "" &&
+		request.URL.RawQuery == "" && !request.URL.ForceQuery && request.RequestURI == path
 }
 
 func (h *handler) health(response http.ResponseWriter, request *http.Request) {

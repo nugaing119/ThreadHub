@@ -20,6 +20,28 @@ import (
 
 var workerTestNow = time.Date(2026, 8, 27, 4, 0, 0, 0, time.UTC)
 
+func TestWorkerSignalsReadyOnlyFromInsideRun(t *testing.T) {
+	w := New(newFakeStore(), renderDelivery, &sequenceSender{}, newFakeControls(control.State{}), realClock{}, Config{})
+	select {
+	case <-w.Ready():
+		t.Fatal("worker reported ready before Run entered")
+	default:
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- w.Run(ctx) }()
+	select {
+	case <-w.Ready():
+	case <-time.After(time.Second):
+		t.Fatal("worker did not report readiness from Run")
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestRetryOffsetsAreExactCumulativeSchedule(t *testing.T) {
 	wants := []time.Duration{
 		0,

@@ -3,6 +3,7 @@ package control
 import (
 	"context"
 	"slices"
+	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -12,13 +13,15 @@ type Watcher struct {
 	poll    time.Duration
 	current atomic.Pointer[State]
 	changes chan State
+	ready   chan struct{}
+	readyDo sync.Once
 }
 
 func NewWatcher(path string, poll time.Duration) *Watcher {
 	if poll <= 0 {
 		poll = time.Second
 	}
-	watcher := &Watcher{path: path, poll: poll, changes: make(chan State, 1)}
+	watcher := &Watcher{path: path, poll: poll, changes: make(chan State, 1), ready: make(chan struct{})}
 	disabled := State{}
 	watcher.current.Store(&disabled)
 	return watcher
@@ -26,6 +29,7 @@ func NewWatcher(path string, poll time.Duration) *Watcher {
 
 func (w *Watcher) Run(ctx context.Context) error {
 	w.reload()
+	w.readyDo.Do(func() { close(w.ready) })
 	ticker := time.NewTicker(w.poll)
 	defer ticker.Stop()
 	for {
@@ -36,6 +40,13 @@ func (w *Watcher) Run(ctx context.Context) error {
 			w.reload()
 		}
 	}
+}
+
+func (w *Watcher) Ready() <-chan struct{} {
+	if w == nil {
+		return nil
+	}
+	return w.ready
 }
 
 func (w *Watcher) Current() State {

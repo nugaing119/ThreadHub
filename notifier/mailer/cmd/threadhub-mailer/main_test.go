@@ -284,6 +284,115 @@ func TestServeShutdownStopsAcceptsCancelsWorkerDrainsHTTPThenClosesStore(t *test
 	}
 }
 
+func TestServeDoesNotEnterHTTPServeUntilWatcherAndWorkerSignalReadyFromRun(t *testing.T) {
+	queue, err := store.Open(filepath.Join(t.TempDir(), "queue.db"), bytes.Repeat([]byte{0x42}, 32))
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	acceptEntered := make(chan struct{})
+	observed := &acceptTrackingListener{Listener: listener, entered: acceptEntered}
+	watcher := newGatedReadyRunner()
+	deliveryWorker := newGatedReadyRunner()
+	server := newHTTPServer(listener.Addr().String(), http.NotFoundHandler())
+	ctx, cancel := context.WithCancel(context.Background())
+	serveDone := make(chan error, 1)
+	go func() { serveDone <- serveOnListener(ctx, server, queue, watcher, deliveryWorker, observed) }()
+
+	<-watcher.entered
+	<-deliveryWorker.entered
+	select {
+	case <-acceptEntered:
+		t.Fatal("HTTP Serve entered before either runner signalled readiness")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(deliveryWorker.allowReady)
+	<-deliveryWorker.Ready()
+	select {
+	case <-acceptEntered:
+		t.Fatal("HTTP Serve entered before watcher signalled readiness")
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(watcher.allowReady)
+	<-watcher.Ready()
+	select {
+	case <-acceptEntered:
+	case <-time.After(time.Second):
+		t.Fatal("HTTP Serve did not start after both runners signalled readiness")
+	}
+	cancel()
+	if err := <-serveDone; err != nil {
+		t.Fatalf("serveOnListener() error = %v", err)
+	}
+}
+
+func TestUnexpectedRunnerExitStopsAcceptsCancelsPeerDrainsAndClosesStore(t *testing.T) {
+	for _, failedRunner := range []string{"worker", "watcher"} {
+		t.Run(failedRunner, func(t *testing.T) {
+			queue, err := store.Open(filepath.Join(t.TempDir(), "queue.db"), bytes.Repeat([]byte{0x42}, 32))
+			if err != nil {
+				t.Fatalf("store.Open() error = %v", err)
+			}
+			base, err := net.Listen("tcp", "127.0.0.1:0")
+			if err != nil {
+				t.Fatalf("net.Listen() error = %v", err)
+			}
+			acceptStopped := make(chan struct{})
+			tracked := &trackingListener{Listener: base, closed: acceptStopped}
+			acceptEntered := make(chan struct{})
+			listener := &acceptTrackingListener{Listener: tracked, entered: acceptEntered}
+			runnerErr := errors.New("synthetic runner detail that must not be logged")
+			failing := newExitReadyRunner(runnerErr)
+			peer := newExitReadyRunner(nil)
+			var watcher, deliveryWorker runner
+			if failedRunner == "worker" {
+				watcher, deliveryWorker = peer, failing
+			} else {
+				watcher, deliveryWorker = failing, peer
+			}
+			server := newHTTPServer(base.Addr().String(), http.HandlerFunc(func(response http.ResponseWriter, _ *http.Request) {
+				response.WriteHeader(http.StatusNoContent)
+			}))
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			serveDone := make(chan error, 1)
+			go func() { serveDone <- serveOnListener(ctx, server, queue, watcher, deliveryWorker, listener) }()
+			<-failing.Ready()
+			<-peer.Ready()
+			<-acceptEntered
+
+			close(failing.exit)
+			var serveErr error
+			select {
+			case serveErr = <-serveDone:
+			case <-time.After(250 * time.Millisecond):
+				cancel()
+				serveErr = <-serveDone
+				t.Fatalf("service continued accepting after unexpected %s exit; shutdown result = %v", failedRunner, serveErr)
+			}
+			select {
+			case <-acceptStopped:
+			default:
+				t.Fatal("HTTP accepts were not stopped")
+			}
+			select {
+			case <-peer.cancelled:
+			default:
+				t.Fatal("peer runner was not cancelled")
+			}
+			if !errors.Is(serveErr, runnerErr) {
+				t.Fatalf("serve error = %v, want propagated runner error", serveErr)
+			}
+			if _, err := queue.Status(context.Background(), time.Now()); err == nil {
+				t.Fatal("database remained open after runner-exit shutdown")
+			}
+		})
+	}
+}
+
 func TestRunCommandReturnsSafeErrors(t *testing.T) {
 	const recipient = "secret-recipient@example.test"
 	operations := commandOperations{smtpAcceptance: func(context.Context, config.Config, string) smtpclient.Result {
@@ -304,6 +413,22 @@ func TestRunCommandPropagatesAggregateOperationFailure(t *testing.T) {
 	err := runCommand(context.Background(), []string{"status", "--json"}, strings.NewReader(""), io.Discard, testEnvironment, operations)
 	if !errors.Is(err, sentinel) {
 		t.Fatalf("runCommand() error = %v, want operation failure", err)
+	}
+}
+
+func TestTopLevelOutputKeepsPropagatedRunnerErrorDetailsPrivate(t *testing.T) {
+	const privateDetail = "synthetic runner private detail"
+	operations := commandOperations{serve: func(context.Context, config.Config) error { return errors.New(privateDetail) }}
+	var stderr bytes.Buffer
+	exitCode := runMain(context.Background(), []string{"serve"}, strings.NewReader(""), io.Discard, &stderr, testEnvironment, operations)
+	if exitCode != 1 {
+		t.Fatalf("exit code = %d, want 1", exitCode)
+	}
+	if got, want := stderr.String(), "threadhub-mailer: command failed\n"; got != want {
+		t.Fatalf("stderr = %q, want fixed %q", got, want)
+	}
+	if strings.Contains(stderr.String(), privateDetail) {
+		t.Fatalf("stderr exposed runner error: %q", stderr.String())
 	}
 }
 
@@ -329,6 +454,66 @@ func testEnvironment(key string) string {
 type runnerFunc func(context.Context) error
 
 func (run runnerFunc) Run(ctx context.Context) error { return run(ctx) }
+func (run runnerFunc) Ready() <-chan struct{} {
+	ready := make(chan struct{})
+	close(ready)
+	return ready
+}
+
+type gatedReadyRunner struct {
+	ready      chan struct{}
+	entered    chan struct{}
+	allowReady chan struct{}
+}
+
+type exitReadyRunner struct {
+	ready     chan struct{}
+	exit      chan struct{}
+	cancelled chan struct{}
+	err       error
+}
+
+func newExitReadyRunner(err error) *exitReadyRunner {
+	return &exitReadyRunner{ready: make(chan struct{}), exit: make(chan struct{}), cancelled: make(chan struct{}), err: err}
+}
+
+func (runner *exitReadyRunner) Ready() <-chan struct{} { return runner.ready }
+
+func (runner *exitReadyRunner) Run(ctx context.Context) error {
+	close(runner.ready)
+	select {
+	case <-runner.exit:
+		return runner.err
+	case <-ctx.Done():
+		close(runner.cancelled)
+		return nil
+	}
+}
+
+func newGatedReadyRunner() *gatedReadyRunner {
+	return &gatedReadyRunner{ready: make(chan struct{}), entered: make(chan struct{}), allowReady: make(chan struct{})}
+}
+
+func (runner *gatedReadyRunner) Ready() <-chan struct{} { return runner.ready }
+
+func (runner *gatedReadyRunner) Run(ctx context.Context) error {
+	close(runner.entered)
+	<-runner.allowReady
+	close(runner.ready)
+	<-ctx.Done()
+	return nil
+}
+
+type acceptTrackingListener struct {
+	net.Listener
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (listener *acceptTrackingListener) Accept() (net.Conn, error) {
+	listener.once.Do(func() { close(listener.entered) })
+	return listener.Listener.Accept()
+}
 
 type trackingListener struct {
 	net.Listener
@@ -337,6 +522,7 @@ type trackingListener struct {
 }
 
 func (listener *trackingListener) Close() error {
+	err := listener.Listener.Close()
 	listener.once.Do(func() { close(listener.closed) })
-	return listener.Listener.Close()
+	return err
 }

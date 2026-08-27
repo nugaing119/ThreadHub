@@ -8,6 +8,33 @@ import (
 	"time"
 )
 
+func TestWatcherSignalsReadyOnlyAfterInitialReloadInsideRun(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "state.json")
+	writeState(t, path, `{"enabled":true,"delivery_enabled":true,"mode":"all_channels","channel_ids":[],"activated_at":1000}`)
+	watcher := NewWatcher(path, time.Second)
+	select {
+	case <-watcher.Ready():
+		t.Fatal("watcher reported ready before Run entered")
+	default:
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- watcher.Run(ctx) }()
+	select {
+	case <-watcher.Ready():
+	case <-time.After(time.Second):
+		t.Fatal("watcher did not report readiness from Run")
+	}
+	if state := watcher.Current(); !state.Enabled || !state.DeliveryEnabled || state.ActivatedAt != 1000 {
+		t.Fatalf("state at readiness = %+v, want initial file loaded", state)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("Run() error = %v", err)
+	}
+}
+
 func TestWatcherFailsClosedAndPublishesEveryControlTransition(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "state.json")
 	watcher := NewWatcher(path, 5*time.Millisecond)
