@@ -252,6 +252,65 @@ func TestClaimDueAtomicallyAcquiresLeaseAndOnlyExpiredLeaseResets(t *testing.T) 
 	}
 }
 
+func TestExpiredEighthAttemptCannotBeClaimedNinthTime(t *testing.T) {
+	store := openTestStore(t, filepath.Join(t.TempDir(), "queue.db"))
+	ctx := context.Background()
+	if _, err := store.Accept(ctx, hashFixture("nonce", "eighth-attempt-crash"), eventWithRecipients(1), testNow); err != nil {
+		t.Fatalf("Accept() error = %v", err)
+	}
+
+	for attempt := 1; attempt <= 7; attempt++ {
+		delivery, err := store.ClaimDue(ctx, testNow, 2*time.Minute)
+		if err != nil || delivery == nil || delivery.AttemptCount != attempt {
+			t.Fatalf("ClaimDue(attempt %d) = %+v, %v", attempt, delivery, err)
+		}
+		if err := store.MarkTemporary(ctx, delivery.Key, "smtp_4xx", 421, testNow); err != nil {
+			t.Fatalf("MarkTemporary(attempt %d) error = %v", attempt, err)
+		}
+	}
+
+	eighthClaimAt := testNow.Add(time.Hour)
+	eighth, err := store.ClaimDue(ctx, eighthClaimAt, 2*time.Minute)
+	if err != nil || eighth == nil || eighth.AttemptCount != 8 {
+		t.Fatalf("ClaimDue(attempt 8) = %+v, %v", eighth, err)
+	}
+	leaseExpiry := eighthClaimAt.Add(2 * time.Minute)
+	if recovered, err := store.ResetExpiredLeases(ctx, leaseExpiry); err != nil || recovered != 1 {
+		t.Fatalf("ResetExpiredLeases() = %d, %v; want 1, nil", recovered, err)
+	}
+	if ninth, err := store.ClaimDue(ctx, leaseExpiry, 2*time.Minute); err != nil || ninth != nil {
+		t.Fatalf("ClaimDue(after crashed attempt 8) = %+v, %v; want no ninth attempt", ninth, err)
+	}
+
+	var status string
+	var attempts, updatedAt int64
+	var email string
+	var lease any
+	if err := store.db.QueryRow(`SELECT status, attempt_count, email, lease_until_ms, updated_at_ms
+		FROM deliveries`).Scan(&status, &attempts, &email, &lease, &updatedAt); err != nil {
+		t.Fatalf("read recovered delivery: %v", err)
+	}
+	if status != "failed_exhausted" || attempts != 8 || email == "" || lease != nil || updatedAt != eighthClaimAt.UnixMilli() {
+		t.Fatalf("recovered delivery = status %q attempts %d email_present %t lease %v updated_at %d; want exhausted attempt 8 anchored at %d",
+			status, attempts, email != "", lease, updatedAt, eighthClaimAt.UnixMilli())
+	}
+
+	if _, err := store.Prune(ctx, eighthClaimAt.Add(24*time.Hour-time.Millisecond)); err != nil {
+		t.Fatalf("Prune(before exhausted retention) error = %v", err)
+	}
+	if got := queryInt64(t, store, `SELECT count(*) FROM deliveries
+		WHERE status = 'failed_exhausted' AND email IS NOT NULL`); got != 1 {
+		t.Fatalf("retryable exhausted deliveries before 24 hours = %d, want 1", got)
+	}
+	if _, err := store.Prune(ctx, eighthClaimAt.Add(24*time.Hour)); err != nil {
+		t.Fatalf("Prune(at exhausted retention) error = %v", err)
+	}
+	if got := queryInt64(t, store, `SELECT count(*) FROM deliveries
+		WHERE status = 'cancelled' AND email IS NULL`); got != 1 {
+		t.Fatalf("cancelled scrubbed deliveries at 24 hours = %d, want 1", got)
+	}
+}
+
 func TestTerminalMarksScrubEmailAndEventIdentifiers(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.db")
 	store := openTestStore(t, path)

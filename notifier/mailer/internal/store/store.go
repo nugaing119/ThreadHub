@@ -398,8 +398,11 @@ func (s *SQLiteStore) MarkTemporary(ctx context.Context, key DeliveryKey, class 
 
 func (s *SQLiteStore) ResetExpiredLeases(ctx context.Context, now time.Time) (int64, error) {
 	result, err := s.db.ExecContext(ctx, `UPDATE deliveries SET
-		status = 'pending', lease_until_ms = NULL, updated_at_ms = ?
-		WHERE status = 'sending' AND lease_until_ms IS NOT NULL AND lease_until_ms <= ?`, now.UnixMilli(), now.UnixMilli())
+		status = CASE WHEN attempt_count >= ? THEN 'failed_exhausted' ELSE 'pending' END,
+		lease_until_ms = NULL,
+		updated_at_ms = CASE WHEN attempt_count >= ? THEN updated_at_ms ELSE ? END
+		WHERE status = 'sending' AND lease_until_ms IS NOT NULL AND lease_until_ms <= ?`,
+		maximumAttempts, maximumAttempts, now.UnixMilli(), now.UnixMilli())
 	if err != nil {
 		return 0, err
 	}
