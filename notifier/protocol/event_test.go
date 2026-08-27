@@ -53,6 +53,7 @@ func TestEventValidate(t *testing.T) {
 		{name: "valid minimal event"},
 		{name: "event and post ids differ", mutate: func(e *Event) { e.EventID = model.NewId() }, wantErr: true},
 		{name: "http permalink", mutate: func(e *Event) { e.Permalink = "http://threadhub.test/pl/" + e.PostID }, wantErr: true},
+		{name: "percent-encoded permalink path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/pl%2f" + e.PostID }, wantErr: true},
 		{name: "foreign host", mutate: func(e *Event) { e.Permalink = "https://other.test/pl/" + e.PostID }, wantErr: true},
 		{name: "unknown post path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/channels/town-square" }, wantErr: true},
 		{name: "no recipients", mutate: func(e *Event) { e.Recipients = nil }, wantErr: true},
