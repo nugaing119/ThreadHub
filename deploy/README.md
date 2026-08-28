@@ -27,6 +27,12 @@ deploy/
 │   ├── health-check.sh
 │   ├── readiness-check.sh
 │   ├── destroy.sh
+│   ├── build-notifier.sh
+│   ├── configure-notifier.sh
+│   ├── install-notifier-plugin.sh
+│   ├── notifier-control.sh
+│   ├── notifier-smtp-test.sh
+│   ├── notifier-status.sh
 │   └── validate.sh
 └── docs/
     ├── quick-install.md
@@ -51,6 +57,8 @@ deploy/
 - Docker json-file 로그와 Mattermost 파일 로그의 크기 증가를 제한합니다.
 - NGINX 접근 로그는 query string을 기록하지 않으며 access/error 로그를 `0640 www-data:adm`으로 제한합니다.
 - 모바일 푸시, 플러그인, Webhook, 공개 파일 링크와 진단 텔레메트리를 비활성화합니다.
+- 채널 이메일 notifier만 Mattermost Team Edition의 일반 plugin API로 실행하며,
+  제어 파일이 없거나 안전하지 않으면 수집과 SMTP 발송을 fail-closed로 중지합니다.
 - `destroy.sh`는 컨테이너만 내리며 bind mount 데이터를 삭제하지 않습니다.
 
 ## 로컬 정적 검증
@@ -95,6 +103,13 @@ chmod 600 deploy/.env
 ```bash
 ./deploy/scripts/install-status.sh
 ```
+
+notifier artifact build, 설정, plugin 설치, SMTP 접수시험, 제어와 상태 확인은 각각
+`./deploy/scripts/build-notifier.sh`, `./deploy/scripts/configure-notifier.sh`,
+`./deploy/scripts/install-notifier-plugin.sh`, `./deploy/scripts/notifier-smtp-test.sh`,
+`./deploy/scripts/notifier-control.sh`, `./deploy/scripts/notifier-status.sh`를 사용합니다.
+순서와 수동 인수 항목은 [빠른 설치 가이드](./docs/quick-install.md), 일상 운영은
+[운영 점검표](./docs/operations-checklist.md), 종료는 [프로젝트 종료 절차](./docs/project-close.md)를 따릅니다.
 
 기존 운영 VM에 저장소의 NGINX 템플릿 변경만 반영할 때는 다음 명령을
 사용합니다. 기존 설정을 임시 백업하고 `nginx -t`를 통과한 경우에만

@@ -17,6 +17,22 @@
 4. 고객 사용자를 Team에서 제거하고 계정을 비활성화합니다.
 5. SMTP·DNS·공인 IP와 인스턴스 식별정보를 기록합니다.
 
+### notifier 종료 gate
+
+1. `./deploy/scripts/notifier-control.sh drain`으로 새 수집을 중지하고 delivery-enabled drain mode를 유지합니다.
+2. delivery_enabled=true인 동안 필요한 `threadhub-mailer retry-failed` remediation을 마친 뒤 `pending=0`과 `sending=0`을 확인합니다.
+3. `threadhub-mailer cancel-failed`는 남은 `failed_permanent`와 `failed_exhausted`를 한 트랜잭션에서 취소하고 두 상태의 수신자 주소와 lease를 scrub합니다. 그 뒤 `failed=0`을 확인합니다.
+4. pending=0, sending=0, failed=0이면 `./deploy/scripts/notifier-control.sh disable`을 실행하고 `delivery_enabled=false`를 확인합니다.
+5. pending, sending, failed 중 **하나라도 0이 아니면** (ANY of pending, sending, or failed is nonzero) close를 중지합니다. project close is blocked이며, 원인을 복구하거나 운영 책임자에게 escalate합니다. 이 상태에서는 SMTP Credential, IAM, Approved Sender, DNS 또는 VM 삭제를 진행하지 않습니다.
+
+`cancel-failed`는 pending/sending을 취소하거나 scrub하지 않습니다. 따라서 0 queue gate를
+통과하기 전에는 전체 email scrub을 주장할 수 없습니다.
+
+queue backup 범위는 `queue.db`와 SQLite sidecar뿐이지만 recipient addresses를 포함할 수
+있습니다. backup은 비공개·보호된 저장소에 보관하고 종료 결정에 따라 securely removed
+합니다. 원시 backup이 남아 있으면 email scrub 완료라고 기록하지 않습니다. 정확한
+retry/cancel 명령은 [운영 점검표](./operations-checklist.md)를 따릅니다.
+
 ## 3. 기록 유지
 
 1. 프로젝트 채널을 보관합니다.
@@ -37,13 +53,22 @@
 
 완전 폐기는 OCI에서 수행하는 별도의 파괴적 작업입니다.
 
-1. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
-2. DNS A 레코드를 제거합니다.
-3. 프로젝트 SMTP Credentials를 폐기하거나 교체합니다.
-4. OCI Compute VM을 삭제합니다.
-5. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
-6. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
-7. 프로젝트 도메인과 인증서 운영 상태를 정리합니다.
+1. `pending=0`, `sending=0`, `failed=0`, `delivery_enabled=false` close gate와 `failed_permanent` 및 `failed_exhausted` cancel/scrub 결과를 확인합니다.
+2. 보호된 queue backup의 보존 또는 securely removed 결정을 기록합니다.
+3. 프로젝트 SMTP Credential을 삭제합니다.
+4. exact project Approved Sender를 삭제합니다.
+5. IAM membership/user/policy/group을 순서대로 제거합니다.
+6. project A record만 제거합니다.
+7. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
+8. OCI Compute VM을 삭제합니다.
+9. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
+10. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
+
+공유 Email Domain/DKIM/SPF/DNS zone은 별도 영향분석과 명시적 승인 없이는 삭제하지
+않습니다. IAM user/group/policy 또는 SMTP Credential은 tenancy-wide 영향을 줄 수
+있으므로 생성·교체·삭제마다 명시적 승인이 필요하며, Approved Sender와 DNS 변경에는
+target Compartment와 region을 기록합니다. 상세 격리 정책은
+[OCI Email Delivery 설정](./oci-email-delivery.md)을 따릅니다.
 
 완전 폐기 후 PostgreSQL, 메시지와 첨부파일은 복구되지 않습니다.
 

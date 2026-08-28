@@ -19,6 +19,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - PostgreSQL 18.4
 - NGINX와 Let’s Encrypt
 - OCI Email Delivery
+- 즉시 채널 이메일 알림(일반 안내문만, 수신자별 단일 SMTP envelope)
 - 인스턴스당 활성 사용자 최대 50명
 - 웹, 데스크톱, 공식 iOS·Android 앱 지원
 - 모바일 푸시 기본 비활성화
@@ -68,6 +69,9 @@ DNS 또는 OCI Email Delivery가 아직 준비되지 않았다면 기존 작업�
 따릅니다.
 
 프로젝트 Team의 사용자 운영 절차는 [프로젝트 Team 운영 절차](./deploy/docs/project-team-runbook.md)를 사용합니다.
+즉시 채널 이메일 알림의 설치, 운영, 개인정보와 종료 절차는
+[빠른 설치](./deploy/docs/quick-install.md), [운영 점검표](./deploy/docs/operations-checklist.md),
+[프로젝트 종료](./deploy/docs/project-close.md), [시험계획](./deploy/docs/test-plan.md)를 함께 따릅니다.
 
 ```bash
 ./deploy/scripts/validate.sh

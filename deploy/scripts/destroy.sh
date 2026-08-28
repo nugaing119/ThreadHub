@@ -14,7 +14,14 @@ source "${SCRIPT_DIR}/common.sh"
 
 require_file "${ENV_FILE}"
 require_file "${VERSIONS_FILE}"
+validate_base_env
 init_docker
+init_sudo
+require_command jq
+
+data_root="$(env_value THREADHUB_DATA_ROOT "${ENV_FILE}")"
+install_disabled_notifier_control "${data_root}"
+log "Notifier event collection and SMTP delivery were disabled atomically"
 
 compose down --remove-orphans
 

@@ -32,3 +32,9 @@ vulnerability report를 제출해 주십시오.
 - OCI OCID, 실제 공인 IP와 SSH 허용 IP
 - 고객 도메인, 이메일, 사용자명과 프로젝트 식별정보
 - 운영 로그, 메시지, 첨부파일, PostgreSQL 데이터와 백업
+- notifier 큐의 수신자 주소·제어 파일·SMTP acceptance marker와 실제 알림 수신 결과
+
+즉시 채널 이메일 알림은 메시지 본문, 채널·Team 이름, 작성자와 수신자 주소를
+일반 공개 문서·로그·상태 출력에 넣지 않습니다. 공개 시험 증거는
+[공개 검증 결과 요약](./deploy/docs/test-results-public.md)의 고정 ID·SHA·통과/실패
+범위로 제한하고, 운영 식별자가 필요한 기록은 비공개 운영 기록에서만 보관합니다.

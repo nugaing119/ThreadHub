@@ -1,0 +1,4 @@
+# Fixed HMAC unit-test fixtures from early notifier commits.
+84035840387f209bffda5e1d2f35a221e3fbac8d:notifier/plugin/server/config_test.go:generic-api-key:23
+398c6af3f5ac56e944e04ce08706f07be5bb9c82:notifier/mailer/internal/config/config_test.go:generic-api-key:23
+67681af3b9bf524a5ffe087025da095df4d0ca59:notifier/protocol/event_test.go:generic-api-key:98

@@ -29,18 +29,47 @@ jobs:
           set -Eeuo pipefail
           archive="${RUNNER_TEMP}/gitleaks.tar.gz"
           install_dir="${RUNNER_TEMP}/gitleaks"
+          scan_log="${RUNNER_TEMP}/gitleaks-history.log"
           url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          cleanup() {
+            rm -rf "${archive}" "${install_dir}" "${scan_log}"
+          }
+          trap cleanup EXIT
 
           curl --fail --silent --show-error --location "${url}" --output "${archive}"
           printf '%s  %s\n' "${GITLEAKS_LINUX_X64_SHA256}" "${archive}" | sha256sum --check -
           install -d -m 0755 "${install_dir}"
           tar -xzf "${archive}" -C "${install_dir}" gitleaks
-          "${install_dir}/gitleaks" git --redact --no-banner .
+          if ! "${install_dir}/gitleaks" git --redact --no-banner --log-opts='--all' . \
+            >"${scan_log}" 2>&1; then
+            printf '%s\n' 'Repository history secret scan failed; diagnostics remain private.' >&2
+            exit 1
+          fi
+          rm -f "${scan_log}"
 
       - name: Install validators
         run: |
           sudo apt-get update
-          sudo apt-get install -y expect nginx shellcheck
+          sudo apt-get install -y expect nginx
+
+      - name: Install pinned ShellCheck
+        shell: bash
+        env:
+          SHELLCHECK_VERSION: 0.11.0
+          SHELLCHECK_LINUX_X64_SHA256: 8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198
+        run: |
+          set -Eeuo pipefail
+          archive="${RUNNER_TEMP}/shellcheck.tar.xz"
+          install_dir="${RUNNER_TEMP}/shellcheck"
+          url="https://github.com/koalaman/shellcheck/releases/download/v${SHELLCHECK_VERSION}/shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz"
+
+          curl --fail --silent --show-error --location "${url}" --output "${archive}"
+          printf '%s  %s\n' "${SHELLCHECK_LINUX_X64_SHA256}" "${archive}" | sha256sum --check -
+          install -d -m 0755 "${install_dir}"
+          tar -xJf "${archive}" -C "${install_dir}" --strip-components=1 \
+            "shellcheck-v${SHELLCHECK_VERSION}/shellcheck"
+          test -x "${install_dir}/shellcheck"
+          test "$("${install_dir}/shellcheck" --version | awk '$1 == "version:" { print $2 }')" = "${SHELLCHECK_VERSION}"
 
       - name: Validate repository diff
         run: git diff --check HEAD^ HEAD
@@ -49,16 +78,34 @@ jobs:
         run: ./deploy/scripts/validate.sh
 
       - name: Run ShellCheck
-        run: shellcheck -x -P deploy/scripts deploy/scripts/*.sh
+        run: '"${RUNNER_TEMP}/shellcheck/shellcheck" -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh'
+
+      - name: Clean pinned ShellCheck
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${RUNNER_TEMP}/shellcheck.tar.xz" "${RUNNER_TEMP}/shellcheck"
+
+      - name: Test notifier installer gates
+        run: |
+          ./deploy/tests/notifier-installer-test.sh
+          ./deploy/tests/notifier-installer-security-test.sh
 
       - name: Exercise guided configuration and unattended handoff
         shell: bash
         run: |
           set -Eeuo pipefail
-          trap 'rm -f deploy/.env' EXIT
+          privacy_patterns=/tmp/wizard-private-patterns
+          trap 'rm -f deploy/.env /tmp/wizard-configure-output /tmp/wizard-existing-output "${privacy_patterns}"' EXIT
+          umask 077
+          : > "${privacy_patterns}"
+          chmod 0600 "${privacy_patterns}"
 
           expect <<'EOF'
           set timeout 30
+          log_user 0
+          log_file -noappend /tmp/wizard-configure-output
           spawn ./deploy/scripts/setup-wizard.sh --configure-only
           expect "ThreadHub public domain: "
           send "threadhub-ci.test.net\r"
@@ -82,7 +129,39 @@ jobs:
           EOF
 
           test "$(stat -c '%a' deploy/.env)" = 600
+          test "$(awk -F= '$1 == "NOTIFIER_ENABLED" { print $2 }' deploy/.env)" = true
+          test "$(awk -F= '$1 == "NOTIFIER_MODE" { print $2 }' deploy/.env)" = all_channels
+          test -z "$(awk -F= '$1 == "NOTIFIER_CHANNEL_IDS" { print $2 }' deploy/.env)"
+          test "$(awk -F= '$1 == "NOTIFIER_RATE_PER_MINUTE" { print $2 }' deploy/.env)" = 10
+          notifier_hmac="$(awk -F= '$1 == "NOTIFIER_HMAC_SECRET" { gsub(/\047/, "", $2); print $2 }' deploy/.env)"
+          test "${#notifier_hmac}" -eq 64
+          test -z "${notifier_hmac//[0-9a-f]/}"
+          builtin printf '%s\n' "${notifier_hmac}" 'fixture_smtp_password' > "${privacy_patterns}"
+          if grep -F -q -f "${privacy_patterns}" /tmp/wizard-configure-output; then
+            printf '%s\n' '[redacted privacy failure] Wizard output disclosed protected configuration.' >&2
+            exit 1
+          fi
           ./deploy/scripts/deploy.sh --validate-only
+
+          sed -i '/^NOTIFIER_/d' deploy/.env
+          set +e
+          ./deploy/scripts/setup-wizard.sh --non-interactive \
+            >/tmp/wizard-existing-output 2>&1
+          existing_status=$?
+          set -e
+          test "${existing_status}" -eq 20
+          grep -Fx '[ACTION REQUIRED] Run ./deploy/scripts/configure-notifier.sh' \
+            /tmp/wizard-existing-output >/dev/null
+
+          printf '%s\n' 'NOTIFIER_ENABLED=true' >>deploy/.env
+          set +e
+          ./deploy/scripts/setup-wizard.sh --non-interactive \
+            >/tmp/wizard-existing-output 2>&1
+          partial_status=$?
+          set -e
+          test "${partial_status}" -eq 20
+          grep -F '[ACTION REQUIRED] Notifier configuration is partial;' \
+            /tmp/wizard-existing-output >/dev/null
           rm -f deploy/.env
 
           set +e
@@ -130,3 +209,93 @@ jobs:
             > "${temp_config}"
           sudo install -m 0644 "${temp_config}" /etc/nginx/conf.d/threadhub.conf
           sudo nginx -t
+
+  notifier-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Set up Go 1.25.10
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.25.10
+          cache-dependency-path: notifier/go.sum
+
+      - name: Run notifier unit and race tests
+        working-directory: notifier
+        run: make test
+
+      - name: Verify notifier repository pins
+        working-directory: notifier
+        run: make verify-pins
+
+      - name: Install pinned notifier artifact scanner
+        shell: bash
+        env:
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_LINUX_X64_SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          set -Eeuo pipefail
+          archive="${RUNNER_TEMP}/gitleaks.tar.gz"
+          install_dir="${RUNNER_TEMP}/gitleaks"
+          url="https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+
+          curl --fail --silent --show-error --location "${url}" --output "${archive}"
+          printf '%s  %s\n' "${GITLEAKS_LINUX_X64_SHA256}" "${archive}" | sha256sum --check -
+          install -d -m 0755 "${install_dir}"
+          tar -xzf "${archive}" -C "${install_dir}" gitleaks
+          test "$("${install_dir}/gitleaks" version)" = 8.30.1
+
+      - name: Test privacy-safe notifier artifact scanner
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install_dir="${RUNNER_TEMP}/gitleaks"
+          GITLEAKS_BIN="${install_dir}/gitleaks" ./deploy/tests/notifier-artifact-security-test.sh
+
+      - name: Build notifier artifacts
+        working-directory: notifier
+        run: make plugin-bundle mailer
+
+      - name: Scan exact notifier artifacts for embedded secrets
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          install_dir="${RUNNER_TEMP}/gitleaks"
+          GITLEAKS_BIN="${install_dir}/gitleaks" ./deploy/scripts/verify-notifier-artifacts.sh
+
+      - name: Clean pinned notifier artifact scanner
+        if: always() # scanner cleanup must run after install, fixture, build or scan failure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${RUNNER_TEMP}/gitleaks.tar.gz" "${RUNNER_TEMP}/gitleaks"
+
+      - name: Record privacy-safe bundle identity
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          artifact_dir="${RUNNER_TEMP}/threadhub-notifier-integration-artifacts"
+          install -d -m 0755 "${artifact_dir}"
+          bundle_sha="$(sha256sum notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz | awk '{print $1}')"
+          [[ "${bundle_sha}" =~ ^[a-f0-9]{64}$ ]]
+          printf 'bundle_sha256=%s\n' "${bundle_sha}" >"${artifact_dir}/bundle-sha256.txt"
+          chmod 0644 "${artifact_dir}/bundle-sha256.txt"
+
+      - name: Run isolated real-image integration
+        working-directory: notifier
+        env:
+          INTEGRATION_RESULT_FILE: ${{ runner.temp }}/threadhub-notifier-integration-artifacts/results.txt
+        run: make integration
+
+      - name: Upload privacy-safe integration evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: notifier-integration-evidence
+          path: ${{ runner.temp }}/threadhub-notifier-integration-artifacts
+          if-no-files-found: error
+          retention-days: 7

@@ -36,6 +36,29 @@ compartment 구조에 맞춰 최소 범위로 부여합니다.
 저장소는 tenancy별 identity domain 이름과 IAM 구조를 추측해 정책을 자동 생성하지
 않습니다.
 
+project-specific IAM user/group/SMTP Credential/exact Approved Sender를 프로젝트마다
+사용합니다. 다음 정책은 **그대로** 사용하되 angle-bracket 값은 사용자가 승인한
+비공개 change record에서만 해석합니다. 실제 identity domain, group, Compartment,
+Approved Sender OCID를 공개 저장소에 기록하지 않습니다.
+
+```text
+Allow group '<identity-domain>'/'<project-smtp-group>'
+to use approved-senders
+in compartment <project-compartment>
+where target.approved-sender.id = '<project-approved-sender-ocid>'
+```
+
+domain-wide sender와 broad `email-family` policy는 사용하지 않습니다. 이 exact
+Approved Sender IAM condition은 additive least privilege입니다. IAM 허용은 다른
+group·상위 scope 정책과 누적될 수 있으므로 additive IAM policy audit에서 해당 사용자
+group membership과 적용되는 모든 정책을 확인합니다. 단, 이 condition 자체가 Email
+Delivery tenant-wide resources를 region-scoped로 만드는 것은 아닙니다. project
+compartment와 region을 명시해야 하며 tenancy-wide IAM mutation에는 별도 명시적 사용자
+승인이 필요합니다.
+
+no unauthorized OCI automation: 설치기와 저장소 스크립트는 OCI IAM user/group/policy,
+SMTP Credential, Approved Sender, DNS, public IP 또는 Email Delivery 자원을 생성·변경·삭제하지 않습니다.
+
 ## 3. SMTP Credentials 생성
 
 1. 전용 IAM 사용자의 상세 화면을 엽니다.
@@ -64,6 +87,11 @@ SMTP password를 Git, 채팅, 이슈, 셸 history 또는 명령행 인수에 기
 
 공개 메일 서비스 도메인은 Email Domain으로 사용할 수 없습니다. Email Domain과
 DKIM이 적용되는 정확한 도메인 또는 subdomain이 From 주소와 일치해야 합니다.
+
+Email Domain/DKIM/SPF는 same sending domain and region일 때만 공유할 수 있습니다.
+공유는 도메인 인증 운영의 공유일 뿐, project-specific exact Approved Sender 권한을
+대체하지 않습니다. 다른 프로젝트가 남아 있으면 이 공유 자원을 변경하거나 삭제하지
+않습니다.
 
 공식 절차:
 
@@ -132,13 +160,28 @@ complaint 여부를 확인합니다. 원인을 해결하기 전에는 suppressio
 - [Managing Suppression List](https://docs.oracle.com/en-us/iaas/Content/Email/Tasks/managingsuppressionlist.htm)
 - [Listing Suppressed Addresses](https://docs.oracle.com/en-us/iaas/Content/Email/Reference/managingsuppressionlist_topic-list-suppressed-addresses.htm)
 
-## 9. SMTP Credential 교체
+프로젝트 격리 수동 시험은 cross-send matrix `A/A success, A/B deny, B/B success, B/A deny`를
+비공개 change record에서 확인합니다. 실제 SMTP credential, sender, recipient, Compartment,
+region 또는 응답 전문은 공개 저장소에 기록하지 않습니다.
 
-1. 두 번째 SMTP credential을 생성합니다.
-2. 서버의 `deploy/.env`에서 username과 password를 교체합니다.
-3. `./deploy/scripts/deploy.sh`로 Mattermost 컨테이너만 새 설정으로 재생성합니다.
-4. 초대·확인·재설정 메일을 다시 시험합니다.
-5. 새 credential이 검증된 후 OCI에서 이전 credential을 삭제합니다.
+## 9. 비용과 승인 경계
+
+OCI Email Delivery cost는 tenancy and region total sending volume을 기준으로 before deployment
+재확인합니다. 프로젝트별 credential 또는 Approved Sender가 별도 무료 quota를 만들지
+않습니다. 현재 price, quota, rate limit은 OCI Console에서 읽기 전용으로 확인하고,
+target Compartment와 region을 기록합니다.
+
+## 10. SMTP Credential 교체
+
+1. `./deploy/scripts/notifier-control.sh drain`으로 새 수집을 중지하고 delivery-enabled drain mode를 유지합니다.
+2. delivery_enabled=true인 동안 필요한 `threadhub-mailer retry-failed` remediation을 실행한 뒤 `pending=0`과 `sending=0`을 확인합니다. 0이 아니면 중지하고 복구하거나 escalate합니다.
+3. `threadhub-mailer cancel-failed`로 남은 `failed_permanent`와 `failed_exhausted`를 한 트랜잭션에서 취소·scrub하고 `failed=0`을 확인합니다. pending/sending은 변경되지 않으므로 앞 단계의 0 gate를 생략하지 않습니다.
+4. `./deploy/scripts/notifier-control.sh disable`로 delivery를 중지합니다.
+5. 그 뒤에만 서버의 보호된 `deploy/.env`에서 username과 password를 교체합니다.
+6. `./deploy/scripts/deploy.sh`로 변경된 환경을 사용하는 Compose 서비스를 재생성합니다. Mattermost만 영향을 받는다고 가정하지 않습니다.
+7. `./deploy/scripts/notifier-smtp-test.sh`로 one-time SMTP acceptance marker를 다시 시험합니다.
+8. `./deploy/scripts/notifier-control.sh activate --from-env`의 gated path로 다시 활성화하고 `./deploy/scripts/notifier-status.sh`에서 상태를 확인합니다.
+9. 새 credential의 acceptance와 notifier send 상태가 성공으로 확인된 뒤에만 OCI에서 이전 credential을 삭제합니다.
 
 이 절차는 PostgreSQL과 첨부파일 bind mount를 삭제하지 않습니다. 실제 secret은
 교체 전후 모두 Git에 커밋하지 않습니다.
