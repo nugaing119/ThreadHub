@@ -457,6 +457,116 @@ grep -F 'exit code `20`' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
     || die "Quick-install guide must document action-required exit behavior"
 log "Guided installation entry point and OCI setup guides are present"
 
+# The notifier’s operational and isolation guarantees are intentionally
+# documented in the public runbooks. Keep these assertions tolerant of normal
+# Markdown wrapping while preventing the safety-critical contracts from
+# silently disappearing.
+for document in \
+    "${REPOSITORY_ROOT}/README.md" \
+    "${REPOSITORY_ROOT}/SECURITY.md" \
+    "${DEPLOY_DIR}/README.md" \
+    "${DEPLOY_DIR}/docs/quick-install.md" \
+    "${DEPLOY_DIR}/docs/setup.md" \
+    "${DEPLOY_DIR}/docs/admin-guide.md" \
+    "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    "${DEPLOY_DIR}/docs/operations-checklist.md" \
+    "${DEPLOY_DIR}/docs/project-close.md" \
+    "${DEPLOY_DIR}/docs/test-plan.md" \
+    "${DEPLOY_DIR}/docs/test-results-public.md"; do
+    require_file "${document}"
+done
+
+require_document_regex() {
+    local document="$1"
+    local expression="$2"
+    local description="$3"
+
+    grep -Eiq -- "${expression}" "${document}" \
+        || die "Notifier documentation is missing ${description}: ${document}"
+}
+
+require_document_terms() {
+    local document="$1"
+    local description="$2"
+    shift 2
+    local term
+
+    for term in "$@"; do
+        grep -Fiq -- "${term}" "${document}" \
+            || die "Notifier documentation is missing ${description}: ${document}"
+    done
+}
+
+for document_reference in \
+    "${REPOSITORY_ROOT}/README.md|./deploy/docs/quick-install.md" \
+    "${DEPLOY_DIR}/README.md|./docs/quick-install.md" \
+    "${DEPLOY_DIR}/docs/quick-install.md|./oci-email-delivery.md" \
+    "${DEPLOY_DIR}/docs/quick-install.md|./admin-guide.md" \
+    "${DEPLOY_DIR}/docs/setup.md|./oci-email-delivery.md" \
+    "${DEPLOY_DIR}/docs/admin-guide.md|./operations-checklist.md" \
+    "${DEPLOY_DIR}/docs/operations-checklist.md|./project-close.md" \
+    "${DEPLOY_DIR}/docs/project-close.md|./oci-email-delivery.md" \
+    "${DEPLOY_DIR}/docs/test-plan.md|./test-results-public.md"; do
+    document_path="${document_reference%%|*}"
+    document_link="${document_reference#*|}"
+    grep -F -- "${document_link}" "${document_path}" >/dev/null \
+        || die "Notifier documentation link is missing: ${document_path} -> ${document_link}"
+done
+
+for notifier_script in \
+    './deploy/scripts/build-notifier.sh' \
+    './deploy/scripts/configure-notifier.sh' \
+    './deploy/scripts/install-notifier-plugin.sh' \
+    './deploy/scripts/notifier-control.sh' \
+    './deploy/scripts/notifier-smtp-test.sh' \
+    './deploy/scripts/notifier-status.sh' \
+    './deploy/scripts/install-status.sh'; do
+    grep -R -F -- "${notifier_script}" \
+        "${REPOSITORY_ROOT}/README.md" "${DEPLOY_DIR}/README.md" "${DEPLOY_DIR}/docs" >/dev/null \
+        || die "Notifier documentation must name ${notifier_script}"
+done
+
+require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    'project-specific[[:space:]]+IAM[[:space:]]+user/group/SMTP[[:space:]]+Credential/exact[[:space:]]+Approved[[:space:]]+Sender' \
+    'project-specific IAM user/group/SMTP Credential/exact Approved Sender isolation'
+for policy_line in \
+    "Allow group '<identity-domain>'/'<project-smtp-group>'" \
+    'to use approved-senders' \
+    'in compartment <project-compartment>' \
+    "where target.approved-sender.id = '<project-approved-sender-ocid>'"; do
+    grep -F -- "${policy_line}" "${DEPLOY_DIR}/docs/oci-email-delivery.md" >/dev/null \
+        || die "OCI isolation policy line is missing: ${policy_line}"
+done
+require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    'same[[:space:]]+sending[[:space:]]+domain[[:space:]]+and[[:space:]]+region' \
+    'shared Email Domain/DKIM/SPF same-domain-and-region limit'
+require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    'additive[[:space:]]+IAM[[:space:]]+policy[[:space:]]+audit' \
+    'additive IAM policy audit'
+require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    'A/A[[:space:]]+success,[[:space:]]+A/B[[:space:]]+deny,[[:space:]]+B/B[[:space:]]+success,[[:space:]]+B/A[[:space:]]+deny' \
+    'cross-send IAM acceptance matrix'
+require_document_terms "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    'tenancy-and-region Email Delivery cost recheck' \
+    'tenancy and region total sending volume' 'before deployment' 'OCI Email Delivery cost'
+require_document_regex "${DEPLOY_DIR}/docs/quick-install.md" \
+    'actual[[:space:]]+inbox/link/SPF/DKIM[[:space:]]+remains[[:space:]]+manual' \
+    'manual inbox/link/SPF/DKIM acceptance boundary'
+require_document_terms "${DEPLOY_DIR}/docs/admin-guide.md" \
+    'at-least-once duplicate caveat' 'at-least-once' 'duplicate' 'exactly-once'
+require_document_terms "${DEPLOY_DIR}/docs/operations-checklist.md" \
+    'immediate disable and 24h/7d privacy retention' 'immediate disable' '24h/7d privacy retention'
+require_document_terms "${DEPLOY_DIR}/docs/admin-guide.md" \
+    'Team Edition plugin and license boundary' 'Mattermost Team Edition' 'normal plugin API' \
+    'no paid feature' 'no license check change'
+require_document_terms "${DEPLOY_DIR}/docs/setup.md" \
+    'safe project DNS A-record isolation' 'DNS A record' 'unrelated RRsets' \
+    'two independent VM'
+require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
+    'no[[:space:]]+unauthorized[[:space:]]+OCI[[:space:]]+automation' \
+    'no unauthorized OCI automation'
+log "Notifier documentation links, operational safety and OCI isolation contracts are present"
+
 for script in \
     "${SCRIPT_DIR}/configure-nginx.sh" \
     "${SCRIPT_DIR}/reload-nginx.sh"; do

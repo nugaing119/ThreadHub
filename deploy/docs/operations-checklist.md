@@ -12,6 +12,7 @@
 - [ ] 5432와 8443 외부 미노출
 - [ ] host iptables의 80·443 허용 규칙과 `netfilter-persistent` 활성 상태 확인
 - [ ] 기존 계정·메시지·파일 유지
+- [ ] `./deploy/scripts/notifier-status.sh`의 plugin=active, SMTP acceptance, pending/sending/sent/failed와 oldest_pending_seconds를 확인
 
 ## 주 1회
 
@@ -26,6 +27,54 @@
 - [ ] SMTP 실패와 OCI suppression 확인
 - [ ] Docker·Mattermost·NGINX 로그 크기와 회전 확인
 - [ ] 활성 사용자 50명 이하 확인
+- [ ] notifier pending/sending/failed counter와 oldest pending 기준을 확인하고, 상태 출력에 channel ID·수신자·비밀값이 없는지 확인
+
+## 즉시 채널 이메일 알림 운영
+
+```bash
+./deploy/scripts/notifier-status.sh
+./deploy/scripts/notifier-control.sh status
+```
+
+`notifier-status.sh`는 pending, sending, sent, failed counter와 `oldest_pending_seconds`,
+마지막 성공·오류 분류를 출력합니다. allowlist는 ID가 아니라 개수만 표시합니다.
+
+중단은 먼저 새 수집만 막고 기존 큐를 처리하는 순서입니다.
+
+```bash
+./deploy/scripts/notifier-control.sh drain
+```
+
+`drain` 뒤 최대 10분 동안 pending/sending과 oldest pending 기준을 관찰합니다. 완료하지
+못했거나 즉시 중지가 필요하면 다음을 실행합니다.
+
+```bash
+./deploy/scripts/notifier-control.sh disable
+```
+
+`disable`은 신규 수집과 SMTP 발송을 즉시 중지하며 이미 OCI가 수락한 이메일은 회수할
+수 없습니다. 두 명령 모두 queue data를 삭제하지 않습니다. 백업 범위는
+`/srv/threadhub/notifier/mailer/queue.db`와 그 SQLite sidecar뿐이며, PostgreSQL·Mattermost
+파일 또는 다른 프로젝트 큐를 함께 복사하지 않습니다.
+
+실패 항목을 재시도한 뒤에도 실패하면 cancel 순서를 사용합니다. 실행 전 notifier를
+`disable`하고 queue backup 범위를 확인한 뒤 다음 정확한 Mailer 명령을 실행합니다.
+
+```bash
+docker compose --env-file deploy/.env --env-file deploy/versions.env \
+  -f deploy/docker-compose.yml exec -T threadhub-mailer /threadhub-mailer retry-failed
+docker compose --env-file deploy/.env --env-file deploy/versions.env \
+  -f deploy/docker-compose.yml exec -T threadhub-mailer /threadhub-mailer cancel-failed
+```
+
+cancel은 실패한 delivery의 원시 수신자 이메일을 scrub합니다. immediate disable and
+24h/7d privacy retention: exhausted 수신자 이메일은 24시간 후 scrub하며 terminal
+가명화 event metadata는 7일 후 삭제합니다. SMTP credential rotation 뒤에는
+`./deploy/scripts/notifier-smtp-test.sh`로 marker를 다시 시험합니다. HMAC rotation은
+notifier disable과 queue drain/cancel 뒤에만 수행하고, 새 marker와 activation cutoff를
+다시 만들어야 합니다.
+
+프로젝트 종료의 자원 회수 순서는 [프로젝트 종료 절차](./project-close.md)를 따릅니다.
 
 ## 기본 명령
 

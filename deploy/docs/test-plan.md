@@ -16,6 +16,24 @@
 | loopback 포트 | `health-check.sh` |
 | 중요 환경설정 | `readiness-check.sh` |
 | HTTPS와 HTTP 전환 | `readiness-check.sh` |
+| notifier unit/race·installer security | `cd notifier && make test` 및 `validate.sh` |
+| notifier real-image integration | `cd notifier && make integration` (로컬/CI Docker 환경) |
+
+## notifier 시험 ID와 실행 경계
+
+| 범위 | ID | 실행 경계 |
+| --- | --- | --- |
+| 채널 기능 | `NF-FN-01`~`NF-FN-08` | 자동 real-image integration |
+| 내용·envelope·HMAC 보안 | `NF-SEC-01`, `NF-SEC-02`, `NF-SEC-04`~`NF-SEC-06` | 자동 unit/integration |
+| 장애·중복·control | `NF-REL-01`, `NF-REL-03`~`NF-REL-05` | 자동 real-image integration |
+| 설치와 activation | `NF-INS-01`, `NF-INS-02` | 자동/fixture installer 시험 |
+| SMTP 접수·inbox 구분 | `NF-INS-03`~`NF-INS-05` | target scope와 명시적 라이브 승인 필요 |
+| OCI IAM 격리 | `NF-IAM-01`~`NF-IAM-07` | target Compartment/region과 명시적 라이브 승인 필요 |
+
+라이브 시험은 Task 15의 새 명시적 승인 전에는 실행하지 않습니다. `NF-IAM`은 A/A 성공,
+A/B 거부, B/B 성공, B/A 거부와 additive policy audit을 비공개 change record에서
+확인합니다. 실제 inbox, link, SPF/DKIM은 자동 SMTP acceptance와 별도의 수동 인수
+항목입니다.
 
 ## 필수 수동 시험군
 

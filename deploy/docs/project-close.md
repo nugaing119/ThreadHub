@@ -17,6 +17,10 @@
 4. 고객 사용자를 Team에서 제거하고 계정을 비활성화합니다.
 5. SMTP·DNS·공인 IP와 인스턴스 식별정보를 기록합니다.
 
+알림을 먼저 중지하고 `./deploy/scripts/notifier-control.sh drain`으로 새 수집만 막은
+뒤 최대 10분간 큐를 처리합니다. 잔여 실패·재시도 항목은
+[운영 점검표](./operations-checklist.md)의 retry/cancel 순서로 처리합니다.
+
 ## 3. 기록 유지
 
 1. 프로젝트 채널을 보관합니다.
@@ -37,13 +41,21 @@
 
 완전 폐기는 OCI에서 수행하는 별도의 파괴적 작업입니다.
 
-1. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
-2. DNS A 레코드를 제거합니다.
-3. 프로젝트 SMTP Credentials를 폐기하거나 교체합니다.
-4. OCI Compute VM을 삭제합니다.
-5. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
-6. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
-7. 프로젝트 도메인과 인증서 운영 상태를 정리합니다.
+1. notifier queue를 cancel하여 email scrub을 확인합니다.
+2. 프로젝트 SMTP Credential을 삭제합니다.
+3. exact project Approved Sender를 삭제합니다.
+4. IAM membership/user/policy/group을 순서대로 제거합니다.
+5. project A record만 제거합니다.
+6. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
+7. OCI Compute VM을 삭제합니다.
+8. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
+9. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
+
+공유 Email Domain/DKIM/SPF/DNS zone은 별도 영향분석과 명시적 승인 없이는 삭제하지
+않습니다. IAM user/group/policy 또는 SMTP Credential은 tenancy-wide 영향을 줄 수
+있으므로 생성·교체·삭제마다 명시적 승인이 필요하며, Approved Sender와 DNS 변경에는
+target Compartment와 region을 기록합니다. 상세 격리 정책은
+[OCI Email Delivery 설정](./oci-email-delivery.md)을 따릅니다.
 
 완전 폐기 후 PostgreSQL, 메시지와 첨부파일은 복구되지 않습니다.
 

@@ -3,7 +3,20 @@
 이 절차는 새 Ubuntu 24.04 LTS AMD64 VM 한 대에 새 ThreadHub 인스턴스를
 설치합니다. 기존 프로젝트 데이터를 이전하거나 OCI 리소스를 자동 생성하지 않습니다.
 
-## 1. 준비해야 할 값
+## 1. 설치 순서와 준비해야 할 값
+
+새 인스턴스의 순서는 다음과 같습니다. 기존 VM·`deploy/.env`·`/srv/threadhub`에
+접속하거나 값을 덧붙이는 절차가 아닙니다.
+
+1. fresh Ubuntu 24.04 AMD64 VM(2 OCPU, 16GB RAM, Boot Volume 50GB 이상) 기준을 확인합니다.
+2. 저장소에서 `./deploy/scripts/validate.sh`를 실행합니다.
+3. 프로젝트 DNS와 Email Delivery를 준비합니다.
+4. 숨김 SMTP 입력과 generated HMAC으로 설정을 만듭니다.
+5. build/install을 실행합니다.
+6. 일회성 SMTP acceptance를 실행합니다.
+7. activation cutoff 이후에만 notifier를 활성화합니다.
+8. `./deploy/scripts/install-status.sh`의 `[READY]` 자동 항목을 확인합니다.
+9. inbox/link/SPF/DKIM, permissions, CJK, mobile 수동 항목을 완료합니다.
 
 설치 마법사를 실행하기 전에 다음 값을 준비합니다.
 
@@ -29,7 +42,7 @@ cd ThreadHub
 ./deploy/scripts/validate.sh
 ```
 
-## 3. 대화형 설치
+## 3. 대화형 설치와 notifier 활성화
 
 ```bash
 ./deploy/scripts/setup-wizard.sh
@@ -45,6 +58,12 @@ cd ThreadHub
 - DNS 준비 확인
 - NGINX, Let’s Encrypt와 HTTPS 구성
 - 최종 readiness 검사
+
+마법사는 notifier HMAC을 생성하고 보호된 `deploy/.env`에만 기록합니다. SMTP
+username/password는 hidden prompt로 입력하며 명령행 인수로 전달하지 않습니다.
+`NOTIFIER_ENABLED=true`인 신규 설정은 `./deploy/scripts/notifier-smtp-test.sh`의
+일회성 SMTP acceptance가 현재 자격 증명에 대해 성공하고, 빈 pre-activation queue와
+정확한 Runtime=Running plugin을 확인한 뒤 activation cutoff를 기록할 때만 발송합니다.
 
 마법사는 실제 `.env` 값을 출력하지 않습니다.
 
@@ -99,9 +118,12 @@ System Admin을 생성합니다. 관리자 비밀번호는 채팅이나 셸 인�
 이후 [관리자 가이드](./admin-guide.md)에 따라 다음 항목을 완료합니다.
 
 1. System Admin MFA
-2. 초대·이메일 확인·비밀번호 재설정 메일
-3. Member 권한
-4. CJK 검색
-5. iOS 또는 Android 앱
+2. 초대·이메일 확인·비밀번호 재설정 및 notifier SMTP 시험 메일의 inbox/link
+3. SPF와 DKIM 결과
+4. public/private 채널 Member 권한과 notifier 수신 경계
+5. CJK 검색과 일반 안내문
+6. iOS 또는 Android 앱
 
 자동 점검 통과는 위 수동 인수시험을 대체하지 않습니다.
+actual inbox/link/SPF/DKIM remains manual; `[READY]`는 자동 설치 검증의 결과일 뿐
+실제 받은편지함, 링크, SPF/DKIM, 권한, CJK 또는 모바일 성공을 주장하지 않습니다.

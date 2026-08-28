@@ -147,7 +147,7 @@ SMTP 587과 STARTTLS를 사용합니다. OCI 콘솔 비밀번호가 아니라 SM
 
 ## 8. DNS와 HTTPS
 
-`THREADHUB_DOMAIN`의 A 레코드를 예약 공인 IP에 연결하고 DNS 전파를 확인합니다. TCP 80과 443이 VM에 도달해야 합니다.
+`THREADHUB_DOMAIN`의 A 레코드를 예약 공인 IP에 연결하고 DNS 전파를 확인합니다. DNS A record는 unrelated RRsets를 덮어쓰지 않고 추가하며, 한 hostname을 two independent VMs에 동시에 연결하지 않습니다. TCP 80과 443이 VM에 도달해야 합니다.
 
 ```bash
 ./deploy/scripts/configure-nginx.sh
@@ -173,7 +173,7 @@ OCI Ubuntu 이미지의 host iptables가 외부 연결을 거부할 수 있으�
 - PostgreSQL 1개와 Mattermost 6개 bind mount
 - Mattermost ping endpoint
 
-`readiness-check.sh`는 중요 보안 설정, 실제 HTTPS endpoint와 HTTP 전환을 추가 확인합니다. 이메일 전달, MFA, 권한, CJK 검색과 모바일 시험은 별도의 수동 인수시험입니다.
+`readiness-check.sh`는 중요 보안 설정, 실제 HTTPS endpoint와 HTTP 전환을 추가 확인합니다. 이메일 전달, MFA, 권한, CJK 검색과 모바일 시험은 별도의 수동 인수시험입니다. notifier 관련 설치 순서와 activation cutoff는 [빠른 설치 가이드](./quick-install.md), 상태·drain 절차는 [운영 점검표](./operations-checklist.md)를 따릅니다.
 
 ## 10. 초기 관리자와 제품 설정
 
