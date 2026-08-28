@@ -181,7 +181,10 @@ services:
       FIXTURE_STATE_PATH: /run/smtp-private/captures.json
       FIXTURE_THREADHUB_DOMAIN: threadhub.integration.test
     ports:
-      - "127.0.0.1::8081"
+      - target: 8081
+        published: "49352-49451"
+        host_ip: 127.0.0.1
+        protocol: tcp
     volumes:
       - smtp-private:/run/smtp-private:rw
       - smtp-ca:/run/smtp-ca:rw
@@ -214,7 +217,10 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=128m
     ports:
-      - "127.0.0.1::8065"
+      - target: 8065
+        published: "49152-49251"
+        host_ip: 127.0.0.1
+        protocol: tcp
     environment:
       TZ: UTC
       MM_SQLSETTINGS_DRIVERNAME: postgres
@@ -292,7 +298,10 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m
     ports:
-      - "127.0.0.1::8080"
+      - target: 8080
+        published: "49252-49351"
+        host_ip: 127.0.0.1
+        protocol: tcp
     environment:
       NOTIFIER_LISTEN_ADDRESS: ":8080"
       THREADHUB_DOMAIN: threadhub.integration.test

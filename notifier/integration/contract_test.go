@@ -60,9 +60,12 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		"${MATTERMOST_IMAGE_DIGEST:",
 		"${POSTGRES_IMAGE_REPOSITORY:",
 		"${POSTGRES_IMAGE_DIGEST:",
-		`"127.0.0.1::8065"`,
-		`"127.0.0.1::8080"`,
-		`"127.0.0.1::8081"`,
+		`target: 8065`,
+		`published: "49152-49251"`,
+		`target: 8080`,
+		`published: "49252-49351"`,
+		`target: 8081`,
+		`published: "49352-49451"`,
 		"internal: true",
 		"pull_policy: never",
 		"SSL_CERT_FILE: /run/smtp-ca/ca.crt",
@@ -73,6 +76,14 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	}
 	if strings.Contains(compose, ":latest") {
 		t.Fatal("Compose contract contains a latest tag")
+	}
+	if strings.Count(compose, "host_ip: 127.0.0.1") != 3 {
+		t.Fatal("every integration endpoint must bind to IPv4 loopback")
+	}
+	for _, forbidden := range []string{`127.0.0.1::8065`, `127.0.0.1::8080`, `127.0.0.1::8081`} {
+		if strings.Contains(compose, forbidden) {
+			t.Fatalf("Compose retains non-portable empty host-port syntax %q", forbidden)
+		}
 	}
 	for _, required := range []string{
 		`/threadhub-deploy/notifier-plugin-files.sh:ro`,
