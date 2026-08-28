@@ -1165,12 +1165,7 @@ func (a *acceptance) mailerRecreateScenario(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "threadhub-mailer"); err != nil {
 		return "NF-REL-04-mailer-recreate"
 	}
-	mailerURL, err := a.publishedURL(ctx, "threadhub-mailer", "8080")
-	if err != nil {
-		return "NF-REL-04-mailer-recreate"
-	}
-	a.cfg.mailerURL = mailerURL
-	if err := waitHTTP(ctx, a.http, mailerURL.String()+"/healthz", 60*time.Second); err != nil {
+	if err := waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", 60*time.Second); err != nil {
 		return "NF-REL-04-mailer-recreate"
 	}
 	if err := a.waitExactDelta(ctx, before, a.expectedAB(), 50*time.Second); err != nil {
@@ -1193,13 +1188,7 @@ func (a *acceptance) mattermostRecreateScenario(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "mattermost"); err != nil {
 		return "NF-REL-05-mattermost-recreate"
 	}
-	mattermostURL, err := a.publishedURL(ctx, "mattermost", "8065")
-	if err != nil {
-		return "NF-REL-05-mattermost-recreate"
-	}
-	a.cfg.mattermostURL = mattermostURL
-	a.mattermost.baseURL = mattermostURL.String()
-	if err := waitHTTP(ctx, a.mattermost.client, mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 120*time.Second) != nil {
+	if err := waitHTTP(ctx, a.mattermost.client, a.cfg.mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 120*time.Second) != nil {
 		return "NF-REL-05-mattermost-recreate"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
@@ -1343,18 +1332,6 @@ func (a *acceptance) startMailer(ctx context.Context) error {
 		return err
 	}
 	return waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", 60*time.Second)
-}
-
-func (a *acceptance) publishedURL(ctx context.Context, service, port string) (*url.URL, error) {
-	raw, err := a.compose.run(ctx, "port", service, port)
-	if err != nil {
-		return nil, err
-	}
-	address := strings.TrimSpace(string(raw))
-	if strings.Contains(address, "\n") || address == "" {
-		return nil, errors.New("invalid published endpoint")
-	}
-	return parseLoopbackURL("http://" + address)
 }
 
 func main() {

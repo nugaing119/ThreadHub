@@ -51,56 +51,26 @@ func TestHarnessFileModeDetectionIsCrossPlatform(t *testing.T) {
 	}
 }
 
-func TestHarnessClassifiesPublishedAddressesWithoutDisclosingPorts(t *testing.T) {
+func TestHarnessUsesFixedLoopbackEndpointsWithoutComposePortDiscovery(t *testing.T) {
 	t.Parallel()
-
-	testCases := []struct {
-		name      string
-		address   string
-		wantClass string
-	}{
-		{name: "loopback", address: "127.0.0.1:49152", wantClass: "ok"},
-		{name: "empty", address: "", wantClass: "empty"},
-		{name: "multiple", address: "127.0.0.1:49152\n127.0.0.1:49153", wantClass: "multiple"},
-		{name: "all interfaces", address: "0.0.0.0:49152", wantClass: "all-interfaces"},
-		{name: "IPv6", address: "[::1]:49152", wantClass: "ipv6"},
-		{name: "unexpected", address: "localhost:49152", wantClass: "format"},
-	}
-	for _, testCase := range testCases {
-		testCase := testCase
-		t.Run(testCase.name, func(t *testing.T) {
-			t.Parallel()
-			command := exec.Command(
-				"bash",
-				"-c",
-				`source ./harness-lib.sh; notifier_harness_classify_published_address "$1"`,
-				"bash",
-				testCase.address,
-			)
-			output, err := command.CombinedOutput()
-			if err != nil {
-				t.Fatalf("published address classifier failed: %v: %s", err, output)
-			}
-			if got := string(output); got != testCase.wantClass {
-				t.Fatalf("classification = %q, want %q", got, testCase.wantClass)
-			}
-		})
-	}
 
 	runner := readContractFile(t, "run.sh")
 	for _, required := range []string{
-		`notifier_harness_classify_published_address "${address}"`,
-		`printf 'published_address_failure=%s-%s\n'`,
-		`compose_run ps --status running --quiet "${service}"`,
-		`compose_run ps --all --quiet "${service}"`,
-		`classification='command-running'`,
-		`classification='command-not-running'`,
-		`classification='command-missing'`,
-		`classification='command-ambiguous'`,
+		`mattermost_address="127.0.0.1:49152"`,
+		`capture_address="127.0.0.1:49352"`,
+		`mailer_address="127.0.0.1:49252"`,
 	} {
 		if !strings.Contains(runner, required) {
-			t.Fatalf("runner privacy-safe port diagnostic is missing %q", required)
+			t.Fatalf("runner fixed loopback endpoint contract is missing %q", required)
 		}
+	}
+	if strings.Contains(runner, "compose_run port") {
+		t.Fatal("runner must not depend on Docker Compose port discovery")
+	}
+
+	acceptance := readContractFile(t, "cmd/acceptance/main.go")
+	if strings.Contains(acceptance, `a.compose.run(ctx, "port"`) {
+		t.Fatal("recreate scenarios must reuse fixed loopback endpoints")
 	}
 }
 

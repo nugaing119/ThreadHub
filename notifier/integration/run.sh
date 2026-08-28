@@ -419,56 +419,6 @@ compose_private up -d --no-build --wait --wait-timeout 120 smtp-fixture || abort
 compose_private up -d --no-build --wait --wait-timeout 120 threadhub-mailer || abort_run NF-HARNESS-compose-start-mailer
 compose_private up -d --no-build mattermost || abort_run NF-HARNESS-compose-start-mattermost
 
-published_address() {
-    local service="$1"
-    local port="$2"
-    local address=""
-    local classification=command
-    local attempt=0
-    local running_id=""
-    local service_id=""
-
-    case "${service}" in
-        mattermost | smtp-fixture | threadhub-mailer) ;;
-        *) service=unknown ;;
-    esac
-    while ((attempt < 10)); do
-        if address="$(compose_run port "${service}" "${port}" 2>>"${diagnostic_file}")"; then
-            classification="$(notifier_harness_classify_published_address "${address}")" \
-                || classification=format
-            if [[ "${classification}" == ok ]]; then
-                printf '%s' "${address}"
-                return 0
-            fi
-        else
-            classification='command'
-        fi
-        ((attempt += 1))
-        if ((attempt < 10)); then
-            sleep 1
-        fi
-    done
-    if [[ "${classification}" == command ]]; then
-        if ! running_id="$(compose_run ps --status running --quiet "${service}" 2>>"${diagnostic_file}")"; then
-            classification='command-ambiguous'
-        elif [[ "${running_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
-            classification='command-running'
-        elif [[ -n "${running_id}" ]]; then
-            classification='command-ambiguous'
-        elif ! service_id="$(compose_run ps --all --quiet "${service}" 2>>"${diagnostic_file}")"; then
-            classification='command-ambiguous'
-        elif [[ "${service_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
-            classification='command-not-running'
-        elif [[ -z "${service_id}" ]]; then
-            classification='command-missing'
-        else
-            classification='command-ambiguous'
-        fi
-    fi
-    printf 'published_address_failure=%s-%s\n' "${service}" "${classification}" >&3
-    return 1
-}
-
 wait_http() {
     local endpoint="$1"
     local attempts="$2"
@@ -483,9 +433,9 @@ wait_http() {
     return 1
 }
 
-mattermost_address="$(published_address mattermost 8065)" || abort_run NF-HARNESS-published-mattermost
-capture_address="$(published_address smtp-fixture 8081)" || abort_run NF-HARNESS-capture-api
-mailer_address="$(published_address threadhub-mailer 8080)" || abort_run NF-HARNESS-published-mailer
+mattermost_address="127.0.0.1:49152"
+capture_address="127.0.0.1:49352"
+mailer_address="127.0.0.1:49252"
 wait_http "http://${mattermost_address}/api/v4/system/ping" 180 || abort_run NF-HARNESS-bootstrap
 wait_http "http://${capture_address}/healthz" 120 || abort_run NF-HARNESS-capture-api
 wait_http "http://${mailer_address}/healthz" 120 || abort_run NF-HARNESS-compose-start-mailer

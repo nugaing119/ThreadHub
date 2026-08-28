@@ -18,24 +18,3 @@ notifier_harness_file_mode() {
     fi
     return 1
 }
-
-notifier_harness_classify_published_address() {
-    [[ "$#" -eq 1 ]] || return 1
-
-    local address="$1"
-
-    if [[ -z "${address}" ]]; then
-        printf '%s' empty
-    elif [[ "${address}" == *$'\n'* || "${address}" == *$'\r'* ]]; then
-        printf '%s' multiple
-    elif [[ "${address}" =~ ^127\.0\.0\.1:[0-9]+$ ]]; then
-        printf '%s' ok
-    elif [[ "${address}" =~ ^0\.0\.0\.0:[0-9]+$ ]]; then
-        printf '%s' all-interfaces
-    elif [[ "${address}" =~ ^\[::1\]:[0-9]+$ \
-        || "${address}" =~ ^::1:[0-9]+$ ]]; then
-        printf '%s' ipv6
-    else
-        printf '%s' format
-    fi
-}
