@@ -260,52 +260,6 @@ jobs:
         working-directory: notifier
         run: make plugin-bundle mailer
 
-      - name: Report Docker history identity for pin diagnosis
-        shell: bash
-        run: |
-          set -Eeuo pipefail
-          source deploy/versions.env
-          temporary_dir="$(mktemp -d "${RUNNER_TEMP}/threadhub-history.XXXXXX")"
-          cleanup() {
-            rm -rf "${temporary_dir}"
-          }
-          trap cleanup EXIT
-
-          image="threadhub/notifier-mailer:${NOTIFIER_VERSION}"
-          docker image save --output "${temporary_dir}/image.tar" "${image}"
-          tar -xOf "${temporary_dir}/image.tar" manifest.json \
-            >"${temporary_dir}/manifest.json"
-          config_path="$(jq -er '
-            if type == "array" and length == 1 and
-               (.[0].Config | type) == "string"
-            then .[0].Config
-            else error("invalid image manifest")
-            end
-          ' "${temporary_dir}/manifest.json")"
-          [[ "${config_path}" =~ ^[A-Za-z0-9._/-]+$ \
-            && "${config_path}" != /* \
-            && "${config_path}" != ../* \
-            && "${config_path}" != */../* \
-            && "${config_path}" != */.. \
-            && "${config_path}" != *//* ]]
-          tar -xOf "${temporary_dir}/image.tar" "${config_path}" \
-            >"${temporary_dir}/config.json"
-          jq -ce '
-            if (.history | type) != "array" or (.history | length) == 0
-            then error("invalid image history")
-            else [.history[] |
-              if type == "object" and has("created_by") and
-                 (.created_by | type) == "string"
-              then .created_by
-              else error("invalid image history entry")
-              end]
-            end
-          ' "${temporary_dir}/config.json" \
-            >"${temporary_dir}/created-by-history.json"
-          history_sha="$(sha256sum "${temporary_dir}/created-by-history.json" | awk '{print $1}')"
-          [[ "${history_sha}" =~ ^[a-f0-9]{64}$ ]]
-          printf 'ci_mailer_created_by_history_sha256=%s\n' "${history_sha}"
-
       - name: Scan exact notifier artifacts for embedded secrets
         shell: bash
         run: |
