@@ -593,6 +593,142 @@ EOF
         "${fixture}/trailing.json" "${plugin_id}" "${version}" >/dev/null 2>&1
 )
 
+test_successful_notifier_status_exits_zero_and_removes_temporary_diagnostics() (
+    fixture="$(command mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    output="${fixture}/output"
+    status_temp="${fixture}/status-temp"
+    # shellcheck source=../scripts/notifier-status.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-status.sh"
+    SUDO_COMMAND=(env)
+
+    validate_runtime_env() { :; }
+    init_docker() { :; }
+    init_sudo() { SUDO_COMMAND=(env); }
+    validate_notifier_emergency_control_path() { :; }
+    notifier_smtp_marker_is_current() { return 1; }
+    env_value() {
+        case "$1" in
+            NOTIFIER_PLUGIN_ID) printf '%s' com.threadhub.channel-email-notifier ;;
+            NOTIFIER_VERSION) printf '%s' 0.1.0 ;;
+            *) return 1 ;;
+        esac
+    }
+    mktemp() {
+        [[ "$#" -eq 1 && "$1" == -d ]] || return 2
+        mkdir "${status_temp}"
+        printf '%s\n' "${status_temp}"
+    }
+    compose() {
+        if [[ "$*" == *'threadhub-mailer'* ]]; then
+            printf '%s\n' \
+                '{"pending":0,"sending":0,"sent":0,"failed":0,"oldest_pending_seconds":0,"last_success_at":0,"last_error_class":"","last_smtp_code":0}'
+        else
+            printf '%s\n' \
+                '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+        fi
+    }
+
+    set +e
+    notifier_status_entry > "${output}" 2>&1
+    result=$?
+    set -e
+
+    if [[ "${result}" -ne 0 ]]; then
+        sed -n '1,120p' "${output}" >&2
+        return 1
+    fi
+    grep -F 'plugin=active' "${output}" >/dev/null || return 1
+    grep -F 'pending=0' "${output}" >/dev/null || return 1
+    if grep -F 'unbound variable' "${output}" >/dev/null; then
+        sed -n '1,120p' "${output}" >&2
+        return 1
+    fi
+    if [[ -e "${status_temp}" ]]; then
+        printf 'temporary notifier status directory was not removed\n' >&2
+        return 1
+    fi
+)
+
+test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics() (
+    fixture="$(command mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    output="${fixture}/output"
+    control_temp="${fixture}/control-temp"
+    state_file="${fixture}/state.json"
+    fake_scripts="${fixture}/scripts"
+    mkdir "${fake_scripts}"
+    printf '%s\n' '#!/usr/bin/env bash' 'exit 0' > "${fake_scripts}/health-check.sh"
+    chmod 0700 "${fake_scripts}/health-check.sh"
+    # shellcheck source=../scripts/notifier-control.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-control.sh"
+    SCRIPT_DIR="${fake_scripts}"
+    SUDO_COMMAND=(notifier_test_privileged)
+
+    validate_runtime_env() { :; }
+    init_docker() { :; }
+    notifier_smtp_marker_is_current() { return 0; }
+    env_value() {
+        case "$1" in
+            NOTIFIER_ENABLED) printf '%s' true ;;
+            NOTIFIER_MODE) printf '%s' all_channels ;;
+            NOTIFIER_CHANNEL_IDS) printf '%s' '' ;;
+            NOTIFIER_PLUGIN_ID) printf '%s' com.threadhub.channel-email-notifier ;;
+            NOTIFIER_VERSION) printf '%s' 0.1.0 ;;
+            *) return 1 ;;
+        esac
+    }
+    env_optional_value() { printf '%s' ''; }
+    mktemp() {
+        if [[ "$#" -eq 1 && "$1" == -d ]]; then
+            mkdir "${control_temp}"
+            printf '%s\n' "${control_temp}"
+        elif [[ "$#" -eq 0 ]]; then
+            temporary_state="${fixture}/temporary-state.json"
+            : > "${temporary_state}"
+            printf '%s\n' "${temporary_state}"
+        else
+            return 2
+        fi
+    }
+    compose() {
+        if [[ "${1:-}" == port ]]; then
+            return 0
+        fi
+        if [[ "$*" == *'mattermost'* ]]; then
+            printf '%s\n' \
+                '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+        elif [[ "$*" == *'status --json'* ]]; then
+            printf '%s\n' \
+                '{"pending":0,"sending":0,"sent":0,"failed":0,"oldest_pending_seconds":0,"last_success_at":0,"last_error_class":"","last_smtp_code":0}'
+        fi
+    }
+    notifier_test_control_entry() {
+        notifier_control_dispatch "${state_file}" "$@"
+    }
+
+    set +e
+    notifier_test_control_entry activate --from-env > "${output}" 2>&1
+    result=$?
+    set -e
+
+    if [[ "${result}" -ne 0 ]]; then
+        sed -n '1,120p' "${output}" >&2
+        return 1
+    fi
+    notifier_control_is_valid "${state_file}" || return 1
+    jq -e '.enabled == true and .delivery_enabled == true and .activated_at > 0' \
+        "${state_file}" >/dev/null || return 1
+    if grep -F 'unbound variable' "${output}" >/dev/null; then
+        sed -n '1,120p' "${output}" >&2
+        return 1
+    fi
+    if [[ -e "${control_temp}" ]]; then
+        printf 'temporary notifier control directory was not removed\n' >&2
+        return 1
+    fi
+)
+
 test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
     for script_name in \
         install-notifier-plugin.sh readiness-check.sh notifier-control.sh notifier-status.sh; do
@@ -1001,6 +1137,12 @@ run_test \
 run_test \
     'plugin state normalizes real mmctl singleton output and rejects ambiguity' \
     test_plugin_state_normalizes_real_mmctl_shape_and_rejects_ambiguity
+run_test \
+    'successful notifier status exits zero and removes temporary diagnostics' \
+    test_successful_notifier_status_exits_zero_and_removes_temporary_diagnostics
+run_test \
+    'successful notifier activation exits zero and removes temporary diagnostics' \
+    test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
 run_test \
     'all production plugin-state consumers use the shared fail-closed parser' \
     test_all_plugin_state_consumers_use_the_shared_fail_closed_parser
