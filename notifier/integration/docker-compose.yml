@@ -16,8 +16,28 @@ services:
       - -c
     command:
       - >-
+        install -d -o root -g root -m 0750
+        /integration/threadhub
+        /integration/threadhub/notifier
+        /integration/threadhub/notifier/release &&
+        install -d -o 2000 -g 2000 -m 0750
+        /integration/threadhub/mattermost
+        /integration/threadhub/mattermost/data
+        /integration/threadhub/mattermost/data/plugins
+        /integration/threadhub/mattermost/plugins
+        /integration/threadhub/mattermost/client
+        /integration/threadhub/mattermost/client/plugins &&
         chown -R 999:999 /integration/postgres &&
-        chown -R 2000:2000 /integration/mattermost &&
+        chown -R 2000:2000 /integration/threadhub/mattermost &&
+        find /integration/threadhub/mattermost -type d -exec chmod 0750 '{}' + &&
+        chown -R 0:0 /integration/threadhub/notifier &&
+        chown 0:2000 /integration/threadhub &&
+        chmod 0750
+        /integration/threadhub
+        /integration/threadhub/notifier
+        /integration/threadhub/notifier/release &&
+        chown -R 2000:2000 /integration/mattermost-host &&
+        find /integration/mattermost-host -type d -exec chmod 0750 '{}' + &&
         chown -R 65532:65532 /integration/mailer &&
         chown -R 65532:65532 /integration/smtp-private &&
         chown -R 65532:65532 /integration/smtp-ca &&
@@ -28,9 +48,10 @@ services:
         chmod 0640 /integration/control/state.json
     volumes:
       - "${INTEGRATION_DATA_ROOT:?set INTEGRATION_DATA_ROOT}/postgres:/integration/postgres:rw"
-      - "${INTEGRATION_DATA_ROOT}/mattermost:/integration/mattermost:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost:/integration/mattermost-host:rw"
       - "${INTEGRATION_DATA_ROOT}/mailer:/integration/mailer:rw"
       - "${INTEGRATION_DATA_ROOT}/control:/integration/control:rw"
+      - threadhub-data:/integration/threadhub:rw
       - smtp-private:/integration/smtp-private:rw
       - smtp-ca:/integration/smtp-ca:rw
 
@@ -56,27 +77,19 @@ services:
       - no-new-privileges:true
     network_mode: none
     tmpfs:
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+    environment:
+      NOTIFIER_PLUGIN_ID: "${NOTIFIER_PLUGIN_ID:?load versions}"
+      NOTIFIER_VERSION: "${NOTIFIER_VERSION:?load versions}"
     entrypoint:
       - /bin/bash
-      - -c
-    command:
-      - >-
-        test ! -e "/plugins/${NOTIFIER_PLUGIN_ID:?load versions}" &&
-        test ! -e "/filestore/plugins/${NOTIFIER_PLUGIN_ID}.tar.gz" &&
-        test ! -e "/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage" &&
-        tar --extract --gzip --file /bundle/plugin.tar.gz --directory /plugins --no-same-owner --no-same-permissions &&
-        find "/plugins/${NOTIFIER_PLUGIN_ID}" -type d -exec chmod 0750 '{}' + &&
-        find "/plugins/${NOTIFIER_PLUGIN_ID}" -type f -exec chmod 0640 '{}' + &&
-        chmod 0750 "/plugins/${NOTIFIER_PLUGIN_ID}/server/dist/plugin-linux-amd64" &&
-        chown -R 2000:2000 "/plugins/${NOTIFIER_PLUGIN_ID}" &&
-        install -d -o 2000 -g 2000 -m 0750 /filestore/plugins &&
-        install -o 2000 -g 2000 -m 0640 /bundle/plugin.tar.gz "/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage" &&
-        mv -T -- "/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage" "/filestore/plugins/${NOTIFIER_PLUGIN_ID}.tar.gz"
+      - /threadhub-install/plugin-install.sh
     volumes:
-      - "${INTEGRATION_PLUGIN_BUNDLE:?set INTEGRATION_PLUGIN_BUNDLE}:/bundle/plugin.tar.gz:ro"
-      - "${INTEGRATION_DATA_ROOT:?set INTEGRATION_DATA_ROOT}/mattermost/plugins:/plugins:rw"
-      - "${INTEGRATION_DATA_ROOT}/mattermost/data:/filestore:rw"
+      - "${INTEGRATION_PLUGIN_BUNDLE:?set INTEGRATION_PLUGIN_BUNDLE}:/reviewed/plugin.tar.gz:ro"
+      - threadhub-data:/threadhub-data:rw
+      - "../../deploy/scripts/notifier-plugin-files.sh:/threadhub-deploy/notifier-plugin-files.sh:ro"
+      - "../../deploy/scripts/notifier-plugin-transaction.sh:/threadhub-deploy/notifier-plugin-transaction.sh:ro"
+      - "./plugin-install.sh:/threadhub-install/plugin-install.sh:ro"
 
   postgres:
     image: "${POSTGRES_IMAGE_REPOSITORY:?load versions}:${POSTGRES_IMAGE_TAG:?load versions}@${POSTGRES_IMAGE_DIGEST:?load versions}"
@@ -179,6 +192,9 @@ services:
       TZ: UTC
       MM_SQLSETTINGS_DRIVERNAME: postgres
       MM_SQLSETTINGS_DATASOURCE: "postgres://threadhub:${INTEGRATION_DB_PASSWORD}@postgres:5432/threadhub?sslmode=disable&connect_timeout=10"
+      MM_FILESETTINGS_DIRECTORY: /threadhub-data/mattermost/data
+      MM_PLUGINSETTINGS_DIRECTORY: /threadhub-data/mattermost/plugins
+      MM_PLUGINSETTINGS_CLIENTDIRECTORY: /threadhub-data/mattermost/client/plugins
       MM_BLEVESETTINGS_INDEXDIR: /mattermost/bleve-indexes
       MM_SERVICESETTINGS_SITEURL: https://threadhub.integration.test
       MM_SERVICESETTINGS_ENABLELOCALMODE: "true"
@@ -215,11 +231,9 @@ services:
       MM_LOGSETTINGS_ENABLEWEBHOOKDEBUGGING: "false"
       MM_LOGSETTINGS_ENABLEDIAGNOSTICS: "false"
     volumes:
+      - threadhub-data:/threadhub-data:rw
       - "${INTEGRATION_DATA_ROOT}/mattermost/config:/mattermost/config:rw"
-      - "${INTEGRATION_DATA_ROOT}/mattermost/data:/mattermost/data:rw"
       - "${INTEGRATION_DATA_ROOT}/mattermost/logs:/mattermost/logs:rw"
-      - "${INTEGRATION_DATA_ROOT}/mattermost/plugins:/mattermost/plugins:rw"
-      - "${INTEGRATION_DATA_ROOT}/mattermost/client/plugins:/mattermost/client/plugins:rw"
       - "${INTEGRATION_DATA_ROOT}/mattermost/bleve-indexes:/mattermost/bleve-indexes:rw"
       - "${INTEGRATION_DATA_ROOT}/control:/run/threadhub-notifier:ro"
     networks:
@@ -293,3 +307,4 @@ networks:
 volumes:
   smtp-private: {}
   smtp-ca: {}
+  threadhub-data: {}

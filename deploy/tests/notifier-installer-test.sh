@@ -545,6 +545,205 @@ EOF
     ! "${real_grep}" -F -q -f "${inspect_pattern}" "${trace}"
 )
 
+test_plugin_state_normalizes_real_mmctl_shape_and_rejects_ambiguity() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    plugin_id=com.threadhub.channel-email-notifier
+    version=0.1.0
+    # shellcheck source=../scripts/common.sh
+    source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    # shellcheck source=../scripts/notifier-lib.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh"
+
+    printf '%s\n' \
+        '{"active":[{"id":"other","version":"2.0.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}' \
+        > "${fixture}/object.json"
+    printf '%s\n' \
+        '[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}]' \
+        > "${fixture}/singleton.json"
+    notifier_plugin_list_is_exact_active "${fixture}/object.json" "${plugin_id}" "${version}" \
+        || return 1
+    notifier_plugin_list_is_exact_active "${fixture}/singleton.json" "${plugin_id}" "${version}" \
+        || return 1
+    [[ "$(notifier_plugin_list_target_state "${fixture}/singleton.json" "${plugin_id}")" == $'active\t0.1.0' ]] \
+        || return 1
+
+    while IFS='|' read -r name payload; do
+        printf '%s\n' "${payload}" > "${fixture}/${name}.json"
+        if notifier_plugin_list_is_exact_active \
+            "${fixture}/${name}.json" "${plugin_id}" "${version}" >/dev/null 2>&1; then
+            return 1
+        fi
+    done <<'EOF'
+empty-input|
+empty-wrapper|[]
+multi-wrapper|[{"active":[],"inactive":[]},{"active":[],"inactive":[]}]
+wrong-top-type|"not-an-object"
+unknown-envelope-key|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[],"extra":true}
+wrong-entry-type|{"active":["com.threadhub.channel-email-notifier"],"inactive":[]}
+duplicate|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}
+wrong-version|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}
+inactive|{"active":[],"inactive":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}]}
+malformed|{"active":
+EOF
+    printf '%s\n' \
+        '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]} {}' \
+        > "${fixture}/trailing.json"
+    ! notifier_plugin_list_is_exact_active \
+        "${fixture}/trailing.json" "${plugin_id}" "${version}" >/dev/null 2>&1
+)
+
+test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
+    for script_name in \
+        install-notifier-plugin.sh readiness-check.sh notifier-control.sh notifier-status.sh; do
+        script="${TEST_DEPLOY_DIR}/scripts/${script_name}"
+        # Match the literal source expression; expansion is not intended.
+        # shellcheck disable=SC2016
+        grep -F 'source "${SCRIPT_DIR}/notifier-lib.sh"' "${script}" >/dev/null \
+            || return 1
+        grep -F 'notifier_plugin_list_is_exact_active' "${script}" >/dev/null \
+            || return 1
+    done
+)
+
+notifier_test_plugin_files_privileged() {
+    local command_name="$1"
+    shift
+    local filtered=()
+
+    if [[ "${command_name}" == stat && "${1:-}" == -c && "${2:-}" == '%u:%g:%a' ]]; then
+        printf '2000:2000:%s\n' "$(portable_mode "$3")"
+        return
+    fi
+    if [[ "${command_name}" == install ]]; then
+        while (($# > 0)); do
+            case "$1" in
+                -o|-g) shift 2 ;;
+                *) filtered+=("$1"); shift ;;
+            esac
+        done
+        command install "${filtered[@]}"
+        return
+    fi
+    if [[ "${command_name}" == mv ]]; then
+        while (($# > 0)); do
+            case "$1" in
+                -T|--) shift ;;
+                *) filtered+=("$1"); shift ;;
+            esac
+        done
+        command mv "${filtered[@]}"
+        return
+    fi
+    command "${command_name}" "$@"
+}
+
+test_plugin_filestore_bundle_requires_exact_sha_identity_and_mode() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    library="${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    [[ -f "${library}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${library}"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+    bundle="${fixture}/com.threadhub.channel-email-notifier.tar.gz"
+    printf 'reviewed-bundle-bytes\n' > "${bundle}"
+    chmod 0640 "${bundle}"
+    expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
+
+    notifier_plugin_bundle_is_exact "${bundle}" "${expected_sha}" || return 1
+    chmod 0644 "${bundle}"
+    if notifier_plugin_bundle_is_exact "${bundle}" "${expected_sha}" >/dev/null 2>&1; then
+        return 1
+    fi
+    chmod 0640 "${bundle}"
+    if notifier_plugin_bundle_is_exact "${bundle}" "$(printf '0%.0s' {1..64})" >/dev/null 2>&1; then
+        return 1
+    fi
+    mv "${bundle}" "${fixture}/referent"
+    ln -s "${fixture}/referent" "${bundle}"
+    ! notifier_plugin_bundle_is_exact "${bundle}" "${expected_sha}" >/dev/null 2>&1
+)
+
+test_plugin_pair_staging_materializes_only_the_reviewed_objects() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    library="${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    [[ -f "${library}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${library}"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+
+    reviewed_root="${fixture}/reviewed/com.threadhub.channel-email-notifier"
+    bundle="${fixture}/reviewed/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    mkdir -p "${reviewed_root}/server/dist" "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${reviewed_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${reviewed_root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'reviewed-bundle-bytes' > "${bundle}"
+    expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
+
+    notifier_plugin_stage_pair \
+        "${bundle}" "${reviewed_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" || return 1
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch}" \
+        || return 1
+    notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}" || return 1
+    [[ "$(portable_mode "${runtime_stage}")" == 750 ]] || return 1
+    [[ "$(portable_mode "${runtime_stage}/plugin.json")" == 640 ]] || return 1
+    [[ "$(portable_mode "${runtime_stage}/server/dist/plugin-linux-amd64")" == 750 ]] \
+        || return 1
+
+    rm -rf "${runtime_stage}"
+    rm -f "${bundle_stage}"
+    referent="${fixture}/bundle-referent"
+    printf '%s\n' 'must-not-change' > "${referent}"
+    referent_sha="$(openssl dgst -sha256 "${referent}" | awk '{print $NF}')"
+    ln -s "${referent}" "${bundle_stage}"
+    if notifier_plugin_stage_pair \
+        "${bundle}" "${reviewed_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" >/dev/null 2>&1; then
+        return 1
+    fi
+    [[ -L "${bundle_stage}" ]] || return 1
+    [[ "${referent_sha}" == "$(openssl dgst -sha256 "${referent}" | awk '{print $NF}')" ]]
+)
+
+test_plugin_move_rejects_symlink_and_directory_races_without_clobber() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+
+    printf '%s\n' reviewed > "${fixture}/source"
+    notifier_plugin_move_no_clobber "${fixture}/source" "${fixture}/published" || return 1
+    [[ ! -e "${fixture}/source" && "$(<"${fixture}/published")" == reviewed ]] || return 1
+
+    printf '%s\n' second > "${fixture}/source"
+    printf '%s\n' sentinel > "${fixture}/referent"
+    referent_sha="$(openssl dgst -sha256 "${fixture}/referent" | awk '{print $NF}')"
+    ln -s "${fixture}/referent" "${fixture}/destination"
+    if notifier_plugin_move_no_clobber \
+        "${fixture}/source" "${fixture}/destination" >/dev/null 2>&1; then
+        return 1
+    fi
+    [[ -f "${fixture}/source" && -L "${fixture}/destination" ]] || return 1
+    [[ "${referent_sha}" == "$(openssl dgst -sha256 "${fixture}/referent" | awk '{print $NF}')" ]] \
+        || return 1
+
+    rm "${fixture}/destination"
+    mkdir "${fixture}/destination"
+    if notifier_plugin_move_no_clobber \
+        "${fixture}/source" "${fixture}/destination" >/dev/null 2>&1; then
+        return 1
+    fi
+    [[ -f "${fixture}/source" ]] || return 1
+    [[ -z "$(find "${fixture}/destination" -mindepth 1 -print -quit)" ]]
+)
+
 run_test \
     'fresh notifier configuration adds complete safe defaults without disclosure' \
     test_configure_adds_complete_defaults_without_disclosure
@@ -581,5 +780,20 @@ run_test \
 run_test \
     'privacy leak detection keeps secrets out of grep argv and diagnostics' \
     test_privacy_detection_never_places_secret_in_grep_argv_or_output
+run_test \
+    'plugin state normalizes real mmctl singleton output and rejects ambiguity' \
+    test_plugin_state_normalizes_real_mmctl_shape_and_rejects_ambiguity
+run_test \
+    'all production plugin-state consumers use the shared fail-closed parser' \
+    test_all_plugin_state_consumers_use_the_shared_fail_closed_parser
+run_test \
+    'plugin filestore bundle requires exact SHA ownership and mode' \
+    test_plugin_filestore_bundle_requires_exact_sha_identity_and_mode
+run_test \
+    'plugin pair staging materializes only the reviewed runtime tree and filestore bundle' \
+    test_plugin_pair_staging_materializes_only_the_reviewed_objects
+run_test \
+    'plugin publication rejects symlink and directory races without clobbering' \
+    test_plugin_move_rejects_symlink_and_directory_races_without_clobber
 
 ((failures == 0))

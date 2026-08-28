@@ -23,7 +23,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/nugaing119/ThreadHub/notifier/integration/pluginstate"
 	"github.com/nugaing119/ThreadHub/notifier/protocol"
 )
 
@@ -634,14 +633,32 @@ func (a *acceptance) verifyPluginActive(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	return verifyExactActivePluginList(raw, "com.threadhub.channel-email-notifier", "0.1.0")
-}
-
-func verifyExactActivePluginList(raw []byte, pluginID, version string) error {
-	if pluginstate.Classify(raw, pluginID, version) != pluginstate.Active {
-		return errors.New("plugin state is not exactly active")
+	pluginList, err := os.CreateTemp(a.cfg.root, ".plugin-list.*")
+	if err != nil {
+		return err
 	}
-	return nil
+	pluginListPath := pluginList.Name()
+	defer os.Remove(pluginListPath)
+	if err := pluginList.Chmod(0o600); err != nil {
+		_ = pluginList.Close()
+		return err
+	}
+	if _, err := pluginList.Write(raw); err != nil {
+		_ = pluginList.Close()
+		return err
+	}
+	if err := pluginList.Close(); err != nil {
+		return err
+	}
+	verifier := filepath.Join(filepath.Dir(a.cfg.composeFile), "verify-plugin-state.sh")
+	info, err := os.Lstat(verifier)
+	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+		return errors.New("plugin verifier is unavailable")
+	}
+	command := exec.CommandContext(ctx, "bash", verifier, pluginListPath, "com.threadhub.channel-email-notifier", "0.1.0")
+	command.Stdout = io.Discard
+	command.Stderr = io.Discard
+	return command.Run()
 }
 
 func (a *acceptance) enableAndRestart(ctx context.Context, activatedAt int64) error {

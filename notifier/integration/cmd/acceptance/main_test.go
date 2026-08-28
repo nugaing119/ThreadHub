@@ -89,32 +89,6 @@ func TestRESTClientDoesNotFollowRedirects(t *testing.T) {
 	}
 }
 
-func TestPluginListRequiresOneExactActivePluginFromOneNode(t *testing.T) {
-	t.Parallel()
-
-	const pluginID = "com.threadhub.channel-email-notifier"
-	const version = "0.1.0"
-	valid := `[{"active":[{"id":"other","version":"2.0.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}]`
-	if err := verifyExactActivePluginList([]byte(valid), pluginID, version); err != nil {
-		t.Fatalf("verifyExactActivePluginList() error = %v", err)
-	}
-
-	for name, raw := range map[string]string{
-		"multiple nodes": `[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]},{"active":[],"inactive":[]}]`,
-		"wrong version":  `[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}]`,
-		"inactive":       `[{"active":[],"inactive":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}]}]`,
-		"duplicate":      `[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}]`,
-		"trailing":       `[{"active":[],"inactive":[]}] {}`,
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			if err := verifyExactActivePluginList([]byte(raw), pluginID, version); err == nil {
-				t.Fatal("verifyExactActivePluginList() accepted invalid plugin state")
-			}
-		})
-	}
-}
-
 func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 	t.Parallel()
 
@@ -127,6 +101,7 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 	}
 	wantAssertions := []string{
 		"NF-HARNESS-config",
+		"NF-HARNESS-bootstrap",
 		"NF-HARNESS-compose-pull",
 		"NF-HARNESS-compose-build",
 		"NF-HARNESS-compose-bundle",

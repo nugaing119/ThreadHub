@@ -997,6 +997,49 @@ EOF
         "${output}" >/dev/null
 )
 
+test_status_normalizes_real_plugin_list_and_fails_closed() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    state_file="${fixture}/state.json"
+    output="${fixture}/output"
+    printf '%s\n' \
+        '{"enabled":false,"delivery_enabled":false,"mode":"all_channels","channel_ids":[],"activated_at":0}' \
+        > "${state_file}"
+    chmod 0640 "${state_file}"
+
+    # shellcheck source=../scripts/common.sh
+    source "${TEST_DEPLOY_DIR}/scripts/common.sh"
+    # shellcheck source=../scripts/notifier-lib.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh"
+    # shellcheck source=../scripts/notifier-status.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-status.sh" >/dev/null 2>&1 || return 1
+    SUDO_COMMAND=(notifier_test_privileged)
+    validate_runtime_env() { :; }
+    init_docker() { :; }
+    notifier_smtp_marker_is_current() { return 1; }
+    compose() {
+        case "$*" in
+            'exec -T mattermost mmctl plugin list --local --suppress-warnings --json')
+                printf '%s\n' "${NOTIFIER_TEST_PLUGIN_LIST}"
+                ;;
+            'exec -T threadhub-mailer /threadhub-mailer status --json')
+                printf '%s\n' \
+                    '{"pending":0,"sending":0,"sent":0,"failed":0,"oldest_pending_seconds":0,"last_success_at":0,"last_error_class":"","last_smtp_code":0}'
+                ;;
+            *) return 97 ;;
+        esac
+    }
+
+    NOTIFIER_TEST_PLUGIN_LIST='[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}]'
+    notifier_status_dispatch "${state_file}" > "${output}" || return 1
+    [[ "$(grep -F -c 'plugin=active' "${output}")" == 1 ]] || return 1
+
+    NOTIFIER_TEST_PLUGIN_LIST='[{"active":[],"inactive":[]}] {}'
+    notifier_status_dispatch "${state_file}" > "${output}" || return 1
+    [[ "$(grep -F -c 'plugin=missing_or_mismatched' "${output}")" == 1 ]] || return 1
+    ! grep -F 'com.threadhub.channel-email-notifier' "${output}" >/dev/null
+)
+
 run_test \
     'target-bound SMTP uses one-shot strict JSON without secret process state' \
     test_target_bound_smtp_uses_one_shot_strict_json_without_secret_process_state
@@ -1045,5 +1088,8 @@ run_test \
 run_test \
     'configure refuses non-Linux publication tools before mutation' \
     test_configure_refuses_non_linux_publication_tools_before_mutation
+run_test \
+    'status normalizes real plugin-list output and fails closed without plugin data' \
+    test_status_normalizes_real_plugin_list_and_fails_closed
 
 ((failures == 0))

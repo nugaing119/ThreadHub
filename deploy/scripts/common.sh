@@ -435,7 +435,11 @@ notifier_assert_no_symlink_components() {
         "${data_root}/notifier" \
         "${data_root}/notifier/control" \
         "${data_root}/notifier/mailer" \
-        "${data_root}/notifier/release"; do
+        "${data_root}/notifier/release" \
+        "${data_root}/mattermost" \
+        "${data_root}/mattermost/data" \
+        "${data_root}/mattermost/data/plugins" \
+        "${data_root}/mattermost/plugins"; do
         "${SUDO_COMMAND[@]}" test ! -L "${path}" \
             || return 1
     done
@@ -480,6 +484,14 @@ validate_notifier_host_path() {
         || die "Existing notifier Mailer directory must be 65532:65532 with mode 0700"
     notifier_assert_existing_directory_policy "${data_root}/notifier/release" 0 0 750 \
         || die "Existing notifier release directory must be root:root with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/mattermost" 2000 2000 750 \
+        || die "Existing Mattermost root must be 2000:2000 with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/mattermost/data" 2000 2000 750 \
+        || die "Existing Mattermost data directory must be 2000:2000 with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/mattermost/data/plugins" 2000 2000 750 \
+        || die "Existing Mattermost filestore plugin directory must be 2000:2000 with mode 0750"
+    notifier_assert_existing_directory_policy "${data_root}/mattermost/plugins" 2000 2000 750 \
+        || die "Existing Mattermost runtime plugin directory must be 2000:2000 with mode 0750"
 }
 
 validate_notifier_emergency_control_path() {

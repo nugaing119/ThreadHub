@@ -29,19 +29,21 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	if strings.Contains(compose, ":latest") {
 		t.Fatal("Compose contract contains a latest tag")
 	}
-	if !strings.Contains(compose, "tar --extract --gzip --file /bundle/plugin.tar.gz --directory /plugins --no-same-owner --no-same-permissions &&") {
-		t.Fatal("plugin installer tar invocation is not one shell command")
-	}
 	for _, required := range []string{
-		`install -d -o 2000 -g 2000 -m 0750 /filestore/plugins &&`,
-		`/filestore/plugins/.${NOTIFIER_PLUGIN_ID}.stage`,
-		`/filestore/plugins/${NOTIFIER_PLUGIN_ID}.tar.gz`,
-		`mv -T --`,
-		`/mattermost/data:/filestore:rw`,
+		`/threadhub-deploy/notifier-plugin-files.sh:ro`,
+		`/threadhub-deploy/notifier-plugin-transaction.sh:ro`,
+		`/threadhub-install/plugin-install.sh:ro`,
+		`threadhub-data:/threadhub-data:rw`,
+		`MM_FILESETTINGS_DIRECTORY: /threadhub-data/mattermost/data`,
+		`MM_PLUGINSETTINGS_DIRECTORY: /threadhub-data/mattermost/plugins`,
+		`MM_PLUGINSETTINGS_CLIENTDIRECTORY: /threadhub-data/mattermost/client/plugins`,
 	} {
 		if !strings.Contains(compose, required) {
-			t.Fatalf("plugin filestore sync contract is missing %q", required)
+			t.Fatalf("shared production plugin install contract is missing %q", required)
 		}
+	}
+	if strings.Contains(compose, "/filestore/plugins/${NOTIFIER_PLUGIN_ID}.tar.gz") {
+		t.Fatal("Compose retains the harness-only direct filestore installer")
 	}
 
 	runner := readContractFile(t, "run.sh")
@@ -62,6 +64,8 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`result_assertion=NF-HARNESS-plugin-enable`,
 		`result_assertion=NF-HARNESS-plugin-active-list`,
 		`mmctl plugin list --local --suppress-warnings --json`,
+		`source "${repository_root}/deploy/scripts/notifier-lib.sh"`,
+		`notifier_plugin_list_target_state`,
 		`rm -rf -- "${integration_root}"`,
 	} {
 		if !strings.Contains(runner, required) {
@@ -70,6 +74,25 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	}
 	if strings.Count(runner, "compose_private up -d --no-build") < 5 {
 		t.Fatal("runner does not forbid implicit builds for every runtime start")
+	}
+	if strings.Contains(runner, "./integration/cmd/plugin-state") {
+		t.Fatal("runner builds a harness-only plugin-state parser")
+	}
+
+	installer := readContractFile(t, "plugin-install.sh")
+	for _, required := range []string{
+		`source /threadhub-deploy/notifier-plugin-files.sh`,
+		`source /threadhub-deploy/notifier-plugin-transaction.sh`,
+		`notifier_plugin_stage_pair`,
+		`notifier_plugin_transaction`,
+		`runtime_parent="${data_root}/mattermost/plugins"`,
+		`filestore_parent="${data_root}/mattermost/data/plugins"`,
+		`target_root="${runtime_parent}/${plugin_id}"`,
+		`bundle_target="${filestore_parent}/${plugin_id}.tar.gz"`,
+	} {
+		if !strings.Contains(installer, required) {
+			t.Fatalf("integration installer does not exercise shared production behavior %q", required)
+		}
 	}
 }
 

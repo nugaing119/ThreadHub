@@ -46,12 +46,14 @@ validate_notifier_host_path "${data_root}"
 "${SUDO_COMMAND[@]}" install -d -m 0750 \
     "${mattermost_root}/config" \
     "${mattermost_root}/data" \
+    "${mattermost_root}/data/plugins" \
     "${mattermost_root}/logs" \
     "${mattermost_root}/plugins" \
     "${mattermost_root}/client/plugins" \
     "${mattermost_root}/bleve-indexes"
 "${SUDO_COMMAND[@]}" chown -R 2000:2000 "${mattermost_root}"
 "${SUDO_COMMAND[@]}" chmod -R u=rwX,g=rX,o= "${mattermost_root}"
+validate_notifier_host_path "${data_root}"
 ensure_disabled_notifier_control "${data_root}"
 
 if [[ -f "${DEPLOY_DIR}/logrotate/threadhub" ]]; then

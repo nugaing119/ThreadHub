@@ -11,7 +11,12 @@ source "${SCRIPT_DIR}/notifier-lib.sh"
 notifier_status_dispatch() {
     local state_file="$1"
     local marker_file="${state_file%/state.json}/smtp-acceptance.json"
+    local temporary_dir
     local status_file
+    local plugin_list_file
+    local plugin_id
+    local notifier_version
+    local plugin_state=missing_or_mismatched
     local requested_env="${THREADHUB_ENV_FILE:-${ENV_FILE}}"
 
     notifier_print_control_status "${state_file}"
@@ -27,11 +32,22 @@ notifier_status_dispatch() {
         printf 'smtp_acceptance=missing_or_stale\n'
     fi
 
-    status_file="$(mktemp)"
+    temporary_dir="$(mktemp -d)"
+    status_file="${temporary_dir}/mailer-status.json"
+    plugin_list_file="${temporary_dir}/plugin-list.json"
     cleanup_status() {
-        rm -f "${status_file}"
+        rm -rf "${temporary_dir}"
     }
     trap cleanup_status RETURN
+    plugin_id="$(env_value NOTIFIER_PLUGIN_ID "${VERSIONS_FILE}")"
+    notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")"
+    if compose exec -T mattermost \
+        mmctl plugin list --local --suppress-warnings --json > "${plugin_list_file}" \
+        && notifier_plugin_list_is_exact_active \
+            "${plugin_list_file}" "${plugin_id}" "${notifier_version}"; then
+        plugin_state=active
+    fi
+    printf 'plugin=%s\n' "${plugin_state}"
     compose exec -T threadhub-mailer /threadhub-mailer status --json > "${status_file}"
     notifier_mailer_status_is_valid "${status_file}" \
         || die "Notifier Mailer returned invalid status JSON"

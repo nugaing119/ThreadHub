@@ -1,4 +1,5 @@
 NF-HARNESS-config
+NF-HARNESS-bootstrap
 NF-HARNESS-compose-pull
 NF-HARNESS-compose-build
 NF-HARNESS-compose-bundle

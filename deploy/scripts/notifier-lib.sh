@@ -334,16 +334,66 @@ notifier_control_matches_target() {
     fi
 }
 
-notifier_plugin_list_is_exact_active() {
+notifier_plugin_list_query() {
     local plugin_list_file="$1"
     local plugin_id="$2"
-    local notifier_version="$3"
+    local query="$3"
+    local notifier_version="${4:-}"
 
-    jq -e --arg id "${plugin_id}" --arg version "${notifier_version}" '
-        type == "object" and
-        (.active | type == "array") and (.inactive | type == "array") and
-        ([.active[] | select(.id == $id and .version == $version)] | length == 1) and
-        ([.active[] | select(.id == $id and .version != $version)] | length == 0) and
-        ([.inactive[] | select(.id == $id)] | length == 0)
-    ' "${plugin_list_file}" >/dev/null 2>&1
+    [[ -f "${plugin_list_file}" && ! -L "${plugin_list_file}" ]] || return 1
+    [[ "${plugin_id}" == com.threadhub.channel-email-notifier ]] || return 1
+    [[ "${query}" == exact-active || "${query}" == target-state ]] || return 1
+    if [[ "${query}" == exact-active ]]; then
+        [[ "${notifier_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+([+-][A-Za-z0-9.-]+)?$ ]] || return 1
+    fi
+
+    jq --slurp --exit-status --raw-output \
+        --arg id "${plugin_id}" \
+        --arg query "${query}" \
+        --arg version "${notifier_version}" '
+        def normalized_envelope:
+          if length != 1 then error("plugin list must contain one JSON document")
+          elif (.[0] | type) == "object" then .[0]
+          elif (.[0] | type) == "array" and (.[0] | length) == 1 and (.[0][0] | type) == "object"
+          then .[0][0]
+          else error("plugin list must be an object or singleton object array")
+          end;
+
+        normalized_envelope as $envelope
+        | if ($envelope | keys) != ["active", "inactive"] or
+             ($envelope.active | type) != "array" or
+             ($envelope.inactive | type) != "array"
+          then error("plugin list envelope is invalid") else $envelope end
+        | [.active[], .inactive[]] as $plugins
+        | if ($plugins | all(
+              type == "object" and
+              (.id | type) == "string" and
+              (.version | type) == "string")) | not
+          then error("plugin list entry is invalid") else . end
+        | if ($plugins | map(.id) | length) != ($plugins | map(.id) | unique | length)
+          then error("plugin list contains duplicate IDs") else . end
+        | [.active[] | select(.id == $id)] as $active
+        | [.inactive[] | select(.id == $id)] as $inactive
+        | if (($active + $inactive) | all(.version | test("^[0-9]+\\.[0-9]+\\.[0-9]+([+-][A-Za-z0-9.-]+)?$"))) | not
+          then error("target plugin version is invalid") else . end
+        | if $query == "exact-active" then
+            (($active | length) == 1 and
+             ($inactive | length) == 0 and
+             $active[0].version == $version)
+          elif ($active | length) == 1 then
+            "active\t" + $active[0].version
+          elif ($inactive | length) == 1 then
+            "inactive\t" + $inactive[0].version
+          else
+            "missing\t-"
+          end
+    ' "${plugin_list_file}" 2>/dev/null
+}
+
+notifier_plugin_list_is_exact_active() {
+    notifier_plugin_list_query "$1" "$2" exact-active "$3" >/dev/null
+}
+
+notifier_plugin_list_target_state() {
+    notifier_plugin_list_query "$1" "$2" target-state
 }

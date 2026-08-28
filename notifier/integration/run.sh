@@ -9,6 +9,8 @@ umask 077
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 notifier_root="$(cd -- "${script_dir}/.." && pwd -P)"
 repository_root="$(cd -- "${notifier_root}/.." && pwd -P)"
+# shellcheck source=../../deploy/scripts/notifier-lib.sh
+source "${repository_root}/deploy/scripts/notifier-lib.sh"
 compose_file="${script_dir}/docker-compose.yml"
 versions_file="${repository_root}/deploy/versions.env"
 scenario_ids_file="${script_dir}/cmd/acceptance/scenario-ids.txt"
@@ -62,6 +64,7 @@ container_private() {
     "${container_command[@]}" "$@" >>"${diagnostic_file}" 2>&1
 }
 
+# shellcheck disable=SC2329 # invoked by the EXIT/signal trap below
 cleanup() {
     local incoming_status=$?
     local cleanup_ok=true
@@ -163,7 +166,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'result_kind=failure; result_assertion=NF-HARNESS-compose; exit 130' HUP INT TERM
 
-for required_command in awk chmod cmp curl dirname find go grep id mkdir mktemp openssl rm sleep stat tar tr wc; do
+for required_command in awk chmod cmp curl dirname find go grep id jq mkdir mktemp openssl rm sleep stat tar tr wc; do
     command -v "${required_command}" >/dev/null 2>&1 || abort_run NF-HARNESS-config
 done
 [[ -f "${compose_file}" && -f "${versions_file}" && -f "${scenario_ids_file}" && -f "${failure_assertions_file}" ]] || abort_run NF-HARNESS-config
@@ -211,7 +214,6 @@ bundle_file="${integration_root}/plugin-bundle.tar.gz"
 acceptance_output="${integration_root}/acceptance-result"
 diagnostic_file="${integration_root}/compose-diagnostic"
 plugin_list_file="${integration_root}/plugin-list.json"
-plugin_state_binary="${integration_root}/plugin-state"
 project_name="threadhub-int-$(openssl rand -hex 6)"
 [[ "${project_name}" =~ ^[a-z0-9][a-z0-9_-]{0,62}$ ]] || abort_run NF-HARNESS-config
 
@@ -262,12 +264,14 @@ mkdir -p \
     "${integration_root}/data/postgres" \
     "${integration_root}/data/mattermost/config" \
     "${integration_root}/data/mattermost/data" \
+    "${integration_root}/data/mattermost/data/plugins" \
     "${integration_root}/data/mattermost/logs" \
     "${integration_root}/data/mattermost/plugins" \
     "${integration_root}/data/mattermost/client/plugins" \
     "${integration_root}/data/mattermost/bleve-indexes" \
     "${integration_root}/data/mailer" \
     "${integration_root}/data/control" \
+    "${integration_root}/data/notifier/release" \
     "${integration_root}/go-cache" || abort_run NF-HARNESS-config
 : >"${diagnostic_file}"
 chmod 0600 "${diagnostic_file}"
@@ -406,17 +410,22 @@ compose_private up -d --no-build --no-deps mattermost || abort_run NF-HARNESS-pl
 wait_http "http://${mattermost_address}/api/v4/system/ping" 180 || abort_run NF-HARNESS-plugin-restart
 
 result_assertion=NF-HARNESS-plugin-active-list
-(
-    cd -- "${notifier_root}" || exit 1
-    GOCACHE="${integration_root}/go-cache" go build -trimpath -o "${plugin_state_binary}" ./integration/cmd/plugin-state
-) >>"${diagnostic_file}" 2>&1 || abort_run NF-HARNESS-plugin-active-list
-chmod 0700 "${plugin_state_binary}" || abort_run NF-HARNESS-plugin-active-list
-
 read_plugin_state() {
+    local state
+
     compose_run exec -T mattermost mmctl plugin list --local --suppress-warnings --json \
         >"${plugin_list_file}" 2>>"${diagnostic_file}" || return 1
-    "${plugin_state_binary}" "${plugin_id}" "${notifier_version}" \
-        <"${plugin_list_file}" >>"${diagnostic_file}" 2>&1
+    if notifier_plugin_list_is_exact_active \
+        "${plugin_list_file}" "${plugin_id}" "${notifier_version}"; then
+        return 0
+    fi
+    state="$(notifier_plugin_list_target_state \
+        "${plugin_list_file}" "${plugin_id}")" || return 1
+    case "${state}" in
+        $'inactive\t'"${notifier_version}") return 10 ;;
+        $'missing\t-') return 11 ;;
+        *) return 1 ;;
+    esac
 }
 
 set +e
@@ -431,6 +440,9 @@ case "${plugin_state_status}" in
         compose_private exec -T mattermost mmctl plugin enable "${plugin_id}" --local --suppress-warnings || abort_run NF-HARNESS-plugin-enable
         result_assertion=NF-HARNESS-plugin-active-list
         read_plugin_state || abort_run NF-HARNESS-plugin-active-list
+        ;;
+    11)
+        abort_run NF-HARNESS-plugin-install
         ;;
     *)
         abort_run NF-HARNESS-plugin-active-list

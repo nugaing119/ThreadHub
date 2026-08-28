@@ -37,9 +37,15 @@ test_transaction_rollback_after_backup() (
     stage="${fixture}/release/stage"
     backup="${fixture}/release/backup"
     failed="${fixture}/release/failed"
-    mkdir -p "${target}" "${stage}"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
     printf 'old\n' > "${target}/generation"
     printf 'new\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
     printf 'running\n' > "${fixture}/service"
     printf 'active\n' > "${fixture}/plugin"
     printf 'enabled\n' > "${fixture}/control"
@@ -50,6 +56,8 @@ test_transaction_rollback_after_backup() (
     plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_prepare_targets() { return 0; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
     # shellcheck disable=SC2329 # transaction callback fixture
@@ -69,7 +77,9 @@ test_transaction_rollback_after_backup() (
     }
 
     if notifier_plugin_transaction \
-        "${target}" "${stage}" "${backup}" "${failed}" true true \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true \
         > "${fixture}/stdout" 2> "${fixture}/stderr"; then
         return 1
     fi
@@ -77,6 +87,7 @@ test_transaction_rollback_after_backup() (
         || [[ "$(<"${fixture}/service")" != running ]] \
         || [[ "$(<"${fixture}/plugin")" != active ]] \
         || [[ "$(<"${fixture}/control")" != disabled ]] \
+        || [[ "$(<"${bundle_target}")" != old-bundle ]] \
         || [[ -e "${backup}" ]]; then
         sed 's/^/[transaction stderr] /' "${fixture}/stderr" >&2
         find "${fixture}" -mindepth 1 -maxdepth 4 -print >&2
@@ -96,9 +107,15 @@ test_transaction_retries_control_disable_during_rollback() (
     stage="${fixture}/release/stage"
     backup="${fixture}/release/backup"
     failed="${fixture}/release/failed"
-    mkdir -p "${target}" "${stage}"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
     printf 'old\n' > "${target}/generation"
     printf 'new\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
     printf 'running\n' > "${fixture}/service"
     printf 'active\n' > "${fixture}/plugin"
     printf 'enabled\n' > "${fixture}/control"
@@ -121,6 +138,8 @@ test_transaction_retries_control_disable_during_rollback() (
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
     # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
@@ -134,13 +153,16 @@ test_transaction_retries_control_disable_during_rollback() (
     plugin_tx_move() { mv "$1" "$2"; }
 
     if notifier_plugin_transaction \
-        "${target}" "${stage}" "${backup}" "${failed}" true true \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true \
         > "${fixture}/stdout" 2> "${fixture}/stderr"; then
         return 1
     fi
     [[ "$(<"${fixture}/control")" == disabled ]] || return 1
     [[ "$(<"${fixture}/disable-attempts")" == 2 ]] || return 1
     [[ -f "${target}/generation" && "$(<"${target}/generation")" == old ]] || return 1
+    [[ "$(<"${bundle_target}")" == old-bundle ]] || return 1
     [[ "$(<"${fixture}/service")" == running ]] || return 1
     [[ "$(<"${fixture}/plugin")" == active ]] || return 1
 )
@@ -157,9 +179,15 @@ test_transaction_reports_rollback_failure_and_continues_restore() (
     stage="${fixture}/release/stage"
     backup="${fixture}/release/backup"
     failed="${fixture}/release/failed"
-    mkdir -p "${target}" "${stage}"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
     printf 'old\n' > "${target}/generation"
     printf 'new\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
     printf 'running\n' > "${fixture}/service"
     printf 'active\n' > "${fixture}/plugin"
     printf 'enabled\n' > "${fixture}/control"
@@ -180,6 +208,8 @@ test_transaction_reports_rollback_failure_and_continues_restore() (
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
     # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
@@ -199,7 +229,9 @@ test_transaction_reports_rollback_failure_and_continues_restore() (
 
     set +e
     notifier_plugin_transaction \
-        "${target}" "${stage}" "${backup}" "${failed}" true true \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true \
         > "${fixture}/stdout" 2> "${fixture}/stderr"
     transaction_result=$?
     set -e
@@ -207,9 +239,276 @@ test_transaction_reports_rollback_failure_and_continues_restore() (
     grep -F 'rollback is incomplete (control_disable)' "${fixture}/stderr" >/dev/null \
         || return 1
     [[ -f "${target}/generation" && "$(<"${target}/generation")" == old ]] || return 1
+    [[ "$(<"${bundle_target}")" == old-bundle ]] || return 1
     [[ "$(<"${fixture}/service")" == running ]] || return 1
     [[ "$(<"${fixture}/plugin")" == active ]] || return 1
     [[ "$(<"${fixture}/control")" == disabled ]] || return 1
+)
+
+test_transaction_restores_runtime_and_filestore_after_activation_failure() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+    printf 'old-runtime\n' > "${target}/generation"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'active\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 93; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() {
+        [[ "$(<"${target}/generation")" == old-runtime ]] \
+            && [[ "$(<"${bundle_target}")" == old-bundle ]]
+    }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() { mv "$1" "$2"; }
+
+    if notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true > "${fixture}/stdout" 2> "${fixture}/stderr"; then
+        return 1
+    fi
+    [[ "$(<"${target}/generation")" == old-runtime ]] || return 1
+    [[ "$(<"${bundle_target}")" == old-bundle ]] || return 1
+    [[ "$(<"${failed}/generation")" == new-runtime ]] || return 1
+    [[ "$(<"${bundle_failed}")" == new-bundle ]] || return 1
+    [[ ! -e "${backup}" && ! -e "${bundle_backup}" ]] || return 1
+    [[ "$(<"${fixture}/service")" == running ]] || return 1
+    [[ "$(<"${fixture}/plugin")" == active ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]]
+)
+
+test_transaction_restores_pair_after_bundle_publish_failure() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+    printf 'old-runtime\n' > "${target}/generation"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'active\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() {
+        if [[ "$1" == "${bundle_stage}" && "$2" == "${bundle_target}" ]]; then
+            return 94
+        fi
+        mv "$1" "$2"
+    }
+
+    if notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true > "${fixture}/stdout" 2> "${fixture}/stderr"; then
+        return 1
+    fi
+    [[ "$(<"${target}/generation")" == old-runtime ]] || return 1
+    [[ "$(<"${bundle_target}")" == old-bundle ]] || return 1
+    [[ "$(<"${failed}/generation")" == new-runtime ]] || return 1
+    [[ "$(<"${bundle_failed}")" == new-bundle ]] || return 1
+    [[ "$(<"${fixture}/service")" == running ]] || return 1
+    [[ "$(<"${fixture}/plugin")" == active ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]]
+)
+
+test_transaction_keeps_service_stopped_when_restore_loses_race() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+    printf 'old-runtime\n' > "${target}/generation"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'active\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() {
+        if [[ "$1" == "${stage}" && "$2" == "${target}" ]]; then
+            mkdir "${target}"
+            printf 'race-winner\n' > "${target}/generation"
+            return 95
+        fi
+        mv "$1" "$2"
+    }
+
+    set +e
+    notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true > "${fixture}/stdout" 2> "${fixture}/stderr"
+    transaction_result=$?
+    set -e
+    [[ "${transaction_result}" == 70 ]] || return 1
+    grep -F 'rollback is incomplete (target_not_empty)' "${fixture}/stderr" >/dev/null \
+        || return 1
+    [[ "$(<"${fixture}/service")" == stopped ]] || return 1
+    [[ "$(<"${fixture}/plugin")" == inactive ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]] || return 1
+    [[ "$(<"${target}/generation")" == race-winner ]] || return 1
+    [[ "$(<"${backup}/generation")" == old-runtime ]] || return 1
+    [[ "$(<"${bundle_target}")" == old-bundle ]]
+)
+
+test_transaction_rejects_fresh_target_publish_race() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${stage}" "$(dirname "${target}")" "$(dirname "${bundle_target}")"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'inactive\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() {
+        if [[ "$1" == "${stage}" && "$2" == "${target}" ]]; then
+            mkdir "${target}"
+            printf 'race-winner\n' > "${target}/generation"
+            return 96
+        fi
+        mv "$1" "$2"
+    }
+
+    set +e
+    notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true false > "${fixture}/stdout" 2> "${fixture}/stderr"
+    transaction_result=$?
+    set -e
+    [[ "${transaction_result}" == 70 ]] || return 1
+    grep -F 'rollback is incomplete (target_publish_conflict)' "${fixture}/stderr" >/dev/null \
+        || return 1
+    [[ "$(<"${fixture}/service")" == stopped ]] || return 1
+    [[ "$(<"${fixture}/plugin")" == inactive ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]] || return 1
+    [[ "$(<"${target}/generation")" == race-winner ]] || return 1
+    [[ ! -e "${backup}" && ! -e "${bundle_target}" ]]
 )
 
 test_symlink_referents_unchanged() (
@@ -229,6 +528,34 @@ test_symlink_referents_unchanged() (
         before_identity="$(portable_identity "${referent}")"
         before_hash="$(sha256_file "${referent}/marker")"
         ln -s "${referent}" "${root}/notifier/${child}"
+
+        if notifier_assert_no_symlink_components "${root}" >/dev/null 2>&1; then
+            return 1
+        fi
+        [[ "$(portable_identity "${referent}")" == "${before_identity}" ]] || return 1
+        [[ "$(sha256_file "${referent}/marker")" == "${before_hash}" ]] || return 1
+    done
+)
+
+test_mattermost_plugin_path_symlinks_are_rejected_without_mutation() (
+    # shellcheck source=../scripts/common.sh
+    # shellcheck disable=SC2031 # each test function executes in its own subshell
+    source "${DEPLOY_DIR}/scripts/common.sh"
+    declare -F notifier_assert_no_symlink_components >/dev/null || return 1
+    SUDO_COMMAND=(env)
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    for relative in mattermost mattermost/data mattermost/data/plugins mattermost/plugins; do
+        case_name="${relative//\//-}"
+        root="${fixture}/${case_name}/threadhub"
+        link_path="${root}/${relative}"
+        referent="${fixture}/${case_name}/referent"
+        mkdir -p "$(dirname "${link_path}")" "${root}/notifier" "${referent}"
+        printf 'do-not-change-%s\n' "${case_name}" > "${referent}/marker"
+        before_identity="$(portable_identity "${referent}")"
+        before_hash="$(sha256_file "${referent}/marker")"
+        ln -s "${referent}" "${link_path}"
 
         if notifier_assert_no_symlink_components "${root}" >/dev/null 2>&1; then
             return 1
@@ -294,6 +621,35 @@ test_deploy_validates_notifier_layout_top_down() (
         state == 7 && index($0, "validate_notifier_host_path \"${data_root}\"") { state = 8; next }
         END { exit(state == 8 ? 0 : 1) }
     ' "${DEPLOY_DIR}/scripts/deploy.sh"
+)
+
+test_deploy_creates_and_validates_filestore_plugin_directory() (
+    # Match literal deployment expressions; expansion is not intended.
+    # shellcheck disable=SC2016,SC2031
+    grep -F '"${mattermost_root}/data/plugins"' \
+        "${DEPLOY_DIR}/scripts/deploy.sh" >/dev/null || return 1
+    # shellcheck disable=SC2031 # each test function executes in its own subshell
+    awk '
+        index($0, "${mattermost_root}/data/plugins") { created = NR }
+        created && index($0, "chown -R 2000:2000 \"${mattermost_root}\"") { owned = NR }
+        owned && index($0, "chmod -R u=rwX,g=rX,o= \"${mattermost_root}\"") { secured = NR }
+        secured && index($0, "validate_notifier_host_path \"${data_root}\"") { validated = NR }
+        END { exit(created && owned > created && secured > owned && validated > secured ? 0 : 1) }
+    ' "${DEPLOY_DIR}/scripts/deploy.sh"
+)
+
+test_validation_requires_shared_paired_plugin_install_contract() (
+    # shellcheck disable=SC2031 # each test function executes in its own subshell
+    validation="${DEPLOY_DIR}/scripts/validate.sh"
+    # Match literal validation expressions; expansion is not intended.
+    # shellcheck disable=SC2016
+    for required in \
+        'require_file "${SCRIPT_DIR}/notifier-plugin-files.sh"' \
+        'notifier_plugin_stage_pair' \
+        'bundle_target="${filestore_plugins_root}/${plugin_id}.tar.gz"' \
+        'notifier_plugin_transaction'; do
+        grep -F "${required}" "${validation}" >/dev/null || return 1
+    done
 )
 
 test_compose_v531_canonical_model() (
@@ -444,10 +800,40 @@ else
     fail "plugin rollback reports a failed step and continues restoring other state"
 fi
 
+if test_transaction_restores_runtime_and_filestore_after_activation_failure; then
+    pass "plugin transaction restores runtime tree and filestore bundle after activation failure"
+else
+    fail "plugin transaction restores runtime tree and filestore bundle after activation failure"
+fi
+
+if test_transaction_restores_pair_after_bundle_publish_failure; then
+    pass "plugin transaction restores both objects after a partial filestore publish failure"
+else
+    fail "plugin transaction restores both objects after a partial filestore publish failure"
+fi
+
+if test_transaction_keeps_service_stopped_when_restore_loses_race; then
+    pass "plugin rollback keeps the service stopped when a target race blocks restoration"
+else
+    fail "plugin rollback restarts the service after a target race blocks restoration"
+fi
+
+if test_transaction_rejects_fresh_target_publish_race; then
+    pass "plugin transaction rejects a fresh target that wins the no-clobber publish race"
+else
+    fail "plugin transaction accepts a fresh target that wins the no-clobber publish race"
+fi
+
 if test_symlink_referents_unchanged; then
     pass "notifier host layout rejects child symlinks without changing referents"
 else
     fail "notifier host layout rejects child symlinks without changing referents"
+fi
+
+if test_mattermost_plugin_path_symlinks_are_rejected_without_mutation; then
+    pass "Mattermost runtime and filestore plugin paths reject symlinks without changing referents"
+else
+    fail "Mattermost runtime and filestore plugin paths reject symlinks without changing referents"
 fi
 
 if test_writable_notifier_parent_is_rejected_without_mutation; then
@@ -460,6 +846,18 @@ if test_deploy_validates_notifier_layout_top_down; then
     pass "deployment validates each notifier parent before privileged child creation"
 else
     fail "deployment validates each notifier parent before privileged child creation"
+fi
+
+if test_deploy_creates_and_validates_filestore_plugin_directory; then
+    pass "deployment creates and validates the exact Mattermost filestore plugin directory"
+else
+    fail "deployment creates and validates the exact Mattermost filestore plugin directory"
+fi
+
+if test_validation_requires_shared_paired_plugin_install_contract; then
+    pass "validation requires the shared paired runtime and filestore installer contract"
+else
+    fail "validation does not require the shared paired runtime and filestore installer contract"
 fi
 
 if test_compose_v531_canonical_model; then
