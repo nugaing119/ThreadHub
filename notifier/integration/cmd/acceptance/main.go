@@ -1409,7 +1409,12 @@ func (a *acceptance) startMailer(ctx context.Context) error {
 	if _, err := a.compose.run(ctx, "up", "-d", "--no-build", "--no-deps", "threadhub-mailer"); err != nil {
 		return err
 	}
-	return waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", 60*time.Second)
+	mailerURL, err := a.serviceURL(ctx, "threadhub-mailer", "8080")
+	if err != nil {
+		return err
+	}
+	a.cfg.mailerURL = mailerURL
+	return waitHTTP(ctx, a.http, mailerURL.String()+"/healthz", 60*time.Second)
 }
 
 func (a *acceptance) serviceURL(ctx context.Context, service, port string) (*url.URL, error) {

@@ -243,6 +243,30 @@ func TestMattermostRecreateScenarioHasPrivacySafeStageFailures(t *testing.T) {
 	}
 }
 
+func TestStartMailerRefreshesItsInternalBridgeEndpoint(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := bytes.Index(source, []byte("func (a *acceptance) startMailer"))
+	end := bytes.Index(source, []byte("func (a *acceptance) serviceURL"))
+	if start < 0 || end <= start {
+		t.Fatal("startMailer source boundary is missing")
+	}
+	body := source[start:end]
+	for _, required := range [][]byte{
+		[]byte(`a.serviceURL(ctx, "threadhub-mailer", "8080")`),
+		[]byte(`a.cfg.mailerURL = mailerURL`),
+		[]byte(`mailerURL.String()+"/healthz"`),
+	} {
+		if !bytes.Contains(body, required) {
+			t.Fatalf("startMailer endpoint refresh contract is missing %q", required)
+		}
+	}
+}
+
 func TestVerifyPluginPairPropagatesPostStartDeletionOrReplacement(t *testing.T) {
 	root := t.TempDir()
 	composeCommand := filepath.Join(root, "compose-fixture")
