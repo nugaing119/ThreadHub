@@ -9,6 +9,8 @@ umask 077
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 notifier_root="$(cd -- "${script_dir}/.." && pwd -P)"
 repository_root="$(cd -- "${notifier_root}/.." && pwd -P)"
+# shellcheck source=./harness-lib.sh
+source "${script_dir}/harness-lib.sh"
 # shellcheck source=../../deploy/scripts/notifier-lib.sh
 source "${repository_root}/deploy/scripts/notifier-lib.sh"
 compose_file="${script_dir}/docker-compose.yml"
@@ -300,8 +302,8 @@ chmod 0640 "${control_file}"
     printf 'INTEGRATION_SMTP_PASSWORD=%s\n' "${smtp_password}"
 } >"${integration_env}"
 chmod 0600 "${integration_env}"
-[[ "$(stat -f '%Lp' "${integration_env}" 2>/dev/null || stat -c '%a' "${integration_env}" 2>/dev/null)" == 600 ]] || abort_run NF-HARNESS-config
-[[ "$(stat -f '%Lp' "${diagnostic_file}" 2>/dev/null || stat -c '%a' "${diagnostic_file}" 2>/dev/null)" == 600 ]] || abort_run NF-HARNESS-config
+[[ "$(notifier_harness_file_mode "${integration_env}")" == 600 ]] || abort_run NF-HARNESS-config
+[[ "$(notifier_harness_file_mode "${diagnostic_file}")" == 600 ]] || abort_run NF-HARNESS-config
 
 result_assertion=NF-HARNESS-config
 compose_private config --quiet || abort_run NF-HARNESS-config

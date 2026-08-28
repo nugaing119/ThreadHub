@@ -2,9 +2,54 @@ package integration_test
 
 import (
 	"os"
+	"os/exec"
 	"strings"
 	"testing"
 )
+
+func TestHarnessFileModeDetectionIsCrossPlatform(t *testing.T) {
+	t.Parallel()
+
+	temporaryFile, err := os.CreateTemp(t.TempDir(), "mode-test-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := temporaryFile.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(temporaryFile.Name(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	command := exec.Command(
+		"bash",
+		"-c",
+		`source ./harness-lib.sh; notifier_harness_file_mode "$1"`,
+		"bash",
+		temporaryFile.Name(),
+	)
+	output, err := command.CombinedOutput()
+	if err != nil {
+		t.Fatalf("cross-platform mode probe failed: %v: %s", err, output)
+	}
+	if got := string(output); got != "600" {
+		t.Fatalf("cross-platform mode probe = %q, want 600", got)
+	}
+
+	runner := readContractFile(t, "run.sh")
+	for _, required := range []string{
+		`source "${script_dir}/harness-lib.sh"`,
+		`notifier_harness_file_mode "${integration_env}"`,
+		`notifier_harness_file_mode "${diagnostic_file}"`,
+	} {
+		if !strings.Contains(runner, required) {
+			t.Fatalf("runner cross-platform mode contract is missing %q", required)
+		}
+	}
+	if strings.Contains(runner, `stat -f '%Lp' "${integration_env}" 2>/dev/null || stat -c '%a'`) {
+		t.Fatal("runner combines failed BSD stat output with GNU stat output")
+	}
+}
 
 func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	t.Parallel()
