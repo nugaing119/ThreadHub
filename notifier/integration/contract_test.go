@@ -91,6 +91,12 @@ func TestHarnessClassifiesPublishedAddressesWithoutDisclosingPorts(t *testing.T)
 	for _, required := range []string{
 		`notifier_harness_classify_published_address "${address}"`,
 		`printf 'published_address_failure=%s-%s\n'`,
+		`compose_run ps --status running --quiet "${service}"`,
+		`compose_run ps --all --quiet "${service}"`,
+		`classification='command-running'`,
+		`classification='command-not-running'`,
+		`classification='command-missing'`,
+		`classification='command-ambiguous'`,
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("runner privacy-safe port diagnostic is missing %q", required)

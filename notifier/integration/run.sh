@@ -425,6 +425,8 @@ published_address() {
     local address=""
     local classification=command
     local attempt=0
+    local running_id=""
+    local service_id=""
 
     case "${service}" in
         mattermost | smtp-fixture | threadhub-mailer) ;;
@@ -446,6 +448,23 @@ published_address() {
             sleep 1
         fi
     done
+    if [[ "${classification}" == command ]]; then
+        if ! running_id="$(compose_run ps --status running --quiet "${service}" 2>>"${diagnostic_file}")"; then
+            classification='command-ambiguous'
+        elif [[ "${running_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
+            classification='command-running'
+        elif [[ -n "${running_id}" ]]; then
+            classification='command-ambiguous'
+        elif ! service_id="$(compose_run ps --all --quiet "${service}" 2>>"${diagnostic_file}")"; then
+            classification='command-ambiguous'
+        elif [[ "${service_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
+            classification='command-not-running'
+        elif [[ -z "${service_id}" ]]; then
+            classification='command-missing'
+        else
+            classification='command-ambiguous'
+        fi
+    fi
     printf 'published_address_failure=%s-%s\n' "${service}" "${classification}" >&3
     return 1
 }
