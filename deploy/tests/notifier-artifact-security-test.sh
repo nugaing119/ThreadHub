@@ -683,6 +683,45 @@ if ruby "${temporary_dir}/validate-workflow.rb" \
     "${temporary_dir}/workflow-missing-repository-pin.yml" >/dev/null 2>&1; then
     fail 'CI contract accepted a notifier build without the repository pin gate'
 fi
+
+cat >"${temporary_dir}/validate-shellcheck-workflow.rb" <<'RUBY'
+require "yaml"
+
+workflow = YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], aliases: true)
+steps = workflow.fetch("jobs").fetch("validate").fetch("steps")
+names = [
+  "Install validators",
+  "Install pinned ShellCheck",
+  "Run ShellCheck",
+  "Clean pinned ShellCheck",
+]
+indexes = names.map do |name|
+  matches = steps.each_index.select { |index| steps[index]["name"] == name }
+  abort("shellcheck workflow contract") unless matches.length == 1
+  matches.fetch(0)
+end
+abort("shellcheck workflow contract") unless indexes == indexes.sort
+
+validators, install, run, cleanup = indexes.map { |index| steps.fetch(index) }
+abort("shellcheck workflow contract") if validators.fetch("run").match?(/\bshellcheck\b/)
+abort("shellcheck workflow contract") unless install.fetch("env").fetch("SHELLCHECK_VERSION") == "0.11.0"
+abort("shellcheck workflow contract") unless install.fetch("env").fetch("SHELLCHECK_LINUX_X64_SHA256") == "8c3be12b05d5c177a04c29e3c78ce89ac86f1595681cab149b65b97c4e227198"
+install_run = install.fetch("run")
+abort("shellcheck workflow contract") unless install_run.include?('shellcheck-v${SHELLCHECK_VERSION}.linux.x86_64.tar.xz')
+abort("shellcheck workflow contract") unless install_run.include?('sha256sum --check -')
+abort("shellcheck workflow contract") unless install_run.include?('tar -xJf')
+abort("shellcheck workflow contract") unless install_run.include?('"${install_dir}/shellcheck" --version')
+abort("shellcheck workflow contract") unless run.fetch("run") == '"${RUNNER_TEMP}/shellcheck/shellcheck" -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh'
+abort("shellcheck workflow contract") unless cleanup.fetch("if") == "always()"
+cleanup_lines = cleanup.fetch("run").lines.map(&:strip)
+expected_cleanup = 'rm -rf "${RUNNER_TEMP}/shellcheck.tar.xz" "${RUNNER_TEMP}/shellcheck"'
+abort("shellcheck workflow contract") unless cleanup_lines.count(expected_cleanup) == 1
+RUBY
+
+ruby "${temporary_dir}/validate-shellcheck-workflow.rb" \
+    "${REPOSITORY_ROOT}/.github/workflows/validate.yml" \
+    || fail 'validate CI does not use the pinned ShellCheck toolchain contract'
+
 grep -F -- "--log-opts='--all'" \
     "${REPOSITORY_ROOT}/.github/workflows/validate.yml" >/dev/null \
     || fail 'CI history scan does not cover all reachable refs'
