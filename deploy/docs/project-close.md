@@ -17,14 +17,16 @@
 4. 고객 사용자를 Team에서 제거하고 계정을 비활성화합니다.
 5. SMTP·DNS·공인 IP와 인스턴스 식별정보를 기록합니다.
 
-알림을 먼저 `./deploy/scripts/notifier-control.sh drain`으로 새 수집만 막은 뒤 최대
-10분간 큐를 처리합니다. `./deploy/scripts/notifier-status.sh`에서 `pending=0`과
-`sending=0`을 모두 확인한 뒤에만 `./deploy/scripts/notifier-control.sh disable`로
-진행합니다. 0이 되지 않으면 project close is blocked입니다. 원인을 복구하거나
-운영 책임자에게 escalate하며 SMTP Credential, IAM, Approved Sender, DNS 또는 VM 삭제를
-진행하지 않습니다. `cancel-failed`는 그 뒤 남은 `failed_exhausted`만 취소하고 해당
-수신자 주소를 scrub합니다. pending/sending이 남아 있으면 전체 email scrub을 주장할 수
-없습니다.
+### notifier 종료 gate
+
+1. `./deploy/scripts/notifier-control.sh drain`으로 새 수집을 중지하고 delivery-enabled drain mode를 유지합니다.
+2. delivery_enabled=true인 동안 필요한 `threadhub-mailer retry-failed` remediation을 마친 뒤 `pending=0`과 `sending=0`을 확인합니다.
+3. `threadhub-mailer cancel-failed`는 남은 `failed_exhausted`만 취소·scrub합니다. 그 뒤 `failed=0`을 확인합니다.
+4. pending=0, sending=0, failed=0이면 `./deploy/scripts/notifier-control.sh disable`을 실행하고 `delivery_enabled=false`를 확인합니다.
+5. 어느 값도 0이 되지 않으면 project close is blocked입니다. 원인을 복구하거나 운영 책임자에게 escalate하며 SMTP Credential, IAM, Approved Sender, DNS 또는 VM 삭제를 진행하지 않습니다.
+
+`cancel-failed`는 pending/sending을 취소하거나 scrub하지 않습니다. 따라서 0 queue gate를
+통과하기 전에는 전체 email scrub을 주장할 수 없습니다.
 
 queue backup 범위는 `queue.db`와 SQLite sidecar뿐이지만 recipient addresses를 포함할 수
 있습니다. backup은 비공개·보호된 저장소에 보관하고 종료 결정에 따라 securely removed
@@ -51,7 +53,7 @@ retry/cancel 명령은 [운영 점검표](./operations-checklist.md)를 따릅�
 
 완전 폐기는 OCI에서 수행하는 별도의 파괴적 작업입니다.
 
-1. `pending=0`과 `sending=0` close gate 및 `failed_exhausted` cancel/scrub 결과를 확인합니다.
+1. `pending=0`, `sending=0`, `failed=0`, `delivery_enabled=false` close gate와 `failed_exhausted` cancel/scrub 결과를 확인합니다.
 2. 보호된 queue backup의 보존 또는 securely removed 결정을 기록합니다.
 3. 프로젝트 SMTP Credential을 삭제합니다.
 4. exact project Approved Sender를 삭제합니다.

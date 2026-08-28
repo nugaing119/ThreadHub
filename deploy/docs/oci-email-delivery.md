@@ -173,11 +173,15 @@ target Compartment와 region을 기록합니다.
 
 ## 10. SMTP Credential 교체
 
-1. 두 번째 SMTP credential을 생성합니다.
-2. 서버의 `deploy/.env`에서 username과 password를 교체합니다.
-3. [운영 점검표](./operations-checklist.md)의 drain → `pending=0`/`sending=0` 확인 → disable → `deploy.sh` → SMTP acceptance marker → gated activation 순서를 따릅니다.
-4. `./deploy/scripts/notifier-smtp-test.sh`로 현재 credential의 acceptance marker를 다시 시험하고 초대·확인·재설정 메일을 다시 시험합니다.
-5. 새 credential과 status가 검증된 후 OCI에서 이전 credential을 삭제합니다.
+1. `./deploy/scripts/notifier-control.sh drain`으로 새 수집을 중지하고 delivery-enabled drain mode를 유지합니다.
+2. delivery_enabled=true인 동안 필요한 `threadhub-mailer retry-failed` remediation을 실행한 뒤 `pending=0`과 `sending=0`을 확인합니다. 0이 아니면 중지하고 복구하거나 escalate합니다.
+3. `threadhub-mailer cancel-failed`로 남은 `failed_exhausted`만 scrub하고 `failed=0`을 확인합니다.
+4. `./deploy/scripts/notifier-control.sh disable`로 delivery를 중지합니다.
+5. 그 뒤에만 서버의 보호된 `deploy/.env`에서 username과 password를 교체합니다.
+6. `./deploy/scripts/deploy.sh`로 변경된 환경을 사용하는 Compose 서비스를 재생성합니다. Mattermost만 영향을 받는다고 가정하지 않습니다.
+7. `./deploy/scripts/notifier-smtp-test.sh`로 one-time SMTP acceptance marker를 다시 시험합니다.
+8. `./deploy/scripts/notifier-control.sh activate --from-env`의 gated path로 다시 활성화하고 `./deploy/scripts/notifier-status.sh`에서 상태를 확인합니다.
+9. 새 credential의 acceptance와 notifier send 상태가 성공으로 확인된 뒤에만 OCI에서 이전 credential을 삭제합니다.
 
 이 절차는 PostgreSQL과 첨부파일 bind mount를 삭제하지 않습니다. 실제 secret은
 교체 전후 모두 Git에 커밋하지 않습니다.

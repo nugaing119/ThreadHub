@@ -5,6 +5,8 @@ set -Eeuo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=common.sh
 source "${SCRIPT_DIR}/common.sh"
+# shellcheck source=notifier-documentation-contracts.sh
+source "${SCRIPT_DIR}/notifier-documentation-contracts.sh"
 
 require_file "${COMPOSE_FILE}"
 require_file "${ENV_EXAMPLE_FILE}"
@@ -465,6 +467,9 @@ log "Guided installation entry point and OCI setup guides are present"
 # documented in the public runbooks. Keep these assertions tolerant of normal
 # Markdown wrapping while preventing the safety-critical contracts from
 # silently disappearing.
+validate_notifier_documentation_contracts "${REPOSITORY_ROOT}" \
+    || die "Notifier documentation contracts are invalid"
+
 for document in \
     "${REPOSITORY_ROOT}/README.md" \
     "${REPOSITORY_ROOT}/SECURITY.md" \
@@ -677,25 +682,9 @@ require_document_terms "${DEPLOY_DIR}/docs/setup.md" \
 require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
     'no[[:space:]]+unauthorized[[:space:]]+OCI[[:space:]]+automation' \
     'no unauthorized OCI automation'
-require_document_order "${DEPLOY_DIR}/docs/quick-install.md" \
-    'quick-install safety sequence' \
-    'fresh Ubuntu 24.04 AMD64 VM' './deploy/scripts/validate.sh' \
-    '프로젝트 DNS와 Email Delivery' '숨김 SMTP 입력' 'build/install' \
-    '일회성 SMTP acceptance' 'activation cutoff' '[READY]' 'inbox/link/SPF/DKIM'
-require_document_order "${DEPLOY_DIR}/docs/operations-checklist.md" \
-    'drain-zero-disable-retry-cancel sequence' \
-    'notifier-control.sh drain' 'pending=0' 'sending=0' \
-    'notifier-control.sh disable' 'threadhub-mailer retry-failed' 'threadhub-mailer cancel-failed'
 require_document_terms "${DEPLOY_DIR}/docs/project-close.md" \
     'close zero-queue blocker and protected backup boundary' \
     'pending=0' 'sending=0' 'close is blocked' 'securely removed' 'recipient addresses'
-require_document_section_order "${DEPLOY_DIR}/docs/operations-checklist.md" \
-    '### SMTP Credential 교체' 'SMTP credential rotation gate' \
-    'notifier-control.sh drain' 'pending=0' 'sending=0' \
-    'notifier-control.sh disable' 'deploy/scripts/deploy.sh' \
-    'notifier-smtp-test.sh' 'notifier-control.sh activate --from-env' 'notifier-status.sh'
-validate_notifier_nf_classification "${DEPLOY_DIR}/docs/test-plan.md"
-validate_notifier_public_evidence_schema "${DEPLOY_DIR}/docs/test-results-public.md"
 log "Notifier documentation links, operational safety and OCI isolation contracts are present"
 
 for script in \

@@ -4,7 +4,12 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
+REPOSITORY_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
+# shellcheck source=../scripts/notifier-documentation-contracts.sh
+source "${DEPLOY_DIR}/scripts/notifier-documentation-contracts.sh"
+
 temporary_dir="$(mktemp -d)"
+fixture_root="${temporary_dir}/repository"
 
 cleanup() {
     rm -rf "${temporary_dir}"
@@ -16,83 +21,61 @@ fail() {
     exit 1
 }
 
-assert_false() {
+assert_contract_failure() {
     local description="$1"
-    shift
 
-    if "$@"; then
+    if validate_notifier_documentation_contracts "${fixture_root}" >/dev/null 2>&1; then
         fail "${description}"
     fi
 }
 
-operation_sequence_is_valid() {
-    local document="$1"
-
-    awk '
-        {
-            text = text "\n" $0
-        }
-        END {
-            split("notifier-control.sh drain\034pending=0\034sending=0\034notifier-control.sh disable\034threadhub-mailer retry-failed\034threadhub-mailer cancel-failed", required, "\034")
-            offset = 1
-            for (index_value = 1; index_value <= length(required); index_value++) {
-                position = index(substr(text, offset), required[index_value])
-                if (position == 0) exit 1
-                offset += position + length(required[index_value]) - 1
-            }
-        }
-    ' "${document}"
+reset_fixture() {
+    rm -rf "${fixture_root}"
+    mkdir -p "${fixture_root}/deploy"
+    cp "${REPOSITORY_ROOT}/README.md" "${fixture_root}/README.md"
+    cp "${REPOSITORY_ROOT}/SECURITY.md" "${fixture_root}/SECURITY.md"
+    cp "${DEPLOY_DIR}/README.md" "${fixture_root}/deploy/README.md"
+    cp -R "${DEPLOY_DIR}/docs" "${fixture_root}/deploy/docs"
 }
 
-nf_classification_is_complete() {
-    local document="$1"
-    local identifier
+reset_fixture
+validate_notifier_documentation_contracts "${fixture_root}" \
+    || fail 'real notifier documentation does not satisfy the production contract helper'
 
-    for identifier in NF-FN-09 NF-FN-13 NF-SEC-03 NF-SEC-09 NF-REL-02 NF-REL-09 NF-INS-05 NF-IAM-07; do
-        grep -Eq "^\\|[[:space:]]*${identifier}[[:space:]]*\\|[[:space:]]*(자동|수동|라이브 승인 필요)[[:space:]]*\\|" "${document}" \
-            || return 1
-    done
-}
+sed -i.bak 's/threadhub-mailer retry-failed/retry-after-disable/g' \
+    "${fixture_root}/deploy/docs/operations-checklist.md"
+rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"
+assert_contract_failure 'unsafe close order was accepted'
 
-public_schema_is_fixed() {
-    local document="$1"
+reset_fixture
+perl -0pi -e 's/(1\. `\.\/deploy\/scripts\/notifier-control\.sh drain`.*?4\. `\.\/deploy\/scripts\/notifier-control\.sh disable`.*?)(5\. 그 뒤에만 서버의 보호된 `deploy\/\.env`)/$2$1/s' \
+    "${fixture_root}/deploy/docs/oci-email-delivery.md"
+assert_contract_failure 'OCI env-before-disable rotation order was accepted'
 
-    awk '
-        $0 == "## notifier 공개 자동 증거" { in_section = 1; next }
-        in_section && /^## / { exit }
-        in_section && NF { count++ }
-        END { exit !(in_section && count == 3) }
-    ' "${document}"
-}
+reset_fixture
+sed -i.bak 's/build\/install/build-missing/g' "${fixture_root}/deploy/docs/quick-install.md"
+rm -f "${fixture_root}/deploy/docs/quick-install.md.bak"
+assert_contract_failure 'missing quick-install step was accepted'
 
-operations_fixture="${temporary_dir}/operations.md"
-test_plan_fixture="${temporary_dir}/test-plan.md"
-public_results_fixture="${temporary_dir}/test-results.md"
-cp "${DEPLOY_DIR}/docs/operations-checklist.md" "${operations_fixture}"
-cp "${DEPLOY_DIR}/docs/test-plan.md" "${test_plan_fixture}"
-cp "${DEPLOY_DIR}/docs/test-results-public.md" "${public_results_fixture}"
+reset_fixture
+sed -i.bak 's/failed=0/failed-missing/g' "${fixture_root}/deploy/docs/project-close.md"
+rm -f "${fixture_root}/deploy/docs/project-close.md.bak"
+assert_contract_failure 'missing project-close failure gate was accepted'
 
-operation_sequence_is_valid "${operations_fixture}" \
-    || fail 'real operational document does not satisfy the drain-zero-disable-retry-cancel contract'
-nf_classification_is_complete "${test_plan_fixture}" \
-    || fail 'real test plan does not classify every required notifier NF family'
-public_schema_is_fixed "${public_results_fixture}" \
-    || fail 'real public notifier evidence does not use the fixed schema'
+reset_fixture
+sed -i.bak 's#\./project-close\.md#./project-close-missing.md#' \
+    "${fixture_root}/deploy/docs/operations-checklist.md"
+rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"
+assert_contract_failure 'missing operational close link was accepted'
 
-sed -i.bak 's/pending=0/pending-zero/g' "${operations_fixture}"
-rm -f "${operations_fixture}.bak"
-assert_false 'missing zero-queue gate was accepted' operation_sequence_is_valid "${operations_fixture}"
+reset_fixture
+sed -i.bak 's/NF-FN-13/NF-FN-missing/' "${fixture_root}/deploy/docs/test-plan.md"
+rm -f "${fixture_root}/deploy/docs/test-plan.md.bak"
+assert_contract_failure 'missing NF classification was accepted'
 
-cp "${DEPLOY_DIR}/docs/operations-checklist.md" "${operations_fixture}"
-sed -i.bak 's/retry-failed/retry-placeholder/g; s/cancel-failed/retry-failed/g; s/retry-placeholder/cancel-failed/g' "${operations_fixture}"
-rm -f "${operations_fixture}.bak"
-assert_false 'reordered retry/cancel steps were accepted' operation_sequence_is_valid "${operations_fixture}"
+reset_fixture
+perl -0pi -e 's/(\| 15 \| pass \|\n)/$1| unexpected | schema | row |\n/' \
+    "${fixture_root}/deploy/docs/test-results-public.md"
+assert_contract_failure 'extra public evidence schema row was accepted'
 
-sed -i.bak 's/NF-FN-13/NF-FN-missing/' "${test_plan_fixture}"
-rm -f "${test_plan_fixture}.bak"
-assert_false 'missing NF classification was accepted' nf_classification_is_complete "${test_plan_fixture}"
-
-perl -0pi -e 's/(\| 15 \| pass \|\n)/$1| unexpected | schema | row |\n/' "${public_results_fixture}"
-assert_false 'extra public evidence schema row was accepted' public_schema_is_fixed "${public_results_fixture}"
-
-printf 'ok - notifier documentation contracts reject missing, reordered and extra schema fixtures\n'
+printf 'ok - shared notifier documentation contracts reject unsafe mutation fixtures\n'
