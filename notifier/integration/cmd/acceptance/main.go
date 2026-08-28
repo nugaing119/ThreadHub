@@ -1315,26 +1315,32 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 		return "NF-HARNESS-capture-api"
 	}
 	if err := writeControl(a.cfg.controlFile, controlState{Enabled: false, DeliveryEnabled: false, Mode: "all_channels", ChannelIDs: []string{}, ActivatedAt: time.Now().UnixMilli()}); err != nil {
-		return "NF-REL-05-control-disable"
+		return "NF-REL-05-control-disable-write"
 	}
-	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil || a.waitServices(ctx, 90*time.Second) != nil {
-		return "NF-REL-05-control-disable"
+	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil {
+		return "NF-REL-05-control-disable-restart"
+	}
+	if err := a.waitServices(ctx, 90*time.Second); err != nil {
+		return "NF-REL-05-control-disable-wait"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
 		return "NF-HARNESS-plugin-pair"
 	}
 	disabledPost, _, err := a.post(ctx, a.channels.public.ID, "")
 	if err != nil {
-		return "NF-REL-05-control-disable"
+		return "NF-REL-05-control-disable-post"
 	}
 	if err := a.enableAndRestart(ctx, disabledPost.CreateAt+1); err != nil {
-		return "NF-REL-05-control-disable"
+		return "NF-REL-05-control-disable-enable"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
 		return "NF-HARNESS-plugin-pair"
 	}
-	if _, _, err := a.post(ctx, a.channels.public.ID, ""); err != nil || a.waitExactDelta(ctx, before, a.expectedAB(), 35*time.Second) != nil {
-		return "NF-REL-05-control-disable"
+	if _, _, err := a.post(ctx, a.channels.public.ID, ""); err != nil {
+		return "NF-REL-05-control-disable-post-enabled"
+	}
+	if err := a.waitExactDelta(ctx, before, a.expectedAB(), 35*time.Second); err != nil {
+		return "NF-REL-05-control-disable-delivery"
 	}
 
 	before, err = a.captureSnapshot(ctx)

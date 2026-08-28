@@ -209,7 +209,13 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-REL-05-mattermost-recreate-plugin-runtime",
 		"NF-REL-05-mattermost-recreate-mailer-start",
 		"NF-REL-05-mattermost-recreate-delivery",
-		"NF-REL-05-control-disable",
+		"NF-REL-05-control-disable-write",
+		"NF-REL-05-control-disable-restart",
+		"NF-REL-05-control-disable-wait",
+		"NF-REL-05-control-disable-post",
+		"NF-REL-05-control-disable-enable",
+		"NF-REL-05-control-disable-post-enabled",
+		"NF-REL-05-control-disable-delivery",
 		"NF-REL-05-activation-cutoff",
 		"NF-SEC-04-bad-hmac",
 		"NF-SEC-05-stale-timestamp",
@@ -263,6 +269,28 @@ func TestStartMailerRefreshesItsInternalBridgeEndpoint(t *testing.T) {
 	} {
 		if !bytes.Contains(body, required) {
 			t.Fatalf("startMailer endpoint refresh contract is missing %q", required)
+		}
+	}
+}
+
+func TestControlDisableScenarioHasPrivacySafeStageFailures(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, assertion := range []string{
+		"NF-REL-05-control-disable-write",
+		"NF-REL-05-control-disable-restart",
+		"NF-REL-05-control-disable-wait",
+		"NF-REL-05-control-disable-post",
+		"NF-REL-05-control-disable-enable",
+		"NF-REL-05-control-disable-post-enabled",
+		"NF-REL-05-control-disable-delivery",
+	} {
+		if !bytes.Contains(source, []byte(`return "`+assertion+`"`)) {
+			t.Fatalf("control-disable stage failure is missing %q", assertion)
 		}
 	}
 }
