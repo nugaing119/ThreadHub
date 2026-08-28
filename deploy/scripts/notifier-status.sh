@@ -8,7 +8,7 @@ source "${SCRIPT_DIR}/common.sh"
 # shellcheck source=notifier-lib.sh
 source "${SCRIPT_DIR}/notifier-lib.sh"
 
-notifier_status_dispatch() {
+notifier_status_dispatch() (
     local state_file="$1"
     local marker_file="${state_file%/state.json}/smtp-acceptance.json"
     local temporary_dir
@@ -35,10 +35,7 @@ notifier_status_dispatch() {
     temporary_dir="$(mktemp -d)"
     status_file="${temporary_dir}/mailer-status.json"
     plugin_list_file="${temporary_dir}/plugin-list.json"
-    cleanup_status() {
-        rm -rf "${temporary_dir}"
-    }
-    trap cleanup_status RETURN
+    trap 'rm -rf -- "${temporary_dir}"' EXIT
     plugin_id="$(env_value NOTIFIER_PLUGIN_ID "${VERSIONS_FILE}")"
     notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")"
     if compose exec -T mattermost \
@@ -61,7 +58,7 @@ notifier_status_dispatch() {
         "last_error_class=\(.last_error_class)",
         "last_smtp_code=\(.last_smtp_code)"
     ' "${status_file}"
-}
+)
 
 notifier_status_entry() {
     local state_file=/srv/threadhub/notifier/control/state.json

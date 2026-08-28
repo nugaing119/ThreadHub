@@ -21,7 +21,7 @@ not appear in argv or shell history. drain and disable never delete queue data.
 EOF
 }
 
-notifier_control_dispatch() {
+notifier_control_dispatch() (
     local state_file="$1"
     shift
     local command_name="${1:-}"
@@ -109,10 +109,7 @@ notifier_control_dispatch() {
         || die "Current SMTP credentials have not passed notifier SMTP acceptance"
 
     temporary_dir="$(mktemp -d)"
-    cleanup_control() {
-        rm -rf "${temporary_dir}"
-    }
-    trap cleanup_control RETURN
+    trap 'rm -rf -- "${temporary_dir}"' EXIT
     plugin_list_file="${temporary_dir}/plugin-list.json"
     mailer_status_file="${temporary_dir}/mailer-status.json"
     plugin_id="$(env_value NOTIFIER_PLUGIN_ID "${VERSIONS_FILE}")"
@@ -128,7 +125,7 @@ notifier_control_dispatch() {
         "${state_file}" "${target_mode}" "${target_channel_ids}" "${mailer_status_file}" \
         || die "Notifier activation requires zero pre-activation pending and sending deliveries"
     log "Notifier delivery is active"
-}
+)
 
 notifier_control_entry() {
     local state_file=/srv/threadhub/notifier/control/state.json
