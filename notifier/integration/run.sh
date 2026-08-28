@@ -71,6 +71,8 @@ cleanup() {
     local incoming_status=$?
     local cleanup_ok=true
     local safe_output="${result_assertion}"
+    local primary_failure=""
+    local cleanup_assertion=""
     local cleanup_listing=""
     local artifact_parent=""
 
@@ -89,27 +91,49 @@ cleanup() {
                 "${integration_root}/acceptance-stderr" \
                 "${integration_root}/data/mattermost/logs" 2>/dev/null; then
                 cleanup_ok=false
+                [[ -n "${cleanup_assertion}" ]] \
+                    || cleanup_assertion=NF-HARNESS-compose-cleanup-privacy
             fi
         done
     fi
 
     if [[ -n "${bundle_container_id}" ]]; then
         if [[ "${bundle_container_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
-            container_private container rm --force "${bundle_container_id}" || cleanup_ok=false
+            if ! container_private container rm --force "${bundle_container_id}"; then
+                cleanup_ok=false
+                [[ -n "${cleanup_assertion}" ]] \
+                    || cleanup_assertion=NF-HARNESS-compose-cleanup-container
+            fi
         else
             cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-container
         fi
         bundle_container_id=""
     fi
 
     if [[ "${project_touched}" == true ]]; then
-        compose_run down --volumes --remove-orphans --timeout 10 >/dev/null 2>&1 || cleanup_ok=false
+        if ! compose_run down --volumes --remove-orphans --timeout 10 >/dev/null 2>&1; then
+            cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-project-down
+        fi
         cleanup_listing="${integration_root}/cleanup-ps"
-        compose_run ps --all --quiet >"${cleanup_listing}" 2>/dev/null || cleanup_ok=false
-        [[ ! -s "${cleanup_listing}" ]] || cleanup_ok=false
-        compose_run ls --format json >"${integration_root}/cleanup-projects" 2>/dev/null || cleanup_ok=false
+        if ! compose_run ps --all --quiet >"${cleanup_listing}" 2>/dev/null \
+            || [[ -s "${cleanup_listing}" ]]; then
+            cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-project-residue
+        fi
+        if ! compose_run ls --format json >"${integration_root}/cleanup-projects" 2>/dev/null; then
+            cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-project-residue
+        fi
         if grep -F -q "${project_name}" "${integration_root}/cleanup-projects" 2>/dev/null; then
             cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-project-residue
         fi
     fi
 
@@ -117,21 +141,35 @@ cleanup() {
         case "${integration_root}" in
             "${temporary_base}"/threadhub-integration.*)
                 if [[ -d "${integration_root}" && ! -L "${integration_root}" ]]; then
-                    rm -rf -- "${integration_root}" || cleanup_ok=false
+                    if ! rm -rf -- "${integration_root}"; then
+                        cleanup_ok=false
+                        [[ -n "${cleanup_assertion}" ]] \
+                            || cleanup_assertion=NF-HARNESS-compose-cleanup-workspace
+                    fi
                 else
                     cleanup_ok=false
+                    [[ -n "${cleanup_assertion}" ]] \
+                        || cleanup_assertion=NF-HARNESS-compose-cleanup-workspace
                 fi
                 ;;
             *)
                 cleanup_ok=false
+                [[ -n "${cleanup_assertion}" ]] \
+                    || cleanup_assertion=NF-HARNESS-compose-cleanup-workspace
                 ;;
         esac
     fi
 
     if [[ "${cleanup_ok}" != true ]]; then
-        safe_output=NF-HARNESS-compose-cleanup
+        if is_failure_assertion "${safe_output}"; then
+            primary_failure="${safe_output}"
+        else
+            primary_failure=NF-HARNESS-compose
+        fi
+        safe_output="${cleanup_assertion:-NF-HARNESS-compose-cleanup}"
         result_kind=failure
         incoming_status=1
+        printf 'primary_failure=%s\n' "${primary_failure}" >&3
     fi
 
     if [[ -n "${result_output_path}" ]]; then
