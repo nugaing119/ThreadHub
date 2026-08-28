@@ -69,7 +69,14 @@ NF-REL-01-smtp-down-post-latency
 NF-REL-03-duplicate-event-dedupe
 NF-REL-04-temporary-retry
 NF-REL-04-mailer-recreate
-NF-REL-05-mattermost-recreate
+NF-REL-05-mattermost-recreate-post
+NF-REL-05-mattermost-recreate-start
+NF-REL-05-mattermost-recreate-endpoint
+NF-REL-05-mattermost-recreate-ping
+NF-REL-05-mattermost-recreate-plugin-active
+NF-REL-05-mattermost-recreate-plugin-runtime
+NF-REL-05-mattermost-recreate-mailer-start
+NF-REL-05-mattermost-recreate-delivery
 NF-REL-05-control-disable
 NF-REL-05-activation-cutoff
 NF-SEC-04-bad-hmac

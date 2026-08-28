@@ -1246,25 +1246,34 @@ func (a *acceptance) mattermostRecreateScenario(ctx context.Context) string {
 		return "NF-HARNESS-compose"
 	}
 	if _, _, err := a.post(ctx, a.channels.public.ID, ""); err != nil {
-		return "NF-REL-05-mattermost-recreate"
+		return "NF-REL-05-mattermost-recreate-post"
 	}
 	if _, err := a.compose.run(ctx, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "mattermost"); err != nil {
-		return "NF-REL-05-mattermost-recreate"
+		return "NF-REL-05-mattermost-recreate-start"
 	}
 	mattermostURL, err := a.serviceURL(ctx, "mattermost", "8065")
 	if err != nil {
-		return "NF-REL-05-mattermost-recreate"
+		return "NF-REL-05-mattermost-recreate-endpoint"
 	}
 	a.cfg.mattermostURL = mattermostURL
 	a.mattermost.baseURL = mattermostURL.String()
-	if err := waitHTTP(ctx, a.mattermost.client, mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 120*time.Second) != nil {
-		return "NF-REL-05-mattermost-recreate"
+	if err := waitHTTP(ctx, a.mattermost.client, mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil {
+		return "NF-REL-05-mattermost-recreate-ping"
+	}
+	if err := a.verifyPluginActive(ctx); err != nil {
+		return "NF-REL-05-mattermost-recreate-plugin-active"
+	}
+	if err := a.waitPluginRuntime(ctx, 120*time.Second); err != nil {
+		return "NF-REL-05-mattermost-recreate-plugin-runtime"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
 		return "NF-HARNESS-plugin-pair"
 	}
-	if err := a.startMailer(ctx); err != nil || a.waitExactDelta(ctx, before, a.expectedAB(), 40*time.Second) != nil {
-		return "NF-REL-05-mattermost-recreate"
+	if err := a.startMailer(ctx); err != nil {
+		return "NF-REL-05-mattermost-recreate-mailer-start"
+	}
+	if err := a.waitExactDelta(ctx, before, a.expectedAB(), 40*time.Second); err != nil {
+		return "NF-REL-05-mattermost-recreate-delivery"
 	}
 	return ""
 }

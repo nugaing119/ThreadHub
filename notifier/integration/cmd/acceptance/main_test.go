@@ -201,7 +201,14 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-REL-03-duplicate-event-dedupe",
 		"NF-REL-04-temporary-retry",
 		"NF-REL-04-mailer-recreate",
-		"NF-REL-05-mattermost-recreate",
+		"NF-REL-05-mattermost-recreate-post",
+		"NF-REL-05-mattermost-recreate-start",
+		"NF-REL-05-mattermost-recreate-endpoint",
+		"NF-REL-05-mattermost-recreate-ping",
+		"NF-REL-05-mattermost-recreate-plugin-active",
+		"NF-REL-05-mattermost-recreate-plugin-runtime",
+		"NF-REL-05-mattermost-recreate-mailer-start",
+		"NF-REL-05-mattermost-recreate-delivery",
 		"NF-REL-05-control-disable",
 		"NF-REL-05-activation-cutoff",
 		"NF-SEC-04-bad-hmac",
@@ -210,6 +217,29 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 	}
 	if !reflect.DeepEqual(allowedFailureAssertions, wantAssertions) {
 		t.Fatalf("allowedFailureAssertions = %#v", allowedFailureAssertions)
+	}
+}
+
+func TestMattermostRecreateScenarioHasPrivacySafeStageFailures(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, assertion := range []string{
+		"NF-REL-05-mattermost-recreate-post",
+		"NF-REL-05-mattermost-recreate-start",
+		"NF-REL-05-mattermost-recreate-endpoint",
+		"NF-REL-05-mattermost-recreate-ping",
+		"NF-REL-05-mattermost-recreate-plugin-active",
+		"NF-REL-05-mattermost-recreate-plugin-runtime",
+		"NF-REL-05-mattermost-recreate-mailer-start",
+		"NF-REL-05-mattermost-recreate-delivery",
+	} {
+		if !bytes.Contains(source, []byte(`return "`+assertion+`"`)) {
+			t.Fatalf("mattermost recreate stage failure is missing %q", assertion)
+		}
 	}
 }
 
