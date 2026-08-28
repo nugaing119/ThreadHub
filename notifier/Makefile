@@ -26,7 +26,7 @@ MAILER_PROBE_ENV := \
 	-e SMTP_FEEDBACK_NAME=ThreadHub \
 	-e NOTIFIER_RATE_PER_MINUTE=10
 
-.PHONY: verify fmt-check mod-verify vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-reproducible clean
+.PHONY: verify fmt-check mod-verify vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-artifact-secrets verify-reproducible clean
 
 verify:
 	@$(MAKE) fmt-check
@@ -36,6 +36,7 @@ verify:
 	@$(MAKE) plugin-bundle
 	@$(MAKE) mailer
 	@$(MAKE) verify-artifacts
+	@$(MAKE) verify-artifact-secrets
 	@$(MAKE) verify-reproducible
 
 fmt-check:
@@ -168,6 +169,11 @@ verify-artifacts:
 	image_id="$$($(CONTAINER_CLI) image inspect --format '{{.Id}}' "$(MAILER_IMAGE)")"; \
 	printf 'plugin_bundle=%s\nplugin_bundle_sha256=%s\nmailer_binary=%s\nmailer_binary_sha256=%s\nmailer_image=%s\nmailer_image_id=%s\n' \
 		'$(PLUGIN_BUNDLE)' "$$plugin_sha" '$(MAILER_BINARY)' "$$mailer_sha" '$(MAILER_IMAGE)' "$$image_id"
+
+verify-artifact-secrets:
+	@GITLEAKS_BIN="$${GITLEAKS_BIN:?set GITLEAKS_BIN to verified Gitleaks 8.30.1}" \
+		CONTAINER_COMMAND="$(CONTAINER_COMMAND)" \
+		../deploy/scripts/verify-notifier-artifacts.sh "$(PLUGIN_BUNDLE)" "$(MAILER_IMAGE)"
 
 verify-reproducible: verify-pins
 	@set -eu; \

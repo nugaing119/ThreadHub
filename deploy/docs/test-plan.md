@@ -17,6 +17,7 @@
 | 중요 환경설정 | `readiness-check.sh` |
 | HTTPS와 HTTP 전환 | `readiness-check.sh` |
 | notifier unit/race·installer security | `cd notifier && make test` 및 `validate.sh` |
+| notifier artifact·history secret gate | pinned Gitleaks 8.30.1과 `verify-notifier-artifacts.sh` |
 | notifier real-image integration | `cd notifier && make integration` (로컬/CI Docker 환경) |
 
 ## notifier 시험 ID와 실행 경계
@@ -46,7 +47,7 @@
 | NF-SEC-06 | 자동 | integration nonce replay 거부 |
 | NF-SEC-07 | 자동 | Compose 정적 Mailer host port 부재 |
 | NF-SEC-08 | 자동 | Compose 정적 plugin upload/Marketplace 비활성 |
-| NF-SEC-09 | 자동 | `validate.sh` 비밀값·이미지 검증 |
+| NF-SEC-09 | 자동 | pinned Gitleaks 이력 검사와 plugin bundle·Mailer image/rootfs/config/history gate |
 | NF-REL-01 | 자동 | real-image Mailer 중지 후 재개 |
 | NF-REL-02 | 자동 | integration SMTP 일시 장애 재시도 |
 | NF-REL-03 | 자동 | integration 동일 이벤트 중복 차단 |

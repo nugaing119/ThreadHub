@@ -245,6 +245,7 @@ log "Notifier Compose isolation, mounts, settings and hardening are valid"
 
 for script in \
     "${SCRIPT_DIR}/build-notifier.sh" \
+    "${SCRIPT_DIR}/verify-notifier-artifacts.sh" \
     "${SCRIPT_DIR}/install-notifier-plugin.sh" \
     "${SCRIPT_DIR}/configure-notifier.sh" \
     "${SCRIPT_DIR}/notifier-control.sh" \
@@ -255,6 +256,9 @@ for script in \
 done
 require_file "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
 require_file "${SCRIPT_DIR}/notifier-plugin-files.sh"
+require_file "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh"
+[[ -x "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh" ]] \
+    || die "Notifier artifact security fixture test must be executable"
 # Match the literal build-script expression; expansion is not intended.
 # shellcheck disable=SC2016
 grep -F -- '--build-arg "GO_BUILDER_IMAGE=${builder_image}"' \
