@@ -205,25 +205,42 @@ if ! jq -e '
       . == "SMTP_USERNAME" or
       . == "SMTP_PASSWORD" or
       . == "NOTIFIER_HMAC_SECRET";
-    def protected_assignment:
-      test("(^|[[:space:];])(SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[[:space:]]*=");
-    def explicitly_empty_assignment:
-      test("(^|[[:space:];])(SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[[:space:]]*=(|\\\"\\\"|\\x27\\x27)$");
-    (.config.Env // []) as $environment |
-    (.history // []) as $history |
-    ($environment | type == "array") and
-    ($environment | all(.[]; type == "string")) and
-    ($environment | all(.[]; . as $entry |
-      ($entry | split("=")[0]) as $key |
-      if ($key | protected_key)
-      then ($entry == $key or $entry == ($key + "="))
-      else true end)) and
-    ($history | type == "array") and
-    ($history | all(.[];
-      type == "object" and
-      ((.created_by // "") | type == "string") and
-      ((.created_by // "") |
-        ((protected_assignment and (explicitly_empty_assignment | not)) | not))))
+    def protected_assignments:
+      scan("(?<![A-Za-z0-9_])([\\\"\\x27]?)(SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)(?![A-Za-z0-9_])[[:space:]]*=([^;&|()]*?)(?=[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=|[;&|()]|$)");
+    def assignment_is_empty:
+      .[0] as $quote |
+      .[2] as $value |
+      if $quote == "\"" then $value == "\""
+      elif $quote == "\u0027" then $value == "\u0027"
+      else ($value == "" or $value == "\"\"" or $value == "\u0027\u0027")
+      end;
+    def history_text_is_safe:
+      [protected_assignments | select(assignment_is_empty | not)] | length == 0;
+    if (.config | type) != "object" then false
+    else
+      (if ((.config | has("Env")) and .config.Env != null)
+       then .config.Env else [] end) as $environment |
+      (if ((has("history")) and .history != null)
+       then .history else [] end) as $history |
+      (if ($environment | type) != "array" then false
+       else ($environment | all(.[];
+         if type != "string" then false
+         else . as $entry |
+           ($entry | split("=")[0]) as $key |
+           if ($key | protected_key)
+           then ($entry == $key or $entry == ($key + "="))
+           else true end
+         end))
+       end) and
+      (if ($history | type) != "array" then false
+       else ($history | all(.[];
+         if type != "object" then false
+         elif ((has("created_by") and .created_by != null) and
+               ((.created_by | type) != "string")) then false
+         else ((.created_by // "") | history_text_is_safe)
+         end))
+       end)
+    end
   ' "${temporary_dir}/image/${config_path}" >/dev/null 2>&1; then
     fail image-metadata
 fi

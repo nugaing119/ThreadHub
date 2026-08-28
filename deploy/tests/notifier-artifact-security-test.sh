@@ -63,6 +63,17 @@ make_image() {
     local content="$1"
     local env_json="${2:-[]}"
     local history_json="${3:-[]}"
+    local document=""
+
+    document="$(jq -cn --argjson env "${env_json}" --argjson history "${history_json}" \
+        '{architecture:"amd64",os:"linux",config:{Env:$env},history:$history}')"
+    make_image_document "${content}" "${document}" "${env_json}"
+}
+
+make_image_document() {
+    local content="$1"
+    local document="$2"
+    local engine_env_json="${3:-[]}"
     local image_root="${temporary_dir}/image-root"
     local layer_root="${temporary_dir}/layer-root"
     local config_digest=""
@@ -72,9 +83,7 @@ make_image() {
     mkdir -p "${image_root}" "${layer_root}/app"
     printf '%s\n' "${content}" >"${layer_root}/app/threadhub-mailer"
     tar -cf "${image_root}/layer.tar" -C "${layer_root}" app
-    jq -cn --argjson env "${env_json}" --argjson history "${history_json}" \
-        '{architecture:"amd64",os:"linux",config:{Env:$env},history:$history}' \
-        >"${image_root}/config-pending.json"
+    printf '%s\n' "${document}" >"${image_root}/config-pending.json"
     config_digest="$(fixture_sha256 "${image_root}/config-pending.json")"
     config_name="${config_digest}.json"
     mv "${image_root}/config-pending.json" "${image_root}/${config_name}"
@@ -85,7 +94,7 @@ make_image() {
         manifest.json "${config_name}" layer.tar
     FIXTURE_IMAGE_ID="sha256:${config_digest}"
     FIXTURE_EXPECTED_OPERATION_ID="${FIXTURE_IMAGE_ID}"
-    printf '%s\n' "${env_json}" >"${temporary_dir}/env.json"
+    printf '%s\n' "${engine_env_json}" >"${temporary_dir}/env.json"
 }
 
 mkdir -p "${temporary_dir}/bin"
@@ -225,13 +234,61 @@ assert_safe_failure image-metadata run_gate
 make_image 'safe mailer fixture' '[]' \
     '[{"created_by":"ENV SMTP_PASSWORD=x"},{"created_by":"ENV SMTP_PASSWORD="}]'
 assert_safe_failure image-metadata run_gate
+make_image 'safe mailer fixture' '[]' \
+    '[{"created_by":"ENV SMTP_PASSWORD=x; ENV SMTP_PASSWORD="}]'
+assert_safe_failure image-metadata run_gate
+make_image 'safe mailer fixture' '[]' \
+    '[{"created_by":"export \"SMTP_PASSWORD=x\""}]'
+assert_safe_failure image-metadata run_gate
+for created_by in \
+    'RUN true&&SMTP_PASSWORD=x' \
+    'RUN false||SMTP_PASSWORD=x' \
+    'RUN true;SMTP_PASSWORD=x' \
+    'RUN (SMTP_PASSWORD=x)'; do
+    history_json="$(jq -cn --arg created_by "${created_by}" '[{created_by:$created_by}]')"
+    make_image 'safe mailer fixture' '[]' "${history_json}"
+    assert_safe_failure image-metadata run_gate
+done
 make_image 'safe mailer fixture' \
     '["SMTP_PASSWORD=","SMTP_USERNAME","NOTIFIER_HMAC_SECRET="]' \
-    '[{"created_by":"ENV SMTP_PASSWORD="},{"created_by":"ENV NOTIFIER_HMAC_SECRET"}]'
+    '[{"created_by":"ENV SMTP_PASSWORD="},{"created_by":"ENV NOTIFIER_HMAC_SECRET"},{"created_by":"export \"SMTP_USERNAME=\""},{"created_by":"SMTP_PASSWORD_SUFFIX=x MY_SMTP_PASSWORD=x"}]'
 run_gate >"${temporary_dir}/empty-key-only-output" 2>&1 \
     || fail 'absent, empty or key-only credential metadata was rejected'
 make_image 'safe mailer fixture' '["SMTP_PASSWORD=   "]' '[]'
 assert_safe_failure image-metadata run_gate
+make_image 'safe mailer fixture'
+
+for malformed_document in \
+    '{"architecture":"amd64","os":"linux","config":null,"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":false,"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":1,"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":[],"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":"bad","history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":false},"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":1},"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":"bad"},"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":{}},"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[1]},"history":[]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":false}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":1}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":"bad"}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":{}}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":[1]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":[{"created_by":false}]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":[{"created_by":{}}]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":[{"created_by":[]}]}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":[{"created_by":1}]}'; do
+    make_image_document 'safe mailer fixture' "${malformed_document}" '[]'
+    assert_safe_failure image-metadata run_gate
+done
+for accepted_document in \
+    '{"architecture":"amd64","os":"linux","config":{},"history":null}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":null}}' \
+    '{"architecture":"amd64","os":"linux","config":{"Env":[]},"history":[{}, {"created_by":null}]}'; do
+    make_image_document 'safe mailer fixture' "${accepted_document}" '[]'
+    run_gate >"${temporary_dir}/accepted-null-output" 2>&1 \
+        || fail 'explicitly accepted absent or null metadata was rejected'
+done
 make_image 'safe mailer fixture'
 
 ln -s plugin.json \
@@ -243,18 +300,66 @@ make_bundle 'safe plugin fixture'
 
 FIXTURE_PLATFORM=linux/arm64 assert_safe_failure image-platform run_gate
 
-grep -F 'GITLEAKS_VERSION: 8.30.1' \
-    "${REPOSITORY_ROOT}/.github/workflows/validate.yml" >/dev/null \
-    || fail 'CI does not pin the artifact scanner version'
-grep -F "GITLEAKS_BIN=\"\${install_dir}/gitleaks\" ./deploy/tests/notifier-artifact-security-test.sh" \
-    "${REPOSITORY_ROOT}/.github/workflows/validate.yml" >/dev/null \
-    || fail 'CI does not run artifact scanner rejection fixtures'
-grep -F "GITLEAKS_BIN=\"\${install_dir}/gitleaks\" ./deploy/scripts/verify-notifier-artifacts.sh" \
-    "${REPOSITORY_ROOT}/.github/workflows/validate.yml" >/dev/null \
-    || fail 'CI does not scan the exact built notifier artifacts'
-grep -F 'if: always() # scanner cleanup must run after install, fixture, build or scan failure' \
-    "${REPOSITORY_ROOT}/.github/workflows/validate.yml" >/dev/null \
-    || fail 'CI does not clean the pinned scanner after every preceding outcome'
+cat >"${temporary_dir}/validate-workflow.rb" <<'RUBY'
+require "yaml"
+
+workflow = YAML.safe_load(File.read(ARGV.fetch(0)), permitted_classes: [], aliases: true)
+steps = workflow.fetch("jobs").fetch("notifier-integration").fetch("steps")
+names = [
+  "Install pinned notifier artifact scanner",
+  "Test privacy-safe notifier artifact scanner",
+  "Build notifier artifacts",
+  "Scan exact notifier artifacts for embedded secrets",
+  "Clean pinned notifier artifact scanner",
+]
+indexes = names.map do |name|
+  matches = steps.each_index.select { |index| steps[index]["name"] == name }
+  abort("workflow contract") unless matches.length == 1
+  matches.fetch(0)
+end
+abort("workflow contract") unless indexes == indexes.sort && indexes.uniq.length == names.length
+
+install, fixture, build, scan, cleanup = indexes.map { |index| steps.fetch(index) }
+abort("workflow contract") unless install.fetch("env").fetch("GITLEAKS_VERSION") == "8.30.1"
+abort("workflow contract") unless fixture.fetch("run").include?('GITLEAKS_BIN="${install_dir}/gitleaks" ./deploy/tests/notifier-artifact-security-test.sh')
+abort("workflow contract") unless build.fetch("run") == "make plugin-bundle mailer"
+abort("workflow contract") unless scan.fetch("run").include?('GITLEAKS_BIN="${install_dir}/gitleaks" ./deploy/scripts/verify-notifier-artifacts.sh')
+abort("workflow contract") unless cleanup.fetch("if") == "always()"
+cleanup_lines = cleanup.fetch("run").lines.map(&:strip)
+expected_cleanup = 'rm -rf "${RUNNER_TEMP}/gitleaks.tar.gz" "${RUNNER_TEMP}/gitleaks"'
+abort("workflow contract") unless cleanup_lines.count(expected_cleanup) == 1
+RUBY
+
+ruby "${temporary_dir}/validate-workflow.rb" \
+    "${REPOSITORY_ROOT}/.github/workflows/validate.yml" \
+    || fail 'real notifier CI ordering and cleanup contract is invalid'
+cp "${REPOSITORY_ROOT}/.github/workflows/validate.yml" \
+    "${temporary_dir}/workflow-missing-cleanup.yml"
+# Match the literal workflow expression; expansion is not intended.
+# shellcheck disable=SC2016
+sed -i.bak \
+    's#rm -rf "${RUNNER_TEMP}/gitleaks.tar.gz" "${RUNNER_TEMP}/gitleaks"#:#' \
+    "${temporary_dir}/workflow-missing-cleanup.yml"
+rm -f "${temporary_dir}/workflow-missing-cleanup.yml.bak"
+if ruby "${temporary_dir}/validate-workflow.rb" \
+    "${temporary_dir}/workflow-missing-cleanup.yml" >/dev/null 2>&1; then
+    fail 'CI contract accepted missing scanner cleanup command'
+fi
+ruby - "${REPOSITORY_ROOT}/.github/workflows/validate.yml" \
+    "${temporary_dir}/workflow-reordered.yml" <<'RUBY'
+require "yaml"
+source, target = ARGV
+workflow = YAML.safe_load(File.read(source), permitted_classes: [], aliases: true)
+steps = workflow.fetch("jobs").fetch("notifier-integration").fetch("steps")
+scan = steps.index { |step| step["name"] == "Scan exact notifier artifacts for embedded secrets" }
+cleanup = steps.index { |step| step["name"] == "Clean pinned notifier artifact scanner" }
+steps[scan], steps[cleanup] = steps[cleanup], steps[scan]
+File.write(target, YAML.dump(workflow))
+RUBY
+if ruby "${temporary_dir}/validate-workflow.rb" \
+    "${temporary_dir}/workflow-reordered.yml" >/dev/null 2>&1; then
+    fail 'CI contract accepted cleanup before the artifact scan consumer'
+fi
 grep -F -- "--log-opts='--all'" \
     "${REPOSITORY_ROOT}/.github/workflows/validate.yml" >/dev/null \
     || fail 'CI history scan does not cover all reachable refs'
