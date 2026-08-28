@@ -182,7 +182,7 @@ services:
       FIXTURE_THREADHUB_DOMAIN: threadhub.integration.test
     ports:
       - target: 8081
-        published: "49352-49451"
+        published: "49352"
         host_ip: 127.0.0.1
         protocol: tcp
     volumes:
@@ -218,7 +218,7 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=128m
     ports:
       - target: 8065
-        published: "49152-49251"
+        published: "49152"
         host_ip: 127.0.0.1
         protocol: tcp
     environment:
@@ -299,7 +299,7 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=32m
     ports:
       - target: 8080
-        published: "49252-49351"
+        published: "49252"
         host_ip: 127.0.0.1
         protocol: tcp
     environment:

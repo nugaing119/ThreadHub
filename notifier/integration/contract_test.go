@@ -114,11 +114,11 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		"${POSTGRES_IMAGE_REPOSITORY:",
 		"${POSTGRES_IMAGE_DIGEST:",
 		`target: 8065`,
-		`published: "49152-49251"`,
+		"published: \"49152\"\n",
 		`target: 8080`,
-		`published: "49252-49351"`,
+		"published: \"49252\"\n",
 		`target: 8081`,
-		`published: "49352-49451"`,
+		"published: \"49352\"\n",
 		"internal: true",
 		"pull_policy: never",
 		"SSL_CERT_FILE: /run/smtp-ca/ca.crt",
@@ -129,6 +129,11 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	}
 	if strings.Contains(compose, ":latest") {
 		t.Fatal("Compose contract contains a latest tag")
+	}
+	if strings.Contains(compose, `published: "49152-49251"`) ||
+		strings.Contains(compose, `published: "49252-49351"`) ||
+		strings.Contains(compose, `published: "49352-49451"`) {
+		t.Fatal("integration endpoints must not use Docker Compose published port ranges")
 	}
 	if strings.Count(compose, "host_ip: 127.0.0.1") != 3 {
 		t.Fatal("every integration endpoint must bind to IPv4 loopback")
