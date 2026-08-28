@@ -316,12 +316,16 @@ log "Notifier build, release and manual plugin installation invariants are valid
 require_file "${SCRIPT_DIR}/notifier-lib.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
+require_file "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
     || die "Notifier installer security regression test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/notifier-documentation-test.sh" ]] \
+    || die "Notifier documentation contract test must be executable"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
+"${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
 log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv
@@ -497,6 +501,114 @@ require_document_terms() {
     done
 }
 
+require_document_order() {
+    local document="$1"
+    local description="$2"
+    shift 2
+    local term
+    local line
+    local previous_line=0
+    local previous_term=
+    local current_line
+
+    for term in "$@"; do
+        line="$(grep -n -m1 -F -- "${term}" "${document}" | cut -d: -f1 || true)"
+        [[ -n "${line}" && "${line}" -ge "${previous_line}" ]] \
+            || die "Notifier documentation has missing or reordered ${description}: ${document}"
+        if [[ "${line}" == "${previous_line}" && -n "${previous_term}" ]]; then
+            current_line="$(sed -n "${line}p" "${document}")"
+            awk -v first="${previous_term}" -v second="${term}" \
+                '{ exit !(index($0, first) < index($0, second)) }' <<< "${current_line}" \
+                || die "Notifier documentation has missing or reordered ${description}: ${document}"
+        fi
+        previous_line="${line}"
+        previous_term="${term}"
+    done
+}
+
+require_document_section_order() {
+    local document="$1"
+    local heading="$2"
+    local description="$3"
+    shift 3
+    local terms=()
+    local term
+    local terms_text
+    local original_ifs
+
+    for term in "$@"; do
+        terms+=("${term}")
+    done
+    original_ifs="${IFS}"
+    IFS=$'\034'
+    terms_text="${terms[*]}"
+    IFS="${original_ifs}"
+    awk -v heading="${heading}" -v terms="${terms_text}" '
+        $0 == heading { in_section = 1; next }
+        in_section && /^#{2,3} / { exit }
+        in_section { text = text "\n" $0 }
+        END {
+            if (!in_section) exit 1
+            split(terms, required, "\034")
+            offset = 1
+            for (index_value = 1; index_value <= length(required); index_value++) {
+                position = index(substr(text, offset), required[index_value])
+                if (position == 0) exit 1
+                offset += position + length(required[index_value]) - 1
+            }
+        }
+    ' "${document}" || die "Notifier documentation has missing or reordered ${description}: ${document}"
+}
+
+validate_notifier_public_evidence_schema() {
+    local document="$1"
+
+    awk '
+        $0 == "## notifier 공개 자동 증거" { in_section = 1; next }
+        in_section && /^## / { exit }
+        in_section && NF { lines[++count] = $0 }
+        END {
+            expected_header = "| test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | plugin bundle SHA-256 | NF scenario count | result |"
+            expected_separator = "| --- | --- | --- | --- | --- | --- | ---: | --- |"
+            if (!in_section || count != 3 || lines[1] != expected_header || lines[2] != expected_separator) {
+                exit 1
+            }
+            fields = split(lines[3], row, "|")
+            if (fields != 10 || row[2] !~ /^ [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] $/ ||
+                row[3] !~ /^ `[a-f0-9]+` $/ || (length(row[3]) != 44 && length(row[3]) != 68) ||
+                row[4] !~ /^ `sha256:[a-f0-9]+` $/ || length(row[4]) != 75 ||
+                row[5] !~ /^ `sha256:[a-f0-9]+` $/ || length(row[5]) != 75 ||
+                row[6] !~ /^ `[0-9]+\.[0-9]+\.[0-9]+` $/ ||
+                row[7] !~ /^ `[a-f0-9]+` $/ || length(row[7]) != 68 || row[8] !~ /^ [0-9]+ $/ ||
+                row[9] !~ /^ (pass|fail) $/) {
+                exit 1
+            }
+        }
+    ' "${document}" || die "Notifier public evidence must use only the approved fixed schema"
+}
+
+validate_notifier_nf_classification() {
+    local document="$1"
+    local identifier
+    local line
+
+    for identifier in \
+        NF-FN-01 NF-FN-02 NF-FN-03 NF-FN-04 NF-FN-05 NF-FN-06 NF-FN-07 \
+        NF-FN-08 NF-FN-09 NF-FN-10 NF-FN-11 NF-FN-12 NF-FN-13 \
+        NF-SEC-01 NF-SEC-02 NF-SEC-03 NF-SEC-04 NF-SEC-05 NF-SEC-06 \
+        NF-SEC-07 NF-SEC-08 NF-SEC-09 \
+        NF-REL-01 NF-REL-02 NF-REL-03 NF-REL-04 NF-REL-05 NF-REL-06 \
+        NF-REL-07 NF-REL-08 NF-REL-09 \
+        NF-INS-01 NF-INS-02 NF-INS-03 NF-INS-04 NF-INS-05 \
+        NF-IAM-01 NF-IAM-02 NF-IAM-03 NF-IAM-04 NF-IAM-05 NF-IAM-06 NF-IAM-07; do
+        line="$(grep -m1 -E "^\\|[[:space:]]*${identifier}[[:space:]]*\\|" "${document}" || true)"
+        [[ -n "${line}" ]] \
+            || die "Notifier test plan must classify ${identifier} individually"
+        [[ "${line}" == *'| 자동 |'* || "${line}" == *'| 수동 |'* || "${line}" == *'| 라이브 승인 필요 |'* ]] \
+            || die "Notifier test plan has no valid execution class for ${identifier}"
+    done
+}
+
 for document_reference in \
     "${REPOSITORY_ROOT}/README.md|./deploy/docs/quick-install.md" \
     "${DEPLOY_DIR}/README.md|./docs/quick-install.md" \
@@ -565,6 +677,25 @@ require_document_terms "${DEPLOY_DIR}/docs/setup.md" \
 require_document_regex "${DEPLOY_DIR}/docs/oci-email-delivery.md" \
     'no[[:space:]]+unauthorized[[:space:]]+OCI[[:space:]]+automation' \
     'no unauthorized OCI automation'
+require_document_order "${DEPLOY_DIR}/docs/quick-install.md" \
+    'quick-install safety sequence' \
+    'fresh Ubuntu 24.04 AMD64 VM' './deploy/scripts/validate.sh' \
+    '프로젝트 DNS와 Email Delivery' '숨김 SMTP 입력' 'build/install' \
+    '일회성 SMTP acceptance' 'activation cutoff' '[READY]' 'inbox/link/SPF/DKIM'
+require_document_order "${DEPLOY_DIR}/docs/operations-checklist.md" \
+    'drain-zero-disable-retry-cancel sequence' \
+    'notifier-control.sh drain' 'pending=0' 'sending=0' \
+    'notifier-control.sh disable' 'threadhub-mailer retry-failed' 'threadhub-mailer cancel-failed'
+require_document_terms "${DEPLOY_DIR}/docs/project-close.md" \
+    'close zero-queue blocker and protected backup boundary' \
+    'pending=0' 'sending=0' 'close is blocked' 'securely removed' 'recipient addresses'
+require_document_section_order "${DEPLOY_DIR}/docs/operations-checklist.md" \
+    '### SMTP Credential 교체' 'SMTP credential rotation gate' \
+    'notifier-control.sh drain' 'pending=0' 'sending=0' \
+    'notifier-control.sh disable' 'deploy/scripts/deploy.sh' \
+    'notifier-smtp-test.sh' 'notifier-control.sh activate --from-env' 'notifier-status.sh'
+validate_notifier_nf_classification "${DEPLOY_DIR}/docs/test-plan.md"
+validate_notifier_public_evidence_schema "${DEPLOY_DIR}/docs/test-results-public.md"
 log "Notifier documentation links, operational safety and OCI isolation contracts are present"
 
 for script in \

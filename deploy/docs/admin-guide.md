@@ -115,9 +115,11 @@ group DM은 제외하고, 본문·채널·Team·작성자 정보는 이메일·�
 duplicate 이메일이 생길 수 있습니다. exactly-once 전달은 보장하지 않습니다. 실제
 수신 권한, inbox, 링크, SPF/DKIM은 [빠른 설치 가이드](./quick-install.md)의 수동
 인수시험으로 기록합니다. drain, 즉시 disable, 재시도와 개인정보 보존은
-[운영 점검표](./operations-checklist.md)를 따릅니다.
+[운영 점검표](./operations-checklist.md)를 따릅니다. `cancel-failed`는
+`failed_exhausted`만 scrub하므로 pending/sending이 남았거나 원시 recipient-address
+queue backup이 남아 있으면 전체 email scrub 또는 프로젝트 종료를 주장하지 않습니다.
 
-## 6. CJK 검색 시험
+## 7. CJK 검색 시험
 
 다음 시험 메시지를 서로 다른 채널과 스레드에 작성합니다.
 

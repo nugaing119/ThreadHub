@@ -18,17 +18,9 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 
 ## notifier 공개 자동 증거
 
-| test date | source commit | pinned image identity | plugin SHA-256 | result |
-| --- | --- | --- | --- | --- |
-| 2026-08-28 | `40bf682583177ffcfbb1cb1fc3b8fae50f9546ab` | Mattermost Team Edition 11.7.7 `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | pass |
-
-로컬 real-image integration은 다음 fixed 15 NF scenario groups를 pass했습니다:
-`NF-FN-01`~`NF-FN-08`, `NF-SEC-01`, `NF-SEC-02`, `NF-REL-01`, `NF-REL-03`,
-`NF-REL-04`, `NF-REL-05`, `NF-SEC-04/05/06`. cleanup은 격리된 test container와
-temporary data만 대상으로 했습니다. 이후 일반 registry pull은 고정 이미지 blob
-missing으로 재실행하지 못했으며, cached image는 digest/platform을 확인했습니다.
-GitHub CI, live OCI, inbox/link/SPF/DKIM/permissions/CJK/mobile 수동 인수시험은
-실행하지 않았습니다. 이 문서는 `[READY]` 또는 운영 성공을 주장하지 않습니다.
+| test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | plugin bundle SHA-256 | NF scenario count | result |
+| --- | --- | --- | --- | --- | --- | ---: | --- |
+| 2026-08-28 | `40bf682583177ffcfbb1cb1fc3b8fae50f9546ab` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | 15 | pass |
 
 ## 2. 자동·반자동 검증
 

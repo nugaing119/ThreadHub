@@ -175,9 +175,9 @@ target Compartment와 region을 기록합니다.
 
 1. 두 번째 SMTP credential을 생성합니다.
 2. 서버의 `deploy/.env`에서 username과 password를 교체합니다.
-3. `./deploy/scripts/deploy.sh`로 Mattermost 컨테이너만 새 설정으로 재생성합니다.
+3. [운영 점검표](./operations-checklist.md)의 drain → `pending=0`/`sending=0` 확인 → disable → `deploy.sh` → SMTP acceptance marker → gated activation 순서를 따릅니다.
 4. `./deploy/scripts/notifier-smtp-test.sh`로 현재 credential의 acceptance marker를 다시 시험하고 초대·확인·재설정 메일을 다시 시험합니다.
-5. 새 credential이 검증된 후 OCI에서 이전 credential을 삭제합니다.
+5. 새 credential과 status가 검증된 후 OCI에서 이전 credential을 삭제합니다.
 
 이 절차는 PostgreSQL과 첨부파일 bind mount를 삭제하지 않습니다. 실제 secret은
 교체 전후 모두 Git에 커밋하지 않습니다.

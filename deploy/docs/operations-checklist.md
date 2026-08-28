@@ -45,8 +45,11 @@
 ./deploy/scripts/notifier-control.sh drain
 ```
 
-`drain` 뒤 최대 10분 동안 pending/sending과 oldest pending 기준을 관찰합니다. 완료하지
-못했거나 즉시 중지가 필요하면 다음을 실행합니다.
+`drain` 뒤 최대 10분 동안 pending/sending과 oldest pending 기준을 관찰합니다. 프로젝트
+종료나 SMTP credential 교체를 계속하려면 `pending=0`과 `sending=0`을 모두 확인해야
+합니다. 0이 되지 않으면 원인을 복구하거나 운영 책임자에게 escalate하며, SMTP·IAM·
+Approved Sender 삭제와 credential 교체를 진행하지 않습니다. 즉시 추가 발송을 막아야
+하면 다음을 실행합니다.
 
 ```bash
 ./deploy/scripts/notifier-control.sh disable
@@ -57,8 +60,10 @@
 `/srv/threadhub/notifier/mailer/queue.db`와 그 SQLite sidecar뿐이며, PostgreSQL·Mattermost
 파일 또는 다른 프로젝트 큐를 함께 복사하지 않습니다.
 
-실패 항목을 재시도한 뒤에도 실패하면 cancel 순서를 사용합니다. 실행 전 notifier를
-`disable`하고 queue backup 범위를 확인한 뒤 다음 정확한 Mailer 명령을 실행합니다.
+`disable` 뒤에만 실패 항목의 retry/cancel을 검토합니다. `retry-failed`는
+`failed_exhausted` 항목만 재시도하며, 재시도 뒤에도 실패하면 `cancel-failed`를
+실행합니다. `cancel-failed`는 `failed_exhausted` 항목의 수신자 주소만 scrub하고
+pending/sending 항목을 scrub하거나 취소하지 않습니다.
 
 ```bash
 docker compose --env-file deploy/.env --env-file deploy/versions.env \
@@ -67,12 +72,27 @@ docker compose --env-file deploy/.env --env-file deploy/versions.env \
   -f deploy/docker-compose.yml exec -T threadhub-mailer /threadhub-mailer cancel-failed
 ```
 
-cancel은 실패한 delivery의 원시 수신자 이메일을 scrub합니다. immediate disable and
+queue backup은 `/srv/threadhub/notifier/mailer/queue.db`와 SQLite sidecar만 대상으로
+하되 recipient addresses를 포함할 수 있습니다. backup은 비공개·보호된 저장소에만
+두고 종료 결정에 따라 securely removed해야 합니다. 원시 backup이 남아 있으면 전체
+email scrub을 주장하지 않습니다.
+
+### SMTP Credential 교체
+
+1. `./deploy/scripts/notifier-control.sh drain`을 실행합니다.
+2. `./deploy/scripts/notifier-status.sh`에서 `pending=0`과 `sending=0`을 확인합니다. 0이 아니면 중지하고 원인을 복구하거나 escalate합니다.
+3. `./deploy/scripts/notifier-control.sh disable`을 실행합니다.
+4. 해당 프로젝트의 보호된 `deploy/.env`에서 SMTP credential을 교체합니다.
+5. `./deploy/scripts/deploy.sh`로 변경된 환경을 사용하는 Compose 서비스를 재생성합니다. 이 명령은 Mattermost만 재생성한다고 가정하지 않습니다.
+6. `./deploy/scripts/notifier-smtp-test.sh`로 one-time SMTP acceptance marker를 다시 만듭니다.
+7. `./deploy/scripts/notifier-control.sh activate --from-env`로 gated control path를 통해 다시 활성화합니다.
+8. `./deploy/scripts/notifier-status.sh`로 plugin, marker, pending/sending=0 및 상태를 확인합니다.
+
+immediate disable and
 24h/7d privacy retention: exhausted 수신자 이메일은 24시간 후 scrub하며 terminal
 가명화 event metadata는 7일 후 삭제합니다. SMTP credential rotation 뒤에는
-`./deploy/scripts/notifier-smtp-test.sh`로 marker를 다시 시험합니다. HMAC rotation은
-notifier disable과 queue drain/cancel 뒤에만 수행하고, 새 marker와 activation cutoff를
-다시 만들어야 합니다.
+위 순서로 marker를 다시 시험합니다. HMAC rotation은 notifier disable과 queue
+drain/cancel 뒤에만 수행하고, 새 marker와 activation cutoff를 다시 만들어야 합니다.
 
 프로젝트 종료의 자원 회수 순서는 [프로젝트 종료 절차](./project-close.md)를 따릅니다.
 

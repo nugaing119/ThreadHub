@@ -17,9 +17,19 @@
 4. 고객 사용자를 Team에서 제거하고 계정을 비활성화합니다.
 5. SMTP·DNS·공인 IP와 인스턴스 식별정보를 기록합니다.
 
-알림을 먼저 중지하고 `./deploy/scripts/notifier-control.sh drain`으로 새 수집만 막은
-뒤 최대 10분간 큐를 처리합니다. 잔여 실패·재시도 항목은
-[운영 점검표](./operations-checklist.md)의 retry/cancel 순서로 처리합니다.
+알림을 먼저 `./deploy/scripts/notifier-control.sh drain`으로 새 수집만 막은 뒤 최대
+10분간 큐를 처리합니다. `./deploy/scripts/notifier-status.sh`에서 `pending=0`과
+`sending=0`을 모두 확인한 뒤에만 `./deploy/scripts/notifier-control.sh disable`로
+진행합니다. 0이 되지 않으면 project close is blocked입니다. 원인을 복구하거나
+운영 책임자에게 escalate하며 SMTP Credential, IAM, Approved Sender, DNS 또는 VM 삭제를
+진행하지 않습니다. `cancel-failed`는 그 뒤 남은 `failed_exhausted`만 취소하고 해당
+수신자 주소를 scrub합니다. pending/sending이 남아 있으면 전체 email scrub을 주장할 수
+없습니다.
+
+queue backup 범위는 `queue.db`와 SQLite sidecar뿐이지만 recipient addresses를 포함할 수
+있습니다. backup은 비공개·보호된 저장소에 보관하고 종료 결정에 따라 securely removed
+합니다. 원시 backup이 남아 있으면 email scrub 완료라고 기록하지 않습니다. 정확한
+retry/cancel 명령은 [운영 점검표](./operations-checklist.md)를 따릅니다.
 
 ## 3. 기록 유지
 
@@ -41,15 +51,16 @@
 
 완전 폐기는 OCI에서 수행하는 별도의 파괴적 작업입니다.
 
-1. notifier queue를 cancel하여 email scrub을 확인합니다.
-2. 프로젝트 SMTP Credential을 삭제합니다.
-3. exact project Approved Sender를 삭제합니다.
-4. IAM membership/user/policy/group을 순서대로 제거합니다.
-5. project A record만 제거합니다.
-6. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
-7. OCI Compute VM을 삭제합니다.
-8. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
-9. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
+1. `pending=0`과 `sending=0` close gate 및 `failed_exhausted` cancel/scrub 결과를 확인합니다.
+2. 보호된 queue backup의 보존 또는 securely removed 결정을 기록합니다.
+3. 프로젝트 SMTP Credential을 삭제합니다.
+4. exact project Approved Sender를 삭제합니다.
+5. IAM membership/user/policy/group을 순서대로 제거합니다.
+6. project A record만 제거합니다.
+7. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
+8. OCI Compute VM을 삭제합니다.
+9. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
+10. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
 
 공유 Email Domain/DKIM/SPF/DNS zone은 별도 영향분석과 명시적 승인 없이는 삭제하지
 않습니다. IAM user/group/policy 또는 SMTP Credential은 tenancy-wide 영향을 줄 수
