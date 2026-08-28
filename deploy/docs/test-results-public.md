@@ -20,7 +20,7 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 
 | test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | plugin bundle SHA-256 | NF scenario count | result |
 | --- | --- | --- | --- | --- | --- | ---: | --- |
-| 2026-08-28 | `40bf682583177ffcfbb1cb1fc3b8fae50f9546ab` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | 15 | pass |
+| 2026-08-28 | `0cbb3c35927a7cc5b3cd0f07d8cdfbfbc98e072e` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | 15 | pass |
 
 ## 2. 자동·반자동 검증
 
