@@ -235,12 +235,14 @@ jobs:
         run: |
           set -Eeuo pipefail
           install_dir="${RUNNER_TEMP}/gitleaks"
-          archive="${RUNNER_TEMP}/gitleaks.tar.gz"
-          cleanup() {
-            rm -rf "${archive}" "${install_dir}"
-          }
-          trap cleanup EXIT
           GITLEAKS_BIN="${install_dir}/gitleaks" ./deploy/scripts/verify-notifier-artifacts.sh
+
+      - name: Clean pinned notifier artifact scanner
+        if: always() # scanner cleanup must run after install, fixture, build or scan failure
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          rm -rf "${RUNNER_TEMP}/gitleaks.tar.gz" "${RUNNER_TEMP}/gitleaks"
 
       - name: Record privacy-safe bundle identity
         shell: bash

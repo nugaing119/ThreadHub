@@ -48,6 +48,20 @@ relative_archive_path_is_safe() {
         && "${candidate}" != *//* ]]
 }
 
+sha256_file() {
+    local path="$1"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        sha256sum "${path}" | awk '{print $1}'
+    elif command -v shasum >/dev/null 2>&1; then
+        shasum -a 256 "${path}" | awk '{print $1}'
+    elif command -v openssl >/dev/null 2>&1; then
+        openssl dgst -sha256 "${path}" | awk '{print $NF}'
+    else
+        return 1
+    fi
+}
+
 bundle_path="${1:-notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz}"
 mailer_image="${2:-threadhub/notifier-mailer:0.1.0}"
 gitleaks_bin="${GITLEAKS_BIN:-}"
@@ -105,42 +119,43 @@ if ! image_id="$("${container_parts[@]}" image inspect --format '{{.Id}}' \
     fail image
 fi
 [[ "${image_id}" =~ ^(sha256:)?[a-f0-9]{64}$ ]] || fail image
+image_digest="${image_id#sha256:}"
+image_reference="sha256:${image_digest}"
 if ! image_platform="$("${container_parts[@]}" image inspect \
-    --format '{{.Os}}/{{.Architecture}}' "${mailer_image}" \
+    --format '{{.Os}}/{{.Architecture}}' "${image_reference}" \
     2>"${temporary_dir}/image-platform-error")"; then
     fail image
 fi
 [[ "${image_platform}" == linux/amd64 ]] || fail image-platform
 
 if ! "${container_parts[@]}" image inspect --format '{{json .Config.Env}}' \
-    "${mailer_image}" >"${temporary_dir}/image-env.json" \
+    "${image_reference}" >"${temporary_dir}/image-env.json" \
     2>"${temporary_dir}/image-env-error"; then
     fail image
 fi
 if ! jq -e '
+    def protected_key:
+      . == "SMTP_USERNAME" or
+      . == "SMTP_PASSWORD" or
+      . == "NOTIFIER_HMAC_SECRET";
     type == "array" and
     all(.[]; type == "string") and
-    all(.[];
-      if test("^(SMTP_[A-Z0-9_]+|NOTIFIER_HMAC_SECRET)(=|$)")
-      then test("^(SMTP_[A-Z0-9_]+|NOTIFIER_HMAC_SECRET)=$")
-      else true
-      end)
+    all(.[]; . as $entry |
+      ($entry | split("=")[0]) as $key |
+      if ($key | protected_key)
+      then ($entry == $key or $entry == ($key + "="))
+      else true end)
   ' "${temporary_dir}/image-env.json" >/dev/null 2>&1; then
     fail image-metadata
 fi
 if ! "${container_parts[@]}" history --no-trunc --format '{{json .}}' \
-    "${mailer_image}" >"${temporary_dir}/image-history.jsonl" \
+    "${image_reference}" >"${temporary_dir}/image-history.jsonl" \
     2>"${temporary_dir}/image-history-error"; then
     fail image
 fi
-if LC_ALL=C grep -E -q \
-    "(SMTP_[A-Z0-9_]+|NOTIFIER_HMAC_SECRET)=([^[:space:]\"]+|\"[^\"]+\")" \
-    "${temporary_dir}/image-history.jsonl"; then
-    fail image-metadata
-fi
 
 if ! "${container_parts[@]}" image save --output "${temporary_dir}/image.tar" \
-    "${mailer_image}" >"${temporary_dir}/image-save-output" \
+    "${image_reference}" >"${temporary_dir}/image-save-output" \
     2>"${temporary_dir}/image-save-error"; then
     fail image
 fi
@@ -175,10 +190,42 @@ mkdir -p "$(dirname "${temporary_dir}/image/${config_path}")"
 tar -xOf "${temporary_dir}/image.tar" "${config_path}" \
     >"${temporary_dir}/image/${config_path}" 2>/dev/null || fail image-archive
 [[ -s "${temporary_dir}/image/${config_path}" ]] || fail image-archive
-if ! jq -e --arg id "${image_id#sha256:}" \
+exported_config_digest="$(sha256_file "${temporary_dir}/image/${config_path}")" \
+    || fail image-archive
+[[ "${exported_config_digest}" == "${image_digest}" ]] || fail image-archive
+[[ "$(grep -E -c '(^|/)[^/]+\.json$' "${temporary_dir}/image-entries")" == 2 ]] \
+    || fail image-archive
+if ! jq -e \
     '(.architecture == "amd64") and (.os == "linux")' \
     "${temporary_dir}/image/${config_path}" >/dev/null 2>&1; then
     fail image-platform
+fi
+if ! jq -e '
+    def protected_key:
+      . == "SMTP_USERNAME" or
+      . == "SMTP_PASSWORD" or
+      . == "NOTIFIER_HMAC_SECRET";
+    def protected_assignment:
+      test("(^|[[:space:];])(SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[[:space:]]*=");
+    def explicitly_empty_assignment:
+      test("(^|[[:space:];])(SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[[:space:]]*=(|\\\"\\\"|\\x27\\x27)$");
+    (.config.Env // []) as $environment |
+    (.history // []) as $history |
+    ($environment | type == "array") and
+    ($environment | all(.[]; type == "string")) and
+    ($environment | all(.[]; . as $entry |
+      ($entry | split("=")[0]) as $key |
+      if ($key | protected_key)
+      then ($entry == $key or $entry == ($key + "="))
+      else true end)) and
+    ($history | type == "array") and
+    ($history | all(.[];
+      type == "object" and
+      ((.created_by // "") | type == "string") and
+      ((.created_by // "") |
+        ((protected_assignment and (explicitly_empty_assignment | not)) | not))))
+  ' "${temporary_dir}/image/${config_path}" >/dev/null 2>&1; then
+    fail image-metadata
 fi
 
 mkdir "${temporary_dir}/layers"
