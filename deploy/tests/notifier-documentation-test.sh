@@ -42,10 +42,12 @@ reset_fixture
 validate_notifier_documentation_contracts "${fixture_root}" \
     || fail 'real notifier documentation does not satisfy the production contract helper'
 
-sed -i.bak 's/threadhub-mailer retry-failed/retry-after-disable/g' \
+sed -i.bak 's/threadhub-mailer retry-failed/retry-placeholder/g' \
     "${fixture_root}/deploy/docs/operations-checklist.md"
 rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"
-assert_contract_failure 'unsafe close order was accepted'
+perl -0pi -e 's/(delivery_enabled=false.*?\n)/$1`threadhub-mailer retry-failed`를 disable 뒤에 실행합니다.\n/' \
+    "${fixture_root}/deploy/docs/operations-checklist.md"
+assert_contract_failure 'retry-failed after disable was accepted'
 
 reset_fixture
 perl -0pi -e 's/(1\. `\.\/deploy\/scripts\/notifier-control\.sh drain`.*?4\. `\.\/deploy\/scripts\/notifier-control\.sh disable`.*?)(5\. 그 뒤에만 서버의 보호된 `deploy\/\.env`)/$2$1/s' \
@@ -53,9 +55,9 @@ perl -0pi -e 's/(1\. `\.\/deploy\/scripts\/notifier-control\.sh drain`.*?4\. `\.
 assert_contract_failure 'OCI env-before-disable rotation order was accepted'
 
 reset_fixture
-sed -i.bak 's/build\/install/build-missing/g' "${fixture_root}/deploy/docs/quick-install.md"
-rm -f "${fixture_root}/deploy/docs/quick-install.md.bak"
-assert_contract_failure 'missing quick-install step was accepted'
+perl -0pi -e 's/(6\. 일회성 SMTP acceptance를 실행합니다\.\n)(7\. activation cutoff 이후에만 notifier를 활성화합니다\.\n)/$2$1/' \
+    "${fixture_root}/deploy/docs/quick-install.md"
+assert_contract_failure 'activation before SMTP acceptance was accepted'
 
 reset_fixture
 sed -i.bak 's/failed=0/failed-missing/g' "${fixture_root}/deploy/docs/project-close.md"

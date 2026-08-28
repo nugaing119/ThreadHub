@@ -19,35 +19,28 @@ notifier_docs_require_link() {
         || notifier_docs_fail "Notifier documentation link is missing: ${document} -> ${link}"
 }
 
-notifier_docs_require_order() {
+notifier_docs_require_regex() {
+    local document="$1"
+    local expression="$2"
+    local description="$3"
+
+    grep -Eiq -- "${expression}" "${document}" \
+        || notifier_docs_fail "Notifier documentation is missing ${description}: ${document}"
+}
+
+notifier_docs_require_terms() {
     local document="$1"
     local description="$2"
     shift 2
-    local terms=()
     local term
-    local serialized
-    local original_ifs
 
     for term in "$@"; do
-        terms+=("${term}")
-    done
-    original_ifs="${IFS}"
-    IFS=$'\034'
-    serialized="${terms[*]}"
-    IFS="${original_ifs}"
-    awk -v terms="${serialized}" '
-        { text = text "\n" $0 }
-        END {
-            split(terms, required, "\034")
-            offset = 1
-            for (item = 1; item <= length(required); item++) {
-                position = index(substr(text, offset), required[item])
-                if (position == 0) exit 1
-                offset += position + length(required[item]) - 1
+        grep -Fiq -- "${term}" "${document}" \
+            || {
+                notifier_docs_fail "Notifier documentation is missing ${description}: ${document}"
+                return 1
             }
-        }
-    ' "${document}" \
-        || notifier_docs_fail "Notifier documentation has missing or reordered ${description}: ${document}"
+    done
 }
 
 notifier_docs_require_section_order() {
@@ -154,11 +147,17 @@ validate_notifier_documentation_contracts() {
         notifier_docs_require_file "${document}" || return 1
     done
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/quick-install.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/README.md" './docs/quick-install.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './oci-email-delivery.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './admin-guide.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/setup.md" './oci-email-delivery.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/admin-guide.md" './operations-checklist.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/operations-checklist.md" './project-close.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/project-close.md" './oci-email-delivery.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/test-plan.md" './test-results-public.md' || return 1
 
-    notifier_docs_require_order "${deploy_dir}/docs/quick-install.md" 'quick-install safety sequence' \
+    notifier_docs_require_section_order "${deploy_dir}/docs/quick-install.md" \
+        '## 1. 설치 순서와 준비해야 할 값' 'quick-install safety sequence' \
         'fresh Ubuntu 24.04 AMD64 VM' './deploy/scripts/validate.sh' \
         '프로젝트 DNS와 Email Delivery' '숨김 SMTP 입력' 'build/install' \
         '일회성 SMTP acceptance' 'activation cutoff' '[READY]' 'inbox/link/SPF/DKIM' || return 1
@@ -176,7 +175,8 @@ validate_notifier_documentation_contracts() {
     notifier_docs_require_section_order "${deploy_dir}/docs/project-close.md" \
         '### notifier 종료 gate' 'project-close delivery gate' \
         'notifier-control.sh drain' 'threadhub-mailer retry-failed' 'pending=0' 'sending=0' \
-        'threadhub-mailer cancel-failed' 'failed=0' 'notifier-control.sh disable' 'project close is blocked' \
+        'threadhub-mailer cancel-failed' 'failed=0' 'notifier-control.sh disable' 'delivery_enabled=false' \
+        'ANY of pending, sending, or failed is nonzero' 'project close is blocked' \
         'recipient addresses' 'securely removed' || return 1
     notifier_docs_require_section_order "${deploy_dir}/docs/oci-email-delivery.md" \
         '## 10. SMTP Credential 교체' 'OCI SMTP credential rotation sequence' \
@@ -186,4 +186,61 @@ validate_notifier_documentation_contracts() {
         'notifier-status.sh' '이전 credential을 삭제' || return 1
     notifier_docs_validate_nf_matrix "${deploy_dir}/docs/test-plan.md" || return 1
     notifier_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
+
+    local notifier_script
+    for notifier_script in \
+        './deploy/scripts/build-notifier.sh' \
+        './deploy/scripts/configure-notifier.sh' \
+        './deploy/scripts/install-notifier-plugin.sh' \
+        './deploy/scripts/notifier-control.sh' \
+        './deploy/scripts/notifier-smtp-test.sh' \
+        './deploy/scripts/notifier-status.sh' \
+        './deploy/scripts/install-status.sh'; do
+        grep -R -F -- "${notifier_script}" \
+            "${repository_root}/README.md" "${deploy_dir}/README.md" "${deploy_dir}/docs" >/dev/null \
+            || {
+                notifier_docs_fail "Notifier documentation must name ${notifier_script}"
+                return 1
+            }
+    done
+
+    notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \
+        'project-specific[[:space:]]+IAM[[:space:]]+user/group/SMTP[[:space:]]+Credential/exact[[:space:]]+Approved[[:space:]]+Sender' \
+        'project-specific IAM user/group/SMTP Credential/exact Approved Sender isolation' || return 1
+    local policy_line
+    for policy_line in \
+        "Allow group '<identity-domain>'/'<project-smtp-group>'" \
+        'to use approved-senders' \
+        'in compartment <project-compartment>' \
+        "where target.approved-sender.id = '<project-approved-sender-ocid>'"; do
+        notifier_docs_require_terms "${deploy_dir}/docs/oci-email-delivery.md" \
+            "OCI isolation policy line ${policy_line}" "${policy_line}" || return 1
+    done
+    notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \
+        'same[[:space:]]+sending[[:space:]]+domain[[:space:]]+and[[:space:]]+region' \
+        'shared Email Domain/DKIM/SPF same-domain-and-region limit' || return 1
+    notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \
+        'additive[[:space:]]+IAM[[:space:]]+policy[[:space:]]+audit' \
+        'additive IAM policy audit' || return 1
+    notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \
+        'A/A[[:space:]]+success,[[:space:]]+A/B[[:space:]]+deny,[[:space:]]+B/B[[:space:]]+success,[[:space:]]+B/A[[:space:]]+deny' \
+        'cross-send IAM acceptance matrix' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/oci-email-delivery.md" \
+        'tenancy-and-region Email Delivery cost recheck' \
+        'tenancy and region total sending volume' 'before deployment' 'OCI Email Delivery cost' || return 1
+    notifier_docs_require_regex "${deploy_dir}/docs/quick-install.md" \
+        'actual[[:space:]]+inbox/link/SPF/DKIM[[:space:]]+remains[[:space:]]+manual' \
+        'manual inbox/link/SPF/DKIM acceptance boundary' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/admin-guide.md" \
+        'at-least-once duplicate caveat' 'at-least-once' 'duplicate' 'exactly-once' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/operations-checklist.md" \
+        'immediate disable and 24h/7d privacy retention' 'immediate disable' '24h/7d privacy retention' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/admin-guide.md" \
+        'Team Edition plugin and license boundary' 'Mattermost Team Edition' 'normal plugin API' \
+        'no paid feature' 'no license check change' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/setup.md" \
+        'safe project DNS A-record isolation' 'DNS A record' 'unrelated RRsets' 'two independent VM' || return 1
+    notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \
+        'no[[:space:]]+unauthorized[[:space:]]+OCI[[:space:]]+automation' \
+        'no unauthorized OCI automation' || return 1
 }

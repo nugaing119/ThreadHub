@@ -23,7 +23,7 @@
 2. delivery_enabled=true인 동안 필요한 `threadhub-mailer retry-failed` remediation을 마친 뒤 `pending=0`과 `sending=0`을 확인합니다.
 3. `threadhub-mailer cancel-failed`는 남은 `failed_exhausted`만 취소·scrub합니다. 그 뒤 `failed=0`을 확인합니다.
 4. pending=0, sending=0, failed=0이면 `./deploy/scripts/notifier-control.sh disable`을 실행하고 `delivery_enabled=false`를 확인합니다.
-5. 어느 값도 0이 되지 않으면 project close is blocked입니다. 원인을 복구하거나 운영 책임자에게 escalate하며 SMTP Credential, IAM, Approved Sender, DNS 또는 VM 삭제를 진행하지 않습니다.
+5. pending, sending, failed 중 **하나라도 0이 아니면** (ANY of pending, sending, or failed is nonzero) close를 중지합니다. project close is blocked이며, 원인을 복구하거나 운영 책임자에게 escalate합니다. 이 상태에서는 SMTP Credential, IAM, Approved Sender, DNS 또는 VM 삭제를 진행하지 않습니다.
 
 `cancel-failed`는 pending/sending을 취소하거나 scrub하지 않습니다. 따라서 0 queue gate를
 통과하기 전에는 전체 email scrub을 주장할 수 없습니다.
