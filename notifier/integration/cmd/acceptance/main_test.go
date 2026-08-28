@@ -18,7 +18,7 @@ import (
 	"github.com/nugaing119/ThreadHub/notifier/protocol"
 )
 
-func TestLoadConfigRequiresLoopbackEndpointsAndPrivateFiles(t *testing.T) {
+func TestLoadConfigRequiresPrivateIntegrationEndpointsAndPrivateFiles(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -38,13 +38,41 @@ func TestLoadConfigRequiresLoopbackEndpointsAndPrivateFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("loadConfig() error = %v", err)
 	}
-	if cfg.mattermostURL.Hostname() != "127.0.0.1" || cfg.mailerURL.Hostname() != "127.0.0.1" || cfg.captureURL.Hostname() != "127.0.0.1" {
-		t.Fatal("loadConfig() did not preserve loopback endpoints")
+	if cfg.mattermostURL.Hostname() != "172.20.0.10" || cfg.mailerURL.Hostname() != "172.20.0.11" || cfg.captureURL.Hostname() != "172.20.0.12" {
+		t.Fatal("loadConfig() did not preserve private integration endpoints")
 	}
 
-	values["INTEGRATION_MAILER_URL"] = "http://192.0.2.10:8080"
+	values["INTEGRATION_MAILER_URL"] = "http://8.8.8.8:8080"
 	if _, err := loadConfig(func(key string) string { return values[key] }); err == nil {
-		t.Fatal("loadConfig() accepted a non-loopback Mailer endpoint")
+		t.Fatal("loadConfig() accepted a public Mailer endpoint")
+	}
+}
+
+func TestParseContainerIPv4AcceptsOnePrivateAddress(t *testing.T) {
+	t.Parallel()
+
+	if got, err := parseContainerIPv4([]byte("172.20.0.10\n")); err != nil || got != "172.20.0.10" {
+		t.Fatalf("parseContainerIPv4() = %q, %v", got, err)
+	}
+	for _, value := range []string{"", "8.8.8.8\n", "127.0.0.1\n", "172.20.0.10\n172.20.0.11\n", "::1\n", "not-an-ip\n"} {
+		if _, err := parseContainerIPv4([]byte(value)); err == nil {
+			t.Fatalf("parseContainerIPv4(%q) unexpectedly succeeded", value)
+		}
+	}
+}
+
+func TestParseIntegrationURLSupportsPrivateDockerAndLoopbackPodmanEndpoints(t *testing.T) {
+	t.Parallel()
+
+	for _, value := range []string{"http://172.20.0.10:8065", "http://127.0.0.1:49152"} {
+		if _, err := parseIntegrationURL(value); err != nil {
+			t.Fatalf("parseIntegrationURL(%q): %v", value, err)
+		}
+	}
+	for _, value := range []string{"https://172.20.0.10:8065", "http://8.8.8.8:8065", "http://[::1]:8065", "http://localhost:8065"} {
+		if _, err := parseIntegrationURL(value); err == nil {
+			t.Fatalf("parseIntegrationURL(%q) unexpectedly succeeded", value)
+		}
 	}
 }
 
@@ -461,19 +489,20 @@ func TestWriteControlUsesSharedReadOnlyGroupMode(t *testing.T) {
 
 func validConfigValues(root, envFile, controlFile string) map[string]string {
 	return map[string]string{
-		"INTEGRATION_ROOT":            root,
-		"INTEGRATION_ENV_FILE":        envFile,
-		"INTEGRATION_CONTROL_FILE":    controlFile,
-		"INTEGRATION_MATTERMOST_URL":  "http://127.0.0.1:18065",
-		"INTEGRATION_MAILER_URL":      "http://127.0.0.1:18080",
-		"INTEGRATION_CAPTURE_URL":     "http://127.0.0.1:18081",
-		"INTEGRATION_COMPOSE_COMMAND": "docker compose",
-		"INTEGRATION_COMPOSE_FILE":    filepath.Join(root, "docker-compose.yml"),
-		"INTEGRATION_PROJECT_NAME":    "threadhub-integration-test",
-		"INTEGRATION_HMAC_SECRET":     strings.Repeat("12", 32),
-		"INTEGRATION_HASH_SECRET":     strings.Repeat("34", 32),
-		"INTEGRATION_ADMIN_PASSWORD":  "integration-password-12345",
-		"INTEGRATION_USER_PASSWORD":   "integration-password-67890",
-		"INTEGRATION_DOMAIN":          "threadhub.integration.test",
+		"INTEGRATION_ROOT":              root,
+		"INTEGRATION_ENV_FILE":          envFile,
+		"INTEGRATION_CONTROL_FILE":      controlFile,
+		"INTEGRATION_MATTERMOST_URL":    "http://172.20.0.10:8065",
+		"INTEGRATION_MAILER_URL":        "http://172.20.0.11:8080",
+		"INTEGRATION_CAPTURE_URL":       "http://172.20.0.12:8081",
+		"INTEGRATION_COMPOSE_COMMAND":   "docker compose",
+		"INTEGRATION_CONTAINER_COMMAND": "docker",
+		"INTEGRATION_COMPOSE_FILE":      filepath.Join(root, "docker-compose.yml"),
+		"INTEGRATION_PROJECT_NAME":      "threadhub-integration-test",
+		"INTEGRATION_HMAC_SECRET":       strings.Repeat("12", 32),
+		"INTEGRATION_HASH_SECRET":       strings.Repeat("34", 32),
+		"INTEGRATION_ADMIN_PASSWORD":    "integration-password-12345",
+		"INTEGRATION_USER_PASSWORD":     "integration-password-67890",
+		"INTEGRATION_DOMAIN":            "threadhub.integration.test",
 	}
 }

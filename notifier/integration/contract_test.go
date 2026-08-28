@@ -51,17 +51,19 @@ func TestHarnessFileModeDetectionIsCrossPlatform(t *testing.T) {
 	}
 }
 
-func TestHarnessUsesFixedLoopbackEndpointsWithoutComposePortDiscovery(t *testing.T) {
+func TestHarnessUsesInternalBridgeEndpointsWithoutPortPublishing(t *testing.T) {
 	t.Parallel()
 
 	runner := readContractFile(t, "run.sh")
 	for _, required := range []string{
-		`mattermost_address="127.0.0.1:49152"`,
-		`capture_address="127.0.0.1:49352"`,
-		`mailer_address="127.0.0.1:49252"`,
+		`mattermost_address="$(container_address mattermost 8065)"`,
+		`capture_address="$(container_address smtp-fixture 8081)"`,
+		`mailer_address="$(container_address threadhub-mailer 8080)"`,
+		`"${container_command[@]}" inspect`,
+		`INTEGRATION_CONTAINER_COMMAND="${container_command_value}"`,
 	} {
 		if !strings.Contains(runner, required) {
-			t.Fatalf("runner fixed loopback endpoint contract is missing %q", required)
+			t.Fatalf("runner internal bridge endpoint contract is missing %q", required)
 		}
 	}
 	if strings.Contains(runner, "compose_run port") {
@@ -69,8 +71,40 @@ func TestHarnessUsesFixedLoopbackEndpointsWithoutComposePortDiscovery(t *testing
 	}
 
 	acceptance := readContractFile(t, "cmd/acceptance/main.go")
-	if strings.Contains(acceptance, `a.compose.run(ctx, "port"`) {
-		t.Fatal("recreate scenarios must reuse fixed loopback endpoints")
+	if !strings.Contains(acceptance, `a.serviceURL(ctx, "mattermost", "8065")`) ||
+		!strings.Contains(acceptance, `a.serviceURL(ctx, "threadhub-mailer", "8080")`) {
+		t.Fatal("recreate scenarios must rediscover internal bridge endpoints")
+	}
+}
+
+func TestHarnessAcceptsOnlyPrivateIPv4ContainerAddresses(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		address string
+		wantOK  bool
+	}{
+		{address: "10.0.0.2", wantOK: true},
+		{address: "172.16.0.2", wantOK: true},
+		{address: "172.31.255.254", wantOK: true},
+		{address: "192.168.1.2", wantOK: true},
+		{address: "172.32.0.2", wantOK: false},
+		{address: "127.0.0.1", wantOK: false},
+		{address: "8.8.8.8", wantOK: false},
+		{address: "256.0.0.1", wantOK: false},
+		{address: "not-an-ip", wantOK: false},
+	} {
+		command := exec.Command(
+			"bash",
+			"-c",
+			`source ./harness-lib.sh; notifier_harness_is_private_ipv4 "$1"`,
+			"bash",
+			testCase.address,
+		)
+		err := command.Run()
+		if gotOK := err == nil; gotOK != testCase.wantOK {
+			t.Fatalf("private IPv4 validation for %q = %t, want %t", testCase.address, gotOK, testCase.wantOK)
+		}
 	}
 }
 
@@ -100,18 +134,11 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	if strings.Contains(compose, ":latest") {
 		t.Fatal("Compose contract contains a latest tag")
 	}
-	if strings.Contains(compose, `published: "49152-49251"`) ||
-		strings.Contains(compose, `published: "49252-49351"`) ||
-		strings.Contains(compose, `published: "49352-49451"`) {
-		t.Fatal("integration endpoints must not use Docker Compose published port ranges")
-	}
 	if strings.Count(compose, "host_ip: 127.0.0.1") != 3 {
-		t.Fatal("every integration endpoint must bind to IPv4 loopback")
+		t.Fatal("Podman compatibility endpoints must bind only to IPv4 loopback")
 	}
-	for _, forbidden := range []string{`127.0.0.1::8065`, `127.0.0.1::8080`, `127.0.0.1::8081`} {
-		if strings.Contains(compose, forbidden) {
-			t.Fatalf("Compose retains non-portable empty host-port syntax %q", forbidden)
-		}
+	if strings.Contains(compose, "host-access") || strings.Count(compose, "internal: true") != 2 {
+		t.Fatal("integration services must remain exclusively on internal networks")
 	}
 	for _, required := range []string{
 		`/threadhub-deploy/notifier-plugin-files.sh:ro`,

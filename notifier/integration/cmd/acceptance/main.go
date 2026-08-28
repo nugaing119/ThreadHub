@@ -111,7 +111,7 @@ type captureSnapshot struct {
 
 type integrationConfig struct {
 	root, envFile, controlFile, composeFile, projectName string
-	composeCommand                                       []string
+	composeCommand, containerCommand                     []string
 	mattermostURL, mailerURL, captureURL                 *url.URL
 	hmacSecret, hashSecret                               []byte
 	adminPassword, userPassword, domain                  string
@@ -131,13 +131,16 @@ func loadConfig(getenv func(string) string) (integrationConfig, error) {
 	if cfg.composeCommand, err = parseComposeCommand(getenv("INTEGRATION_COMPOSE_COMMAND")); err != nil {
 		return integrationConfig{}, err
 	}
-	if cfg.mattermostURL, err = parseLoopbackURL(getenv("INTEGRATION_MATTERMOST_URL")); err != nil {
+	if cfg.containerCommand, err = parseContainerCommand(getenv("INTEGRATION_CONTAINER_COMMAND")); err != nil {
 		return integrationConfig{}, err
 	}
-	if cfg.mailerURL, err = parseLoopbackURL(getenv("INTEGRATION_MAILER_URL")); err != nil {
+	if cfg.mattermostURL, err = parseIntegrationURL(getenv("INTEGRATION_MATTERMOST_URL")); err != nil {
 		return integrationConfig{}, err
 	}
-	if cfg.captureURL, err = parseLoopbackURL(getenv("INTEGRATION_CAPTURE_URL")); err != nil {
+	if cfg.mailerURL, err = parseIntegrationURL(getenv("INTEGRATION_MAILER_URL")); err != nil {
+		return integrationConfig{}, err
+	}
+	if cfg.captureURL, err = parseIntegrationURL(getenv("INTEGRATION_CAPTURE_URL")); err != nil {
 		return integrationConfig{}, err
 	}
 	if cfg.hmacSecret, err = decodeSecret(getenv("INTEGRATION_HMAC_SECRET")); err != nil {
@@ -178,17 +181,45 @@ func parseComposeCommand(value string) ([]string, error) {
 	return append([]string(nil), fields...), nil
 }
 
-func parseLoopbackURL(value string) (*url.URL, error) {
+func parseContainerCommand(value string) ([]string, error) {
+	fields := strings.Fields(value)
+	for _, field := range fields {
+		if strings.ContainsAny(field, "\x00\r\n") {
+			return nil, errors.New("invalid container command")
+		}
+	}
+	if len(fields) == 1 && (filepath.Base(fields[0]) == "docker" || filepath.Base(fields[0]) == "podman") {
+		return append([]string(nil), fields...), nil
+	}
+	if len(fields) == 4 && filepath.Base(fields[0]) == "podman" && fields[1] == "--remote" && fields[2] == "--url" && strings.HasPrefix(fields[3], "unix:///") {
+		return append([]string(nil), fields...), nil
+	}
+	return nil, errors.New("invalid container command")
+}
+
+func parseIntegrationURL(value string) (*url.URL, error) {
 	parsed, err := url.Parse(value)
 	if err != nil || parsed.Scheme != "http" || parsed.User != nil || parsed.Path != "" || parsed.RawPath != "" || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.ForceQuery {
 		return nil, errors.New("invalid integration endpoint")
 	}
 	host, port, err := net.SplitHostPort(parsed.Host)
 	ip := net.ParseIP(host)
-	if err != nil || ip == nil || !ip.IsLoopback() || port == "" {
+	if err != nil || ip == nil || ip.To4() == nil || (!ip.IsLoopback() && !ip.IsPrivate()) || port == "" {
 		return nil, errors.New("invalid integration endpoint")
 	}
 	return parsed, nil
+}
+
+func parseContainerIPv4(output []byte) (string, error) {
+	value := strings.TrimSpace(string(output))
+	if value == "" || strings.ContainsAny(value, " \t\r\n") {
+		return "", errors.New("invalid container address")
+	}
+	ip := net.ParseIP(value)
+	if ip == nil || ip.To4() == nil || ip.IsLoopback() || !ip.IsPrivate() {
+		return "", errors.New("invalid container address")
+	}
+	return value, nil
 }
 
 func decodeSecret(value string) ([]byte, error) {
@@ -251,6 +282,32 @@ func newSignedRequest(baseURL string, secret []byte, event protocol.Event, times
 type composeClient struct {
 	command                           []string
 	composeFile, envFile, projectName string
+}
+
+type containerClient struct {
+	command []string
+}
+
+func newContainerClient(cfg integrationConfig) containerClient {
+	return containerClient{command: append([]string(nil), cfg.containerCommand...)}
+}
+
+func (c containerClient) privateIPv4(ctx context.Context, containerID, networkName string) (string, error) {
+	if len(c.command) == 0 || !regexp.MustCompile(`^[a-f0-9]{12,64}$`).MatchString(containerID) ||
+		!regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,127}$`).MatchString(networkName) {
+		return "", errors.New("invalid container inspection")
+	}
+	format := `{{with index .NetworkSettings.Networks "` + networkName + `"}}{{.IPAddress}}{{end}}`
+	arguments := append([]string(nil), c.command[1:]...)
+	arguments = append(arguments, "inspect", "--format", format, containerID)
+	command := exec.CommandContext(ctx, c.command[0], arguments...)
+	command.Env = os.Environ()
+	command.Stderr = io.Discard
+	output, err := command.Output()
+	if err != nil || len(output) > 1024 {
+		return "", errors.New("container inspection failed")
+	}
+	return parseContainerIPv4(output)
 }
 
 func newComposeClient(cfg integrationConfig) composeClient {
@@ -470,6 +527,7 @@ type controlState struct {
 type acceptance struct {
 	cfg        integrationConfig
 	compose    composeClient
+	container  containerClient
 	mattermost *mattermostClient
 	http       *http.Client
 	diagnostic io.Writer
@@ -480,7 +538,7 @@ type acceptance struct {
 
 func newAcceptance(cfg integrationConfig) *acceptance {
 	return &acceptance{
-		cfg: cfg, compose: newComposeClient(cfg), mattermost: newMattermostClient(cfg.mattermostURL),
+		cfg: cfg, compose: newComposeClient(cfg), container: newContainerClient(cfg), mattermost: newMattermostClient(cfg.mattermostURL),
 		http: newHTTPClient(8 * time.Second), diagnostic: os.Stderr,
 	}
 }
@@ -1165,7 +1223,12 @@ func (a *acceptance) mailerRecreateScenario(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "threadhub-mailer"); err != nil {
 		return "NF-REL-04-mailer-recreate"
 	}
-	if err := waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", 60*time.Second); err != nil {
+	mailerURL, err := a.serviceURL(ctx, "threadhub-mailer", "8080")
+	if err != nil {
+		return "NF-REL-04-mailer-recreate"
+	}
+	a.cfg.mailerURL = mailerURL
+	if err := waitHTTP(ctx, a.http, mailerURL.String()+"/healthz", 60*time.Second); err != nil {
 		return "NF-REL-04-mailer-recreate"
 	}
 	if err := a.waitExactDelta(ctx, before, a.expectedAB(), 50*time.Second); err != nil {
@@ -1188,7 +1251,13 @@ func (a *acceptance) mattermostRecreateScenario(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "up", "-d", "--no-build", "--no-deps", "--force-recreate", "mattermost"); err != nil {
 		return "NF-REL-05-mattermost-recreate"
 	}
-	if err := waitHTTP(ctx, a.mattermost.client, a.cfg.mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 120*time.Second) != nil {
+	mattermostURL, err := a.serviceURL(ctx, "mattermost", "8065")
+	if err != nil {
+		return "NF-REL-05-mattermost-recreate"
+	}
+	a.cfg.mattermostURL = mattermostURL
+	a.mattermost.baseURL = mattermostURL.String()
+	if err := waitHTTP(ctx, a.mattermost.client, mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 120*time.Second) != nil {
 		return "NF-REL-05-mattermost-recreate"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
@@ -1332,6 +1401,31 @@ func (a *acceptance) startMailer(ctx context.Context) error {
 		return err
 	}
 	return waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", 60*time.Second)
+}
+
+func (a *acceptance) serviceURL(ctx context.Context, service, port string) (*url.URL, error) {
+	var current *url.URL
+	switch service + ":" + port {
+	case "mattermost:8065":
+		current = a.cfg.mattermostURL
+	case "threadhub-mailer:8080":
+		current = a.cfg.mailerURL
+	default:
+		return nil, errors.New("invalid integration service")
+	}
+	if filepath.Base(a.cfg.containerCommand[0]) == "podman" {
+		return current, nil
+	}
+	rawID, err := a.compose.run(ctx, "ps", "--status", "running", "--quiet", service)
+	if err != nil {
+		return nil, err
+	}
+	containerID := strings.TrimSpace(string(rawID))
+	address, err := a.container.privateIPv4(ctx, containerID, a.cfg.projectName+"_notifier")
+	if err != nil {
+		return nil, err
+	}
+	return parseIntegrationURL("http://" + net.JoinHostPort(address, port))
 }
 
 func main() {

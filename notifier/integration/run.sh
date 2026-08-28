@@ -433,9 +433,44 @@ wait_http() {
     return 1
 }
 
-mattermost_address="127.0.0.1:49152"
-capture_address="127.0.0.1:49352"
-mailer_address="127.0.0.1:49252"
+container_address() {
+    local service="$1"
+    local port="$2"
+    local service_id=""
+    local address=""
+    local network_name="${project_name}_notifier"
+    local inspect_format="{{with index .NetworkSettings.Networks \"${network_name}\"}}{{.IPAddress}}{{end}}"
+
+    case "${service}:${port}" in
+        mattermost:8065 | smtp-fixture:8081 | threadhub-mailer:8080) ;;
+        *) return 1 ;;
+    esac
+
+    case "${container_command[0]##*/}" in
+        podman)
+            case "${service}:${port}" in
+                mattermost:8065) printf '%s' '127.0.0.1:49152' ;;
+                smtp-fixture:8081) printf '%s' '127.0.0.1:49352' ;;
+                threadhub-mailer:8080) printf '%s' '127.0.0.1:49252' ;;
+            esac
+            return 0
+            ;;
+        docker) ;;
+        *) return 1 ;;
+    esac
+
+    service_id="$(compose_run ps --status running --quiet "${service}" 2>>"${diagnostic_file}")" \
+        || return 1
+    [[ "${service_id}" =~ ^[a-f0-9]{12,64}$ ]] || return 1
+    address="$("${container_command[@]}" inspect --format "${inspect_format}" "${service_id}" 2>>"${diagnostic_file}")" \
+        || return 1
+    notifier_harness_is_private_ipv4 "${address}" || return 1
+    printf '%s:%s' "${address}" "${port}"
+}
+
+mattermost_address="$(container_address mattermost 8065)" || abort_run NF-HARNESS-published-mattermost
+capture_address="$(container_address smtp-fixture 8081)" || abort_run NF-HARNESS-capture-api
+mailer_address="$(container_address threadhub-mailer 8080)" || abort_run NF-HARNESS-published-mailer
 wait_http "http://${mattermost_address}/api/v4/system/ping" 180 || abort_run NF-HARNESS-bootstrap
 wait_http "http://${capture_address}/healthz" 120 || abort_run NF-HARNESS-capture-api
 wait_http "http://${mailer_address}/healthz" 120 || abort_run NF-HARNESS-compose-start-mailer
@@ -504,6 +539,7 @@ set +e
     INTEGRATION_MAILER_URL="http://${mailer_address}" \
     INTEGRATION_CAPTURE_URL="http://${capture_address}" \
     INTEGRATION_COMPOSE_COMMAND="${compose_command_value}" \
+    INTEGRATION_CONTAINER_COMMAND="${container_command_value}" \
     INTEGRATION_COMPOSE_FILE="${compose_file}" \
     INTEGRATION_PROJECT_NAME="${project_name}" \
     INTEGRATION_HMAC_SECRET="${hmac_secret}" \
