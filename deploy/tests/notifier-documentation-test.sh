@@ -65,6 +65,18 @@ rm -f "${fixture_root}/deploy/docs/project-close.md.bak"
 assert_contract_failure 'missing project-close failure gate was accepted'
 
 reset_fixture
+sed -i.bak 's/failed_permanent/failed-permanent-missing/g' \
+    "${fixture_root}/deploy/docs/operations-checklist.md"
+rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"
+assert_contract_failure 'missing permanent-failure cancellation contract was accepted'
+
+reset_fixture
+sed -i.bak 's/failed_exhausted/failed-exhausted-missing/g' \
+    "${fixture_root}/deploy/docs/project-close.md"
+rm -f "${fixture_root}/deploy/docs/project-close.md.bak"
+assert_contract_failure 'missing exhausted-failure cancellation contract was accepted'
+
+reset_fixture
 sed -i.bak 's#\./project-close\.md#./project-close-missing.md#' \
     "${fixture_root}/deploy/docs/operations-checklist.md"
 rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"

@@ -175,7 +175,7 @@ target Compartment와 region을 기록합니다.
 
 1. `./deploy/scripts/notifier-control.sh drain`으로 새 수집을 중지하고 delivery-enabled drain mode를 유지합니다.
 2. delivery_enabled=true인 동안 필요한 `threadhub-mailer retry-failed` remediation을 실행한 뒤 `pending=0`과 `sending=0`을 확인합니다. 0이 아니면 중지하고 복구하거나 escalate합니다.
-3. `threadhub-mailer cancel-failed`로 남은 `failed_exhausted`만 scrub하고 `failed=0`을 확인합니다.
+3. `threadhub-mailer cancel-failed`로 남은 `failed_permanent`와 `failed_exhausted`를 한 트랜잭션에서 취소·scrub하고 `failed=0`을 확인합니다. pending/sending은 변경되지 않으므로 앞 단계의 0 gate를 생략하지 않습니다.
 4. `./deploy/scripts/notifier-control.sh disable`로 delivery를 중지합니다.
 5. 그 뒤에만 서버의 보호된 `deploy/.env`에서 username과 password를 교체합니다.
 6. `./deploy/scripts/deploy.sh`로 변경된 환경을 사용하는 Compose 서비스를 재생성합니다. Mattermost만 영향을 받는다고 가정하지 않습니다.

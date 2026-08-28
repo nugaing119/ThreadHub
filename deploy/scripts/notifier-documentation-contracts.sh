@@ -184,6 +184,15 @@ validate_notifier_documentation_contracts() {
         'threadhub-mailer cancel-failed' 'failed=0' 'notifier-control.sh disable' 'deploy/.env' \
         'deploy/scripts/deploy.sh' 'notifier-smtp-test.sh' 'notifier-control.sh activate --from-env' \
         'notifier-status.sh' '이전 credential을 삭제' || return 1
+    for document in \
+        "${deploy_dir}/docs/admin-guide.md" \
+        "${deploy_dir}/docs/operations-checklist.md" \
+        "${deploy_dir}/docs/project-close.md" \
+        "${deploy_dir}/docs/oci-email-delivery.md"; do
+        notifier_docs_require_terms "${document}" \
+            'cancel-failed both-state aggregate contract' \
+            'cancel-failed' 'failed_permanent' 'failed_exhausted' 'pending' 'sending' 'failed=0' || return 1
+    done
     notifier_docs_validate_nf_matrix "${deploy_dir}/docs/test-plan.md" || return 1
     notifier_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
 

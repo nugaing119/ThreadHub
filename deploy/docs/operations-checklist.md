@@ -44,7 +44,7 @@
 1. `./deploy/scripts/notifier-control.sh drain`으로 새 수집만 중지합니다. 이 상태는 delivery-enabled drain mode이므로 기존 queue 발송은 계속됩니다.
 2. delivery_enabled=true인 동안에만 다음 `threadhub-mailer retry-failed`로 `failed_exhausted`를 remediate/retry합니다. disable 뒤에는 retry-failed를 실행하지 않습니다.
 3. `./deploy/scripts/notifier-status.sh`에서 `pending=0`과 `sending=0`을 모두 확인합니다. 최대 10분 뒤에도 0이 아니면 원인을 복구하거나 운영 책임자에게 escalate하며 close·SMTP·IAM·Approved Sender 변경을 진행하지 않습니다.
-4. pending/sending이 0이면 다음 `threadhub-mailer cancel-failed`로 남은 `failed_exhausted`만 취소하고 그 수신자 주소를 scrub합니다. pending/sending을 취소하거나 scrub하지 않습니다.
+4. pending/sending이 0이면 다음 `threadhub-mailer cancel-failed`로 남은 `failed_permanent`와 `failed_exhausted`를 한 트랜잭션에서 취소하고 두 상태의 수신자 주소와 lease를 scrub합니다. pending/sending을 취소하거나 scrub하지 않습니다.
 5. `./deploy/scripts/notifier-status.sh`에서 `failed=0`을 확인합니다. pending=0, sending=0, failed=0 중 하나라도 충족하지 못하면 closure와 SMTP/IAM 삭제는 blocked입니다.
 6. `./deploy/scripts/notifier-control.sh disable`로 신규 수집과 SMTP delivery를 중지합니다.
 7. `./deploy/scripts/notifier-status.sh`에서 `delivery_enabled=false`와 pending=0, sending=0, failed=0을 확인합니다. 이 뒤에는 notifier delivery를 다시 시도하지 않습니다.
@@ -69,7 +69,7 @@ email scrub을 주장하지 않습니다.
 
 1. `./deploy/scripts/notifier-control.sh drain`을 실행합니다.
 2. delivery-enabled drain mode에서 필요한 경우 `threadhub-mailer retry-failed`를 실행한 뒤 `pending=0`, `sending=0`을 확인합니다. 0이 아니면 중지하고 원인을 복구하거나 escalate합니다.
-3. `threadhub-mailer cancel-failed`로 남은 exhausted failure를 scrub하고 `failed=0`을 확인합니다.
+3. `threadhub-mailer cancel-failed`로 남은 `failed_permanent`와 `failed_exhausted`를 함께 취소·scrub하고 `failed=0`을 확인합니다. pending/sending은 그대로 유지되므로 앞 단계의 0 gate를 생략하지 않습니다.
 4. `./deploy/scripts/notifier-control.sh disable`을 실행합니다.
 5. 해당 프로젝트의 보호된 `deploy/.env`에서 SMTP credential을 교체합니다.
 6. `./deploy/scripts/deploy.sh`로 변경된 환경을 사용하는 Compose 서비스를 재생성합니다. 이 명령은 Mattermost만 재생성한다고 가정하지 않습니다.

@@ -76,7 +76,7 @@ type Store interface {
 	MarkPermanent(ctx context.Context, key DeliveryKey, class string, code int, now time.Time) error
 	ResetExpiredLeases(ctx context.Context, now time.Time) (int64, error)
 	RetryExhausted(ctx context.Context, now time.Time) (int64, error)
-	CancelExhausted(ctx context.Context, now time.Time) (int64, error)
+	CancelFailed(ctx context.Context, now time.Time) (int64, error)
 	Prune(ctx context.Context, now time.Time) (PruneResult, error)
 	Status(ctx context.Context, now time.Time) (Status, error)
 }
@@ -421,7 +421,7 @@ func (s *SQLiteStore) RetryExhausted(ctx context.Context, now time.Time) (int64,
 	return result.RowsAffected()
 }
 
-func (s *SQLiteStore) CancelExhausted(ctx context.Context, now time.Time) (int64, error) {
+func (s *SQLiteStore) CancelFailed(ctx context.Context, now time.Time) (int64, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return 0, err
@@ -429,7 +429,7 @@ func (s *SQLiteStore) CancelExhausted(ctx context.Context, now time.Time) (int64
 	defer tx.Rollback()
 	result, err := tx.ExecContext(ctx, `UPDATE deliveries SET
 		status = 'cancelled', email = NULL, lease_until_ms = NULL, updated_at_ms = ?
-		WHERE status = 'failed_exhausted'`, now.UnixMilli())
+		WHERE status IN ('failed_permanent', 'failed_exhausted')`, now.UnixMilli())
 	if err != nil {
 		return 0, err
 	}

@@ -19,6 +19,8 @@ import (
 	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/config"
 	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/smtpclient"
 	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/store"
+	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/testutil"
+	"github.com/nugaing119/ThreadHub/notifier/protocol"
 )
 
 func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
@@ -131,6 +133,88 @@ func TestStatusJSONNormalizesCorruptErrorMetadata(t *testing.T) {
 	}
 }
 
+func TestCancelFailedCLILeavesNoFailedAggregateAndPreservesActiveWork(t *testing.T) {
+	queuePath := filepath.Join(t.TempDir(), "queue.db")
+	environment := func(key string) string {
+		if key == "NOTIFIER_QUEUE_PATH" {
+			return queuePath
+		}
+		return testEnvironment(key)
+	}
+	cfg, err := config.Load(environment)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	queue, err := store.Open(queuePath, cfg.HMACSecret)
+	if err != nil {
+		t.Fatalf("store.Open() error = %v", err)
+	}
+	makeEvent := func(id, userID, email string, now time.Time) protocol.Event {
+		return protocol.Event{
+			EventID: id, PostID: id, Permalink: "https://threadhub.example.test/pl/" + id,
+			OccurredAt: now.Add(-time.Minute).UnixMilli(),
+			Recipients: []protocol.Recipient{{UserID: userID, Email: email}},
+		}
+	}
+	accept := func(label string, event protocol.Event, now time.Time) {
+		t.Helper()
+		if _, err := queue.Accept(context.Background(), protocol.HashIdentifier(cfg.HMACSecret, "nonce", label), event, now); err != nil {
+			t.Fatalf("Accept(%s) error = %v", label, err)
+		}
+	}
+	claim := func(label string, now time.Time, lease time.Duration) store.Delivery {
+		t.Helper()
+		delivery, err := queue.ClaimDue(context.Background(), now, lease)
+		if err != nil || delivery == nil {
+			t.Fatalf("ClaimDue(%s) = %+v, %v", label, delivery, err)
+		}
+		return *delivery
+	}
+	base := time.Now().Add(-4 * time.Hour)
+	accept("cli-permanent", makeEvent("11111111111111111111111111", "11111111111111111111111111", "cli-permanent@example.test", base), base)
+	permanent := claim("permanent", base, 2*time.Minute)
+	if err := queue.MarkPermanent(context.Background(), permanent.Key, "smtp_5xx", 550, base); err != nil {
+		t.Fatalf("MarkPermanent() error = %v", err)
+	}
+	exhaustedAt := base.Add(time.Hour)
+	accept("cli-exhausted", makeEvent("22222222222222222222222222", "22222222222222222222222222", "cli-exhausted@example.test", exhaustedAt), exhaustedAt)
+	for attempt := 1; attempt <= 8; attempt++ {
+		exhausted := claim("exhausted", exhaustedAt, 2*time.Minute)
+		if err := queue.MarkTemporary(context.Background(), exhausted.Key, "smtp_4xx", 421, exhaustedAt); err != nil {
+			t.Fatalf("MarkTemporary(attempt %d) error = %v", attempt, err)
+		}
+	}
+	sendingAt := base.Add(2 * time.Hour)
+	accept("cli-sending", makeEvent("33333333333333333333333333", "33333333333333333333333333", "cli-sending@example.test", sendingAt), sendingAt)
+	_ = claim("sending", sendingAt, 24*time.Hour)
+	pendingAt := base.Add(3 * time.Hour)
+	accept("cli-pending", makeEvent("44444444444444444444444444", "44444444444444444444444444", "cli-pending@example.test", pendingAt), pendingAt)
+	if err := queue.Close(); err != nil {
+		t.Fatalf("Close(prepared queue) error = %v", err)
+	}
+
+	var cancelOutput bytes.Buffer
+	if err := runCommand(context.Background(), []string{"cancel-failed"}, strings.NewReader(""), &cancelOutput, environment,
+		commandOperations{cancelFailed: defaultCancelFailed}); err != nil {
+		t.Fatalf("runCommand(cancel-failed) error = %v", err)
+	}
+	if got, want := cancelOutput.String(), "{\"cancelled\":2}\n"; got != want {
+		t.Fatalf("cancel-failed output = %q, want %q", got, want)
+	}
+	var statusBuffer bytes.Buffer
+	if err := runCommand(context.Background(), []string{"status", "--json"}, strings.NewReader(""), &statusBuffer, environment,
+		commandOperations{status: defaultStatus}); err != nil {
+		t.Fatalf("runCommand(status) error = %v", err)
+	}
+	var got statusOutput
+	if err := json.Unmarshal(statusBuffer.Bytes(), &got); err != nil {
+		t.Fatalf("status output is not JSON: %v", err)
+	}
+	if got.Failed != 0 || got.Pending != 1 || got.Sending != 1 {
+		t.Fatalf("status after cancel-failed = %+v, want exact failed=0 pending=1 sending=1", got)
+	}
+}
+
 func TestSMTPTestReadsOneBoundedRecipientOnlyFromStdin(t *testing.T) {
 	const recipient = "one-time-recipient@example.test"
 	var captured string
@@ -184,6 +268,33 @@ func TestSMTPTestRequiresFinal250Acceptance(t *testing.T) {
 		operations := commandOperations{smtpAcceptance: func(context.Context, config.Config, string) smtpclient.Result { return result }}
 		if err := runCommand(context.Background(), []string{"smtp-test", "--recipient-stdin"}, strings.NewReader("recipient@example.test\n"), io.Discard, testEnvironment, operations); err == nil {
 			t.Errorf("smtp result %+v accepted as final 250", result)
+		}
+	}
+}
+
+func TestSMTPTestCommandUsesBoundedTransactionAndSafeFailure(t *testing.T) {
+	server := testutil.StartSMTP(t, testutil.SMTPOptions{Stall: true})
+	const recipient = "private-smtp-test-recipient@example.test"
+	operations := commandOperations{smtpAcceptance: func(ctx context.Context, cfg config.Config, gotRecipient string) smtpclient.Result {
+		cfg.SMTPHost = "localhost"
+		cfg.SMTPPort = server.Port()
+		return sendSMTPAcceptance(ctx, cfg, gotRecipient, time.Now(), 80*time.Millisecond)
+	}}
+	var stderr bytes.Buffer
+	started := time.Now()
+	exitCode := runMain(context.Background(), []string{"smtp-test", "--recipient-stdin"}, strings.NewReader(recipient+"\n"), io.Discard, &stderr, testEnvironment, operations)
+	if exitCode != 1 {
+		t.Fatalf("smtp-test exit code = %d, want 1 for stalled peer", exitCode)
+	}
+	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
+		t.Fatalf("smtp-test stalled transaction elapsed = %s, want bounded return", elapsed)
+	}
+	if got := stderr.String(); got != "threadhub-mailer: command failed\n" {
+		t.Fatalf("smtp-test stderr = %q, want fixed safe failure", got)
+	}
+	for _, forbidden := range []string{recipient, testEnvironment("SMTP_USERNAME"), testEnvironment("SMTP_PASSWORD")} {
+		if strings.Contains(stderr.String(), forbidden) {
+			t.Fatalf("smtp-test stderr exposed private sentinel %q", forbidden)
 		}
 	}
 }

@@ -2,6 +2,7 @@ package smtpclient_test
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"strings"
 	"testing"
@@ -86,11 +87,66 @@ func TestSendHonorsContextCancellationWithoutLeakingAddress(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 80*time.Millisecond)
 	defer cancel()
 	result := newClient(server).Send(ctx, testMessage(t))
-	if result.Accepted || result.Class != smtpclient.ClassTemporary || result.Code != 0 {
-		t.Fatalf("Send() = %+v, want temporary timeout", result)
+	if result.Accepted || result.Class != smtpclient.ClassTimeout || result.Code != 0 {
+		t.Fatalf("Send() = %+v, want classified timeout", result)
 	}
 	if strings.Contains(result.Class.String(), "localhost") {
 		t.Fatal("Send() result leaked address")
+	}
+}
+
+func TestSendBoundsTransactionBeforeServerGreeting(t *testing.T) {
+	host, port := startSilentSMTPPeer(t)
+	const (
+		username = "private-username-sentinel"
+		password = "private-password-sentinel"
+	)
+	client := smtpclient.New(smtpclient.Config{
+		Host: host, Port: port, Username: username, Password: password,
+		DialTimeout: time.Second, TransactionTimeout: 80 * time.Millisecond,
+	}, nil)
+	message := testMessage(t)
+	message.EnvelopeTo = "private-recipient-sentinel@example.test"
+	message.Data = []byte("private-body-sentinel")
+
+	started := time.Now()
+	result := client.Send(context.Background(), message)
+	elapsed := time.Since(started)
+	if result.Accepted || result.Class != smtpclient.ClassTimeout || result.Code != 0 {
+		t.Fatalf("Send(silent greeting) = %+v, want timeout", result)
+	}
+	if elapsed >= 500*time.Millisecond {
+		t.Fatalf("Send(silent greeting) elapsed = %s, want bounded transaction", elapsed)
+	}
+	serialized := fmt.Sprint(result)
+	for _, forbidden := range []string{host, username, password, message.EnvelopeTo, string(message.Data)} {
+		if strings.Contains(serialized, forbidden) {
+			t.Fatalf("timeout result exposed private sentinel %q: %s", forbidden, serialized)
+		}
+	}
+}
+
+func TestSendCancellationRemainsPromptWithLongTransactionBound(t *testing.T) {
+	host, port := startSilentSMTPPeer(t)
+	client := smtpclient.New(smtpclient.Config{
+		Host: host, Port: port, DialTimeout: time.Second, TransactionTimeout: time.Second,
+	}, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan smtpclient.Result, 1)
+	go func() { done <- client.Send(ctx, testMessage(t)) }()
+	time.Sleep(20 * time.Millisecond)
+	started := time.Now()
+	cancel()
+	select {
+	case result := <-done:
+		if result.Accepted || result.Class != smtpclient.ClassTemporary {
+			t.Fatalf("Send(cancelled) = %+v, want retryable cancellation", result)
+		}
+		if elapsed := time.Since(started); elapsed >= 300*time.Millisecond {
+			t.Fatalf("Send cancellation elapsed = %s, want prompt return", elapsed)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("Send did not return promptly after cancellation")
 	}
 }
 
@@ -105,4 +161,29 @@ func testMessage(t *testing.T) message.Message {
 		t.Fatal(err)
 	}
 	return msg
+}
+
+func startSilentSMTPPeer(t *testing.T) (string, int) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	release := make(chan struct{})
+	accepted := make(chan struct{})
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr != nil {
+			return
+		}
+		close(accepted)
+		<-release
+		_ = connection.Close()
+	}()
+	t.Cleanup(func() {
+		close(release)
+		_ = listener.Close()
+	})
+	address := listener.Addr().(*net.TCPAddr)
+	return "127.0.0.1", address.Port
 }

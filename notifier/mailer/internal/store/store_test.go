@@ -429,24 +429,101 @@ func TestExhaustedDeliveryRetryAndRetentionBoundaries(t *testing.T) {
 	}
 }
 
-func TestCancelExhaustedImmediatelyScrubsManualCancellations(t *testing.T) {
+func TestCancelFailedAtomicallyCancelsBothFailureStatesOnly(t *testing.T) {
 	store := openTestStore(t, filepath.Join(t.TempDir(), "queue.db"))
 	ctx := context.Background()
-	if _, err := store.Accept(ctx, hashFixture("nonce", "manual-cancel"), eventWithRecipients(1), testNow); err != nil {
+
+	permanentEvent := eventWithID("11111111111111111111111111")
+	permanentEvent.Recipients[0] = protocol.Recipient{UserID: "11111111111111111111111111", Email: "permanent-recipient@example.test"}
+	if _, err := store.Accept(ctx, hashFixture("nonce", "permanent-cancel"), permanentEvent, testNow); err != nil {
+		t.Fatalf("Accept(permanent) error = %v", err)
+	}
+	permanentDelivery, err := store.ClaimDue(ctx, testNow, 2*time.Minute)
+	if err != nil || permanentDelivery == nil {
+		t.Fatalf("ClaimDue(permanent) = %+v, %v", permanentDelivery, err)
+	}
+	if err := store.MarkPermanent(ctx, permanentDelivery.Key, "smtp_5xx", 550, testNow); err != nil {
+		t.Fatalf("MarkPermanent() error = %v", err)
+	}
+
+	exhaustedAt := testNow.Add(time.Hour)
+	exhaustedEvent := eventWithID("22222222222222222222222222")
+	exhaustedEvent.Recipients[0] = protocol.Recipient{UserID: "22222222222222222222222222", Email: "exhausted-recipient@example.test"}
+	if _, err := store.Accept(ctx, hashFixture("nonce", "exhausted-cancel"), exhaustedEvent, exhaustedAt); err != nil {
+		t.Fatalf("Accept(exhausted) error = %v", err)
+	}
+	exhaustOne(t, store, exhaustedAt)
+
+	sendingAt := testNow.Add(2 * time.Hour)
+	sendingEvent := eventWithID("33333333333333333333333333")
+	sendingEvent.Recipients[0] = protocol.Recipient{UserID: "33333333333333333333333333", Email: "sending-recipient@example.test"}
+	if _, err := store.Accept(ctx, hashFixture("nonce", "sending-preserved"), sendingEvent, sendingAt); err != nil {
+		t.Fatalf("Accept(sending) error = %v", err)
+	}
+	sendingDelivery, err := store.ClaimDue(ctx, sendingAt, 24*time.Hour)
+	if err != nil || sendingDelivery == nil {
+		t.Fatalf("ClaimDue(sending) = %+v, %v", sendingDelivery, err)
+	}
+
+	pendingAt := testNow.Add(3 * time.Hour)
+	pendingEvent := eventWithID("44444444444444444444444444")
+	pendingEvent.Recipients[0] = protocol.Recipient{UserID: "44444444444444444444444444", Email: "pending-recipient@example.test"}
+	if _, err := store.Accept(ctx, hashFixture("nonce", "pending-preserved"), pendingEvent, pendingAt); err != nil {
+		t.Fatalf("Accept(pending) error = %v", err)
+	}
+
+	cancelledAt := testNow.Add(4 * time.Hour)
+	cancelled, err := store.CancelFailed(ctx, cancelledAt)
+	if err != nil || cancelled != 2 {
+		t.Fatalf("CancelFailed() = %d, %v; want 2, nil", cancelled, err)
+	}
+	if got := queryInt64(t, store, `SELECT count(*) FROM deliveries
+		WHERE status = 'cancelled' AND email IS NULL AND lease_until_ms IS NULL AND updated_at_ms = ?`, cancelledAt.UnixMilli()); got != 2 {
+		t.Fatalf("scrubbed failed cancellations = %d, want 2", got)
+	}
+	if got := queryInt64(t, store, `SELECT count(*) FROM deliveries
+		WHERE event_hash = ? AND status = 'pending' AND email = ? AND lease_until_ms IS NULL`,
+		protocol.HashIdentifier(testSecret, "event", pendingEvent.EventID), pendingEvent.Recipients[0].Email); got != 1 {
+		t.Fatalf("intact pending deliveries = %d, want 1", got)
+	}
+	if got := queryInt64(t, store, `SELECT count(*) FROM deliveries
+		WHERE event_hash = ? AND status = 'sending' AND email = ? AND lease_until_ms IS NOT NULL`,
+		protocol.HashIdentifier(testSecret, "event", sendingEvent.EventID), sendingEvent.Recipients[0].Email); got != 1 {
+		t.Fatalf("intact sending deliveries = %d, want 1", got)
+	}
+	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NULL AND permalink IS NULL"); got != 2 {
+		t.Fatalf("scrubbed completed failed events = %d, want 2", got)
+	}
+	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NOT NULL AND permalink IS NOT NULL"); got != 2 {
+		t.Fatalf("intact nonterminal events = %d, want 2", got)
+	}
+	status, err := store.Status(ctx, cancelledAt)
+	if err != nil {
+		t.Fatalf("Status() error = %v", err)
+	}
+	if status.FailedPermanent+status.FailedExhausted != 0 || status.Pending != 1 || status.Sending != 1 || status.Cancelled != 2 {
+		t.Fatalf("Status() = %+v, want exact failed=0 pending=1 sending=1 cancelled=2", status)
+	}
+}
+
+func TestCancelFailedRollsBackCancellationWhenCompletedEventScrubFails(t *testing.T) {
+	store := openTestStore(t, filepath.Join(t.TempDir(), "queue.db"))
+	ctx := context.Background()
+	if _, err := store.Accept(ctx, hashFixture("nonce", "cancel-rollback"), eventWithRecipients(1), testNow); err != nil {
 		t.Fatalf("Accept() error = %v", err)
 	}
 	exhaustOne(t, store, testNow)
+	if _, err := store.db.Exec(`CREATE TRIGGER fail_completed_event_scrub BEFORE UPDATE OF post_id ON events
+		WHEN NEW.post_id IS NULL BEGIN SELECT RAISE(ABORT, 'synthetic scrub failure'); END`); err != nil {
+		t.Fatalf("create scrub failure trigger: %v", err)
+	}
 
-	cancelled, err := store.CancelExhausted(ctx, testNow.Add(time.Hour))
-	if err != nil || cancelled != 1 {
-		t.Fatalf("CancelExhausted() = %d, %v; want 1, nil", cancelled, err)
+	if cancelled, err := store.CancelFailed(ctx, testNow.Add(time.Hour)); err == nil || cancelled != 0 {
+		t.Fatalf("CancelFailed() = %d, %v; want 0 and scrub failure", cancelled, err)
 	}
 	if got := queryInt64(t, store, `SELECT count(*) FROM deliveries
-		WHERE status = 'cancelled' AND email IS NULL`); got != 1 {
-		t.Fatalf("scrubbed manual cancellations = %d, want 1", got)
-	}
-	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NULL AND permalink IS NULL"); got != 1 {
-		t.Fatalf("scrubbed manually-cancelled events = %d, want 1", got)
+		WHERE status = 'failed_exhausted' AND email = 'first-recipient@example.test'`); got != 1 {
+		t.Fatalf("failed delivery after rollback = %d, want 1 with address intact", got)
 	}
 }
 

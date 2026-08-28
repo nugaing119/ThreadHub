@@ -58,6 +58,11 @@ integration:
 verify-pins:
 	@set -eu; \
 	command -v "$(CONTAINER_CLI)" >/dev/null 2>&1; \
+	history_pin="$$(LC_ALL=C awk -v key='NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256' ' \
+		BEGIN { candidate = "^[ \\t]*(export[ \\t]+)?" key "([ \\t]*=|[ \\t]*$$)"; exact = "^" key "=[a-f0-9]{64}$$" } \
+		$$0 ~ candidate { count++; if ($$0 !~ exact) malformed = 1; else value = substr($$0, length(key) + 2) } \
+		END { if (count != 1 || malformed || value !~ /^[a-f0-9]{64}$$/) exit 1; print value }' "$(VERSIONS_FILE)")"; \
+	test "$$history_pin" = "$(NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256)"; \
 	test -n "$(NOTIFIER_VERSION)"; \
 	test -n "$(NOTIFIER_PLUGIN_ID)"; \
 	test -n "$(GO_BUILDER_IMAGE_REPOSITORY)"; \

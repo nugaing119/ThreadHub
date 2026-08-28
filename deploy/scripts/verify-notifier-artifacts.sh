@@ -62,11 +62,35 @@ sha256_file() {
     fi
 }
 
+read_created_by_history_pin() {
+    local versions_file="$1"
+    local key='NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256'
+
+    [[ -f "${versions_file}" && ! -L "${versions_file}" ]] || return 1
+    LC_ALL=C awk -v key="${key}" '
+        BEGIN {
+            candidate = "^[ \\t]*(export[ \\t]+)?" key "([ \\t]*=|[ \\t]*$)"
+            exact = "^" key "=[a-f0-9]{64}$"
+        }
+        $0 ~ candidate {
+            count++
+            if ($0 !~ exact) malformed = 1
+            else value = substr($0, length(key) + 2)
+        }
+        END {
+            if (count != 1 || malformed || value !~ /^[a-f0-9]{64}$/) exit 1
+            print value
+        }
+    ' "${versions_file}"
+}
+
 bundle_path="${1:-notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz}"
 mailer_image="${2:-threadhub/notifier-mailer:0.1.0}"
 gitleaks_bin="${GITLEAKS_BIN:-}"
 container_command="${CONTAINER_COMMAND:-docker}"
 temporary_dir="$(mktemp -d)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+versions_file="${script_dir}/../versions.env"
 cleanup() {
     rm -rf "${temporary_dir}"
 }
@@ -79,6 +103,9 @@ if ! "${gitleaks_bin}" version >"${temporary_dir}/scanner-version" 2>&1; then
 fi
 [[ "$(tr -d '\r\n' <"${temporary_dir}/scanner-version")" == '8.30.1' ]] \
     || fail scanner
+if ! expected_created_by_history_digest="$(read_created_by_history_pin "${versions_file}")"; then
+    fail image-metadata
+fi
 
 read -r -a container_parts <<<"${container_command}"
 case "${#container_parts[@]}" in
@@ -205,35 +232,10 @@ if ! jq -e '
       . == "SMTP_USERNAME" or
       . == "SMTP_PASSWORD" or
       . == "NOTIFIER_HMAC_SECRET";
-    def remove_line_continuations:
-      gsub("\\\\\n"; "");
-    def export_token:
-      test("(^|[ \\t\\n;&|()])export($|[ \\t\\n;&|()])");
-    def has_ambiguous_dynamic_or_escape:
-      contains("$") or contains("`") or contains("\\") or contains("+=");
-    def has_ambiguous_export_syntax:
-      export_token and
-      (contains("{") or contains("}") or
-       contains("*") or contains("?") or
-       contains("[") or contains("]"));
-    def has_ambiguous_quote_state:
-      (contains("\"") or contains("\u0027")) and
-      (contains("=") or export_token);
-    def protected_assignment_values:
-      scan("(?<![^ \\t\\n;&|()])(?:SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[ \\t\\n]*=([^;&|()]*?)(?=[ \\t\\n]+[A-Za-z_][A-Za-z0-9_]*[ \\t\\n]*=|[;&|()]|$)");
-    def history_text_is_safe:
-      remove_line_continuations as $literal |
-      (($literal | has_ambiguous_dynamic_or_escape) | not) and
-      (($literal | has_ambiguous_export_syntax) | not) and
-      (($literal | has_ambiguous_quote_state) | not) and
-      ([ $literal | protected_assignment_values |
-         select(.[0] != "") ] | length == 0);
     if (.config | type) != "object" then false
     else
       (if ((.config | has("Env")) and .config.Env != null)
        then .config.Env else [] end) as $environment |
-      (if ((has("history")) and .history != null)
-       then .history else [] end) as $history |
       (if ($environment | type) != "array" then false
        else ($environment | all(.[];
          if type != "string" then false
@@ -244,18 +246,24 @@ if ! jq -e '
            else true end
          end))
        end) and
-      (if ($history | type) != "array" then false
-       else ($history | all(.[];
-         if type != "object" then false
-         elif ((has("created_by") and .created_by != null) and
-               ((.created_by | type) != "string")) then false
-         else ((.created_by // "") | history_text_is_safe)
-         end))
-       end)
+      ((.history | type) == "array") and
+      ((.history | length) > 0) and
+      (.history | all(.[];
+        type == "object" and has("created_by") and
+        (.created_by | type) == "string"))
     end
   ' "${temporary_dir}/image/${config_path}" >/dev/null 2>&1; then
     fail image-metadata
 fi
+if ! jq -ce '[.history[].created_by]' \
+    "${temporary_dir}/image/${config_path}" \
+    >"${temporary_dir}/created-by-history.json" 2>/dev/null; then
+    fail image-metadata
+fi
+created_by_history_digest="$(sha256_file "${temporary_dir}/created-by-history.json")" \
+    || fail image-metadata
+[[ "${created_by_history_digest}" == "${expected_created_by_history_digest}" ]] \
+    || fail image-metadata
 
 mkdir "${temporary_dir}/layers"
 layer_number=0

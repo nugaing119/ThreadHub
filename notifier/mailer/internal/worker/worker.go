@@ -31,6 +31,7 @@ type Store interface {
 	MarkTemporary(context.Context, store.DeliveryKey, string, int, time.Time) error
 	MarkPermanent(context.Context, store.DeliveryKey, string, int, time.Time) error
 	ResetExpiredLeases(context.Context, time.Time) (int64, error)
+	Prune(context.Context, time.Time) (store.PruneResult, error)
 }
 
 type Sender interface {
@@ -95,7 +96,7 @@ func (w *Worker) Run(ctx context.Context) error {
 		ctx = context.Background()
 	}
 	w.readyDo.Do(func() { close(w.ready) })
-	nextRecovery := w.clock.Now()
+	nextMaintenance := w.clock.Now()
 	var nextClaim time.Time
 	for {
 		if ctx.Err() != nil {
@@ -103,13 +104,13 @@ func (w *Worker) Run(ctx context.Context) error {
 		}
 
 		now := w.clock.Now()
-		if !now.Before(nextRecovery) {
-			w.recoverLeases(ctx, now)
-			nextRecovery = now.Add(time.Minute)
+		if !now.Before(nextMaintenance) {
+			w.maintainQueue(ctx, now)
+			nextMaintenance = now.Add(time.Minute)
 		}
 
 		if !w.deliveryEnabled() {
-			if err := w.waitOrControl(ctx, positiveDuration(nextRecovery.Sub(w.clock.Now()))); err != nil {
+			if err := w.waitOrControl(ctx, positiveDuration(nextMaintenance.Sub(w.clock.Now()))); err != nil {
 				return nil
 			}
 			continue
@@ -194,6 +195,16 @@ func (w *Worker) recoverLeases(ctx context.Context, now time.Time) {
 	}
 	if count > 0 {
 		slog.Info("expired_leases_recovered", slog.Int64("count", count))
+	}
+}
+
+func (w *Worker) maintainQueue(ctx context.Context, now time.Time) {
+	w.recoverLeases(ctx, now)
+	if _, err := w.store.Prune(ctx, now); err != nil && ctx.Err() == nil {
+		slog.Error("queue_prune_failed",
+			slog.String("error_class", "protocol"),
+			slog.Int("count", 1),
+		)
 	}
 }
 

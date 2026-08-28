@@ -143,6 +143,25 @@ func TestRecipientFailureDoesNotBlockNextRecipient(t *testing.T) {
 	}
 }
 
+func TestTimeoutRetriesFirstRecipientAndDoesNotBlockNextRecipient(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	queue := newFakeStore(delivery("first@example.test", 1), delivery("second@example.test", 1))
+	queue.onMark = func() {
+		if queue.markCount() == 2 {
+			cancel()
+		}
+	}
+	sender := &sequenceSender{results: []smtpclient.Result{
+		{Class: smtpclient.ClassTimeout},
+		{Accepted: true, Code: 250},
+	}}
+	w := New(queue, renderDelivery, sender, newFakeControls(activeState(1000)), newManualClock(workerTestNow), Config{})
+	runWorker(t, ctx, w)
+	if sender.callCount() != 2 || queue.kindCount("temporary") != 1 || queue.sentCount() != 1 {
+		t.Fatalf("calls/temporary/sent = %d/%d/%d, want 2/1/1", sender.callCount(), queue.kindCount("temporary"), queue.sentCount())
+	}
+}
+
 func TestDefaultRateIsTenPerMinuteWithBurstOne(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	clock := newManualClock(workerTestNow)
@@ -286,6 +305,121 @@ func TestExpiredLeasesRecoverAtStartupAndEveryMinute(t *testing.T) {
 	}
 	if got := resets[1].Sub(resets[0]); got != time.Minute {
 		t.Fatalf("reset spacing = %s, want 1m", got)
+	}
+}
+
+func TestPruneRunsAtStartupAndEveryMinuteWhileDeliveryIsDisabled(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	clock := newManualClock(workerTestNow)
+	queue := newFakeStore()
+	queue.onPrune = func(count int) {
+		if count == 2 {
+			cancel()
+		}
+	}
+	w := New(queue, renderDelivery, &sequenceSender{}, newFakeControls(control.State{}), clock, Config{})
+	runWorker(t, ctx, w)
+	prunes := queue.prunedAt()
+	if len(prunes) != 2 {
+		t.Fatalf("prune count = %d, want startup plus one periodic call", len(prunes))
+	}
+	if got := prunes[1].Sub(prunes[0]); got != time.Minute {
+		t.Fatalf("prune spacing = %s, want 1m", got)
+	}
+	if got := queue.claimCount(); got != 0 {
+		t.Fatalf("claim count while delivery disabled = %d, want 0", got)
+	}
+}
+
+func TestPruneFailureIsSafeAndDoesNotSuppressFutureAttempts(t *testing.T) {
+	const privateDetail = "private-recipient@example.test prune detail"
+	var output bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	queue := newFakeStore()
+	queue.pruneErrors = []error{errors.New(privateDetail)}
+	queue.onPrune = func(count int) {
+		if count == 2 {
+			cancel()
+		}
+	}
+	w := New(queue, renderDelivery, &sequenceSender{}, newFakeControls(control.State{}), newManualClock(workerTestNow), Config{})
+	runWorker(t, ctx, w)
+	if got := len(queue.prunedAt()); got != 2 {
+		t.Fatalf("prune attempts after first error = %d, want 2", got)
+	}
+	logText := output.String()
+	if strings.Contains(logText, privateDetail) || strings.Contains(logText, "@") {
+		t.Fatalf("prune log exposed private error detail: %s", logText)
+	}
+	for _, allowed := range []string{"queue_prune_failed", "error_class=protocol", "count=1"} {
+		if !strings.Contains(logText, allowed) {
+			t.Fatalf("prune log missing safe aggregate %q: %s", allowed, logText)
+		}
+	}
+}
+
+func TestWorkerPruneEnforcesRealStoreNonceBoundary(t *testing.T) {
+	queue, err := storepkg.Open(filepath.Join(t.TempDir(), "queue.sqlite3"), bytes.Repeat([]byte{0x53}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer queue.Close()
+	event := retentionEvent("0123456789abcdef0123456789", "abcdef0123456789abcdef0123", "nonce-recipient@example.test", workerTestNow)
+	nonce := strings.Repeat("a", 64)
+	if _, err := queue.Accept(context.Background(), nonce, event, workerTestNow); err != nil {
+		t.Fatal(err)
+	}
+
+	runMaintenanceOnce(t, queue, workerTestNow.Add(10*time.Minute-time.Millisecond))
+	if _, err := queue.Accept(context.Background(), nonce, event, workerTestNow.Add(10*time.Minute-time.Millisecond)); !errors.Is(err, storepkg.ErrReplay) {
+		t.Fatalf("nonce before 10m boundary error = %v, want replay", err)
+	}
+
+	runMaintenanceOnce(t, queue, workerTestNow.Add(10*time.Minute))
+	if result, err := queue.Accept(context.Background(), nonce, event, workerTestNow.Add(10*time.Minute)); err != nil || result.Duplicate != 1 {
+		t.Fatalf("nonce at 10m boundary = %+v, %v; want accepted duplicate after prune", result, err)
+	}
+}
+
+func TestWorkerPruneEnforcesRealStoreExhaustedAndTerminalBoundaries(t *testing.T) {
+	queue, err := storepkg.Open(filepath.Join(t.TempDir(), "queue.sqlite3"), bytes.Repeat([]byte{0x54}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer queue.Close()
+	event := retentionEvent("fedcba9876543210fedcba9876", "0123456789abcdef0123456789", "retained-recipient@example.test", workerTestNow)
+	if _, err := queue.Accept(context.Background(), strings.Repeat("b", 64), event, workerTestNow); err != nil {
+		t.Fatal(err)
+	}
+	exhaustRealDelivery(t, queue, workerTestNow)
+
+	runMaintenanceOnce(t, queue, workerTestNow.Add(24*time.Hour-time.Millisecond))
+	status, err := queue.Status(context.Background(), workerTestNow.Add(24*time.Hour-time.Millisecond))
+	if err != nil || status.FailedExhausted != 1 || status.Cancelled != 0 {
+		t.Fatalf("status before 24h boundary = %+v, %v", status, err)
+	}
+
+	cancelledAt := workerTestNow.Add(24 * time.Hour)
+	runMaintenanceOnce(t, queue, cancelledAt)
+	status, err = queue.Status(context.Background(), cancelledAt)
+	if err != nil || status.FailedExhausted != 0 || status.Cancelled != 1 {
+		t.Fatalf("status at 24h boundary = %+v, %v", status, err)
+	}
+
+	runMaintenanceOnce(t, queue, cancelledAt.Add(7*24*time.Hour-time.Millisecond))
+	status, err = queue.Status(context.Background(), cancelledAt.Add(7*24*time.Hour-time.Millisecond))
+	if err != nil || status.Cancelled != 1 {
+		t.Fatalf("status before 7d boundary = %+v, %v", status, err)
+	}
+
+	runMaintenanceOnce(t, queue, cancelledAt.Add(7*24*time.Hour))
+	status, err = queue.Status(context.Background(), cancelledAt.Add(7*24*time.Hour))
+	if err != nil || status.Cancelled != 0 {
+		t.Fatalf("status at 7d boundary = %+v, %v", status, err)
 	}
 }
 
@@ -538,13 +672,16 @@ type markRecord struct {
 }
 
 type fakeStore struct {
-	mu         sync.Mutex
-	deliveries []storepkg.Delivery
-	claims     []time.Time
-	marks      []markRecord
-	resets     []time.Time
-	onMark     func()
-	onReset    func(int)
+	mu          sync.Mutex
+	deliveries  []storepkg.Delivery
+	claims      []time.Time
+	marks       []markRecord
+	resets      []time.Time
+	prunes      []time.Time
+	pruneErrors []error
+	onMark      func()
+	onReset     func(int)
+	onPrune     func(int)
 }
 
 func newFakeStore(deliveries ...storepkg.Delivery) *fakeStore {
@@ -598,6 +735,22 @@ func (s *fakeStore) ResetExpiredLeases(_ context.Context, now time.Time) (int64,
 	return 0, nil
 }
 
+func (s *fakeStore) Prune(_ context.Context, now time.Time) (storepkg.PruneResult, error) {
+	s.mu.Lock()
+	s.prunes = append(s.prunes, now)
+	count := len(s.prunes)
+	var err error
+	if count <= len(s.pruneErrors) {
+		err = s.pruneErrors[count-1]
+	}
+	callback := s.onPrune
+	s.mu.Unlock()
+	if callback != nil {
+		callback(count)
+	}
+	return storepkg.PruneResult{}, err
+}
+
 func (s *fakeStore) markCount() int  { s.mu.Lock(); defer s.mu.Unlock(); return len(s.marks) }
 func (s *fakeStore) claimCount() int { s.mu.Lock(); defer s.mu.Unlock(); return len(s.claims) }
 func (s *fakeStore) claimedAt() []time.Time {
@@ -609,6 +762,11 @@ func (s *fakeStore) resetAt() []time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return append([]time.Time(nil), s.resets...)
+}
+func (s *fakeStore) prunedAt() []time.Time {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]time.Time(nil), s.prunes...)
 }
 func (s *fakeStore) sentCount() int      { return s.kindCount("sent") }
 func (s *fakeStore) permanentCount() int { return s.kindCount("permanent") }
@@ -684,6 +842,9 @@ func (s *leaseFailureStore) ResetExpiredLeases(_ context.Context, now time.Time)
 	}
 	return 0, nil
 }
+func (s *leaseFailureStore) Prune(context.Context, time.Time) (storepkg.PruneResult, error) {
+	return storepkg.PruneResult{}, nil
+}
 func (s *leaseFailureStore) claimedAt() []time.Time {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -719,5 +880,46 @@ func waitSignal(t *testing.T, signal <-chan struct{}, name string) {
 	case <-signal:
 	case <-time.After(time.Second):
 		t.Fatalf("timed out waiting for %s", name)
+	}
+}
+
+type cancelAfterPruneStore struct {
+	*storepkg.SQLiteStore
+	cancel context.CancelFunc
+}
+
+func (s *cancelAfterPruneStore) Prune(ctx context.Context, now time.Time) (storepkg.PruneResult, error) {
+	result, err := s.SQLiteStore.Prune(ctx, now)
+	s.cancel()
+	return result, err
+}
+
+func runMaintenanceOnce(t *testing.T, queue *storepkg.SQLiteStore, now time.Time) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	wrapped := &cancelAfterPruneStore{SQLiteStore: queue, cancel: cancel}
+	w := New(wrapped, renderDelivery, &sequenceSender{}, newFakeControls(control.State{}), newManualClock(now), Config{})
+	runWorker(t, ctx, w)
+}
+
+func retentionEvent(postID, userID, email string, acceptedAt time.Time) protocol.Event {
+	return protocol.Event{
+		EventID: postID, PostID: postID,
+		Permalink:  "https://threadhub.test/pl/" + postID,
+		OccurredAt: acceptedAt.Add(-time.Minute).UnixMilli(),
+		Recipients: []protocol.Recipient{{UserID: userID, Email: email}},
+	}
+}
+
+func exhaustRealDelivery(t *testing.T, queue *storepkg.SQLiteStore, now time.Time) {
+	t.Helper()
+	for attempt := 1; attempt <= 8; attempt++ {
+		delivery, err := queue.ClaimDue(context.Background(), now, 2*time.Minute)
+		if err != nil || delivery == nil || delivery.AttemptCount != attempt {
+			t.Fatalf("ClaimDue(attempt %d) = %+v, %v", attempt, delivery, err)
+		}
+		if err := queue.MarkTemporary(context.Background(), delivery.Key, "temporary", 421, now); err != nil {
+			t.Fatalf("MarkTemporary(attempt %d) error = %v", attempt, err)
+		}
 	}
 }

@@ -43,6 +43,23 @@ mattermost_digest="$(env_value MATTERMOST_IMAGE_DIGEST "${VERSIONS_FILE}")"
 postgres_digest="$(env_value POSTGRES_IMAGE_DIGEST "${VERSIONS_FILE}")"
 go_builder_digest="$(env_value GO_BUILDER_IMAGE_DIGEST "${VERSIONS_FILE}")"
 go_builder_index_digest="$(env_value GO_BUILDER_IMAGE_INDEX_DIGEST "${VERSIONS_FILE}")"
+if ! notifier_created_by_history_pin="$(LC_ALL=C awk -v key='NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256' '
+    BEGIN {
+        candidate = "^[ \\t]*(export[ \\t]+)?" key "([ \\t]*=|[ \\t]*$)"
+        exact = "^" key "=[a-f0-9]{64}$"
+    }
+    $0 ~ candidate {
+        count++
+        if ($0 !~ exact) malformed = 1
+        else value = substr($0, length(key) + 2)
+    }
+    END {
+        if (count != 1 || malformed || value !~ /^[a-f0-9]{64}$/) exit 1
+        print value
+    }
+' "${VERSIONS_FILE}")"; then
+    die "NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256 is missing, duplicated, or malformed"
+fi
 [[ "${mattermost_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "MATTERMOST_IMAGE_DIGEST is invalid"
 [[ "${postgres_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
@@ -51,6 +68,8 @@ go_builder_index_digest="$(env_value GO_BUILDER_IMAGE_INDEX_DIGEST "${VERSIONS_F
     || die "GO_BUILDER_IMAGE_DIGEST is invalid"
 [[ "${go_builder_index_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "GO_BUILDER_IMAGE_INDEX_DIGEST is invalid"
+[[ "${notifier_created_by_history_pin}" =~ ^[a-f0-9]{64}$ ]] \
+    || die "NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256 is invalid"
 
 validation_tmp_dir="$(mktemp -d)"
 cleanup() {

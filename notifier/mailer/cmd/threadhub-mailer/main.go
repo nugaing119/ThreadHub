@@ -261,7 +261,7 @@ func defaultCancelFailed(ctx context.Context, cfg config.Config) (int64, error) 
 		return 0, err
 	}
 	defer queue.Close()
-	return queue.CancelExhausted(ctx, time.Now())
+	return queue.CancelFailed(ctx, time.Now())
 }
 
 func defaultHealthcheck(ctx context.Context, cfg config.Config) error {
@@ -291,13 +291,18 @@ func defaultHealthcheck(ctx context.Context, cfg config.Config) error {
 }
 
 func defaultSMTPAcceptance(ctx context.Context, cfg config.Config, recipient string) smtpclient.Result {
-	rendered, err := smtpTestMessage(cfg, recipient, time.Now())
+	return sendSMTPAcceptance(ctx, cfg, recipient, time.Now(), smtpclient.DefaultTransactionTimeout)
+}
+
+func sendSMTPAcceptance(ctx context.Context, cfg config.Config, recipient string, now time.Time, transactionTimeout time.Duration) smtpclient.Result {
+	rendered, err := smtpTestMessage(cfg, recipient, now)
 	if err != nil {
 		return smtpclient.Result{Class: smtpclient.ClassProtocol}
 	}
 	client := smtpclient.New(smtpclient.Config{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
 		Password: cfg.SMTPPassword, DialTimeout: 10 * time.Second,
+		TransactionTimeout: transactionTimeout,
 	}, nil)
 	return client.Send(ctx, rendered)
 }
@@ -348,6 +353,7 @@ func defaultServe(ctx context.Context, cfg config.Config) error {
 	sender := smtpclient.New(smtpclient.Config{
 		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
 		Password: cfg.SMTPPassword, DialTimeout: 10 * time.Second,
+		TransactionTimeout: smtpclient.DefaultTransactionTimeout,
 	}, nil)
 	deliveryWorker := worker.New(queue, func(delivery store.Delivery) (message.Message, error) {
 		return message.Render(message.Input{
