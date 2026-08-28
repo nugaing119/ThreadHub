@@ -43,6 +43,10 @@ assert_safe_failure() {
     if grep -Fq "${planted_secret}" "${output_file}"; then
         fail "${expected_class} rejection disclosed planted fixture material"
     fi
+    if [[ -n "${history_planted_value:-}" ]] \
+        && grep -Fq "${history_planted_value}" "${output_file}"; then
+        fail "${expected_class} rejection disclosed planted history material"
+    fi
 }
 
 make_bundle() {
@@ -141,6 +145,7 @@ printf '%s\n' '[]' >"${temporary_dir}/env.json"
 : >"${temporary_dir}/history"
 
 planted_secret="github_$(printf '%s' 'pat_')$(openssl rand -hex 41)"
+history_planted_value='round4-private-history-marker'
 make_bundle 'safe plugin fixture'
 make_image 'safe mailer fixture'
 
@@ -240,6 +245,72 @@ assert_safe_failure image-metadata run_gate
 make_image 'safe mailer fixture' '[]' \
     '[{"created_by":"export \"SMTP_PASSWORD=x\""}]'
 assert_safe_failure image-metadata run_gate
+
+assert_history_rejected() {
+    local created_by="$1"
+    local history_json=""
+
+    history_json="$(jq -cn --arg created_by "${created_by}" \
+        '[{created_by:$created_by}]')"
+    make_image 'safe mailer fixture' '[]' "${history_json}"
+    assert_safe_failure image-metadata run_gate
+}
+
+for created_by in \
+    'export "SMTP_PASSWORD"=x' \
+    'export SMTP_"PASSWORD"=x' \
+    'export SMTP_PASSWORD\=x' \
+    'export SMTP\_PASSWORD=x'; do
+    assert_history_rejected "${created_by}"
+    assert_history_rejected "${created_by}; SMTP_PASSWORD="
+done
+
+for created_by in \
+    "export 'SMTP_'PASSWORD=x" \
+    'export "SMTP_"PASSWORD=x' \
+    "export $'SMTP_'PASSWORD=x" \
+    "export SMTP_'PASS'WORD=x" \
+    'export SMTP_"PASS"WORD=x' \
+    "export SMTP_$'PASS'WORD=x" \
+    "export 'SMTP_'\"PASSWORD\"=x" \
+    "export \"SMTP_\"'PASSWORD'=x" \
+    "export $'SMTP_'$'PASSWORD'=x" \
+    "export 'NOTIFIER_HMAC_'SECRET=x" \
+    'export NOTIFIER_"HMAC_"SECRET=x' \
+    'export NOTIFIER_HMAC\_SECRET=x' \
+    'export NOTIFIER_HMAC_SECRET\=x'; do
+    assert_history_rejected "${created_by}"
+done
+
+for created_by in \
+    'RUN true&&export "SMTP_PASSWORD"=x' \
+    'RUN false||SMTP_"PASSWORD"=x' \
+    'RUN true;SMTP_PASSWORD\=x' \
+    'RUN (SMTP\_PASSWORD=x)'; do
+    assert_history_rejected "${created_by}"
+done
+
+# These are literal shell-history fixtures; expansion is not intended.
+# shellcheck disable=SC2016
+for created_by in \
+    'export SMTP_$PART=x' \
+    'export SMTP_${PART}=x' \
+    'export SMTP_${PART:-${OTHER}}=x' \
+    'export SMTP_$(printf PASSWORD)=x' \
+    'export SMTP_$(printf $(echo $(printf PASSWORD)))=x' \
+    'export "SMTP_${PART}"=x' \
+    'export NOTIFIER_HMAC_$PART=x' \
+    'export NOTIFIER_HMAC_${PART}=x' \
+    'export NOTIFIER_HMAC_${PART:-${OTHER}}=x' \
+    'export NOTIFIER_HMAC_$(printf SECRET)=x' \
+    'export SMTP_${PART}=' \
+    'export NOTIFIER_HMAC_${PART}=; NOTIFIER_HMAC_SECRET='; do
+    assert_history_rejected "${created_by}"
+done
+
+assert_history_rejected \
+    "export SMTP_\"PASSWORD\"=${history_planted_value}; SMTP_PASSWORD="
+
 for created_by in \
     'RUN true&&SMTP_PASSWORD=x' \
     'RUN false||SMTP_PASSWORD=x' \
@@ -251,9 +322,12 @@ for created_by in \
 done
 make_image 'safe mailer fixture' \
     '["SMTP_PASSWORD=","SMTP_USERNAME","NOTIFIER_HMAC_SECRET="]' \
-    '[{"created_by":"ENV SMTP_PASSWORD="},{"created_by":"ENV NOTIFIER_HMAC_SECRET"},{"created_by":"export \"SMTP_USERNAME=\""},{"created_by":"SMTP_PASSWORD_SUFFIX=x MY_SMTP_PASSWORD=x"}]'
+    '[{"created_by":"ENV SMTP_PASSWORD="},{"created_by":"ENV NOTIFIER_HMAC_SECRET"},{"created_by":"export \"SMTP_USERNAME=\""},{"created_by":"SMTP_PASSWORD_SUFFIX=x MY_SMTP_PASSWORD=x"},{"created_by":"XSMTP_PASSWORD=x SMTP_PASSWORDX=x"},{"created_by":"éSMTP_PASSWORD=x SMTP_PASSWORDé=x"},{"created_by":"变量SMTP_PASSWORD=x SMTP_PASSWORD变量=x"},{"created_by":"RUN SMTP_PASSWORD"},{"created_by":"RUN export SMTP_PASSWORD"},{"created_by":"RUN SMTP_PASSWORD= SMTP_USERNAME= NOTIFIER_HMAC_SECRET="},{"created_by":"RUN export SMTP_PASSWORD=\"\" SMTP_USERNAME=\u0027\u0027"}]'
 run_gate >"${temporary_dir}/empty-key-only-output" 2>&1 \
     || fail 'absent, empty or key-only credential metadata was rejected'
+assert_history_rejected 'RUN SMTP_PASSWORD="x"'
+assert_history_rejected 'RUN SMTP_PASSWORD=" "'
+assert_history_rejected "RUN SMTP_PASSWORD=' '"
 make_image 'safe mailer fixture' '["SMTP_PASSWORD=   "]' '[]'
 assert_safe_failure image-metadata run_gate
 make_image 'safe mailer fixture'
