@@ -63,7 +63,11 @@ test_transaction_rollback_after_backup() (
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_verify_plugin() { [[ "$(<"${fixture}/plugin")" == active ]]; }
+    # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_verify_previous_objects() { return 0; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_verify_previous_plugin() { [[ "$(<"${fixture}/plugin")" == active ]]; }
     # shellcheck disable=SC2329 # transaction callback fixture
@@ -144,7 +148,11 @@ test_transaction_retries_control_disable_during_rollback() (
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_verify_plugin() { [[ "$(<"${fixture}/plugin")" == active ]]; }
+    # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_verify_previous_objects() { return 0; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_verify_previous_plugin() { [[ "$(<"${fixture}/plugin")" == active ]]; }
     # shellcheck disable=SC2329 # transaction callback fixture
@@ -214,7 +222,11 @@ test_transaction_reports_rollback_failure_and_continues_restore() (
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_verify_plugin() { [[ "$(<"${fixture}/plugin")" == active ]]; }
+    # shellcheck disable=SC2329 # transaction callback fixture
+    plugin_tx_verify_previous_objects() { return 0; }
     # shellcheck disable=SC2329 # transaction callback fixture
     plugin_tx_verify_previous_plugin() { [[ "$(<"${fixture}/plugin")" == active ]]; }
     # shellcheck disable=SC2329 # transaction callback fixture
@@ -282,7 +294,14 @@ test_transaction_restores_runtime_and_filestore_after_activation_failure() (
     # shellcheck disable=SC2329
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329
     plugin_tx_verify_plugin() { return 93; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() {
+        [[ "$(<"${target}/generation")" == old-runtime ]] \
+            && [[ "$(<"${bundle_target}")" == old-bundle ]]
+    }
     # shellcheck disable=SC2329
     plugin_tx_verify_previous_plugin() {
         [[ "$(<"${target}/generation")" == old-runtime ]] \
@@ -346,7 +365,11 @@ test_transaction_restores_pair_after_bundle_publish_failure() (
     # shellcheck disable=SC2329
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329
     plugin_tx_verify_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() { return 0; }
     # shellcheck disable=SC2329
     plugin_tx_verify_previous_plugin() { return 0; }
     # shellcheck disable=SC2329
@@ -411,7 +434,11 @@ test_transaction_keeps_service_stopped_when_restore_loses_race() (
     # shellcheck disable=SC2329
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329
     plugin_tx_verify_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() { return 0; }
     # shellcheck disable=SC2329
     plugin_tx_verify_previous_plugin() { return 0; }
     # shellcheck disable=SC2329
@@ -479,7 +506,11 @@ test_transaction_rejects_fresh_target_publish_race() (
     # shellcheck disable=SC2329
     plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
     # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329
     plugin_tx_verify_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() { return 0; }
     # shellcheck disable=SC2329
     plugin_tx_verify_previous_plugin() { return 0; }
     # shellcheck disable=SC2329
@@ -509,6 +540,300 @@ test_transaction_rejects_fresh_target_publish_race() (
     [[ "$(<"${fixture}/control")" == disabled ]] || return 1
     [[ "$(<"${target}/generation")" == race-winner ]] || return 1
     [[ ! -e "${backup}" && ! -e "${bundle_target}" ]]
+)
+
+test_transaction_rejects_asymmetric_prior_pair_before_mutation() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    for asymmetry in runtime-only bundle-only; do
+        case_dir="${fixture}/${asymmetry}"
+        target="${case_dir}/plugins/notifier"
+        stage="${case_dir}/release/runtime-stage"
+        backup="${case_dir}/release/runtime-backup"
+        failed="${case_dir}/release/runtime-failed"
+        bundle_target="${case_dir}/data/plugins/notifier.tar.gz"
+        bundle_stage="${case_dir}/release/bundle-stage.tar.gz"
+        bundle_backup="${case_dir}/release/bundle-backup.tar.gz"
+        bundle_failed="${case_dir}/release/bundle-failed.tar.gz"
+        mkdir -p "${stage}" "$(dirname "${target}")" "$(dirname "${bundle_target}")"
+        printf 'new-runtime\n' > "${stage}/generation"
+        printf 'new-bundle\n' > "${bundle_stage}"
+        if [[ "${asymmetry}" == runtime-only ]]; then
+            mkdir "${target}"
+            printf 'old-runtime\n' > "${target}/generation"
+        else
+            printf 'old-bundle\n' > "${bundle_target}"
+        fi
+        printf 'running\n' > "${case_dir}/service"
+        printf 'active\n' > "${case_dir}/plugin"
+        printf 'enabled\n' > "${case_dir}/control"
+
+        # shellcheck disable=SC2329
+        plugin_tx_disable_control() { printf 'disabled\n' > "${case_dir}/control"; }
+        # shellcheck disable=SC2329
+        plugin_tx_disable_plugin() { printf 'inactive\n' > "${case_dir}/plugin"; }
+        # shellcheck disable=SC2329
+        plugin_tx_stop_service() { printf 'stopped\n' > "${case_dir}/service"; }
+        # shellcheck disable=SC2329
+        plugin_tx_prepare_targets() { return 0; }
+        # shellcheck disable=SC2329
+        plugin_tx_start_service() { printf 'running\n' > "${case_dir}/service"; }
+        # shellcheck disable=SC2329
+        plugin_tx_enable_plugin() { printf 'active\n' > "${case_dir}/plugin"; }
+        # shellcheck disable=SC2329
+        plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+        # shellcheck disable=SC2329
+        plugin_tx_verify_plugin() { return 0; }
+        # shellcheck disable=SC2329
+        plugin_tx_verify_previous_objects() { return 0; }
+        # shellcheck disable=SC2329
+        plugin_tx_verify_previous_plugin() { return 0; }
+        # shellcheck disable=SC2329
+        plugin_tx_path_exists() { [[ -e "$1" ]]; }
+        # shellcheck disable=SC2329
+        plugin_tx_move() { mv "$1" "$2"; }
+
+        if notifier_plugin_transaction \
+            "${target}" "${stage}" "${backup}" "${failed}" \
+            "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+            true true > "${case_dir}/stdout" 2> "${case_dir}/stderr"; then
+            return 1
+        fi
+        [[ "$(<"${case_dir}/service")" == running ]] || return 1
+        [[ "$(<"${case_dir}/plugin")" == active ]] || return 1
+        [[ "$(<"${case_dir}/control")" == enabled ]] || return 1
+        [[ -d "${stage}" && -f "${bundle_stage}" ]] || return 1
+        [[ ! -e "${backup}" && ! -e "${bundle_backup}" ]] || return 1
+        if [[ "${asymmetry}" == runtime-only ]]; then
+            [[ "$(<"${target}/generation")" == old-runtime && ! -e "${bundle_target}" ]] \
+                || return 1
+        else
+            [[ ! -e "${target}" && "$(<"${bundle_target}")" == old-bundle ]] \
+                || return 1
+        fi
+    done
+)
+
+test_rollback_stops_service_after_enable_or_state_verification_failure() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    for failure_mode in enable verify; do
+        case_dir="${fixture}/${failure_mode}"
+        target="${case_dir}/plugins/notifier"
+        stage="${case_dir}/release/runtime-stage"
+        backup="${case_dir}/release/runtime-backup"
+        failed="${case_dir}/release/runtime-failed"
+        bundle_target="${case_dir}/data/plugins/notifier.tar.gz"
+        bundle_stage="${case_dir}/release/bundle-stage.tar.gz"
+        bundle_backup="${case_dir}/release/bundle-backup.tar.gz"
+        bundle_failed="${case_dir}/release/bundle-failed.tar.gz"
+        mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+        printf 'old-runtime\n' > "${target}/generation"
+        printf 'new-runtime\n' > "${stage}/generation"
+        printf 'old-bundle\n' > "${bundle_target}"
+        printf 'new-bundle\n' > "${bundle_stage}"
+        printf 'running\n' > "${case_dir}/service"
+        printf 'active\n' > "${case_dir}/plugin"
+        printf 'enabled\n' > "${case_dir}/control"
+        printf '0\n' > "${case_dir}/enable-attempts"
+
+        # shellcheck disable=SC2329
+        plugin_tx_disable_control() { printf 'disabled\n' > "${case_dir}/control"; }
+        # shellcheck disable=SC2329
+        plugin_tx_disable_plugin() { printf 'inactive\n' > "${case_dir}/plugin"; }
+        # shellcheck disable=SC2329
+        plugin_tx_stop_service() { printf 'stopped\n' > "${case_dir}/service"; }
+        # shellcheck disable=SC2329
+        plugin_tx_prepare_targets() { return 0; }
+        # shellcheck disable=SC2329
+        plugin_tx_start_service() { printf 'running\n' > "${case_dir}/service"; }
+        # shellcheck disable=SC2329
+        plugin_tx_enable_plugin() {
+            enable_attempts="$(<"${case_dir}/enable-attempts")"
+            enable_attempts=$((enable_attempts + 1))
+            printf '%s\n' "${enable_attempts}" > "${case_dir}/enable-attempts"
+            if [[ "${failure_mode}" == enable && "${enable_attempts}" == 2 ]]; then
+                printf 'enable-failed\n' > "${case_dir}/plugin"
+                return 97
+            fi
+            printf 'active\n' > "${case_dir}/plugin"
+        }
+        # shellcheck disable=SC2329
+        plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+        # shellcheck disable=SC2329
+        plugin_tx_verify_plugin() { return 93; }
+        # shellcheck disable=SC2329
+        plugin_tx_verify_previous_objects() {
+            [[ "$(<"${target}/generation")" == old-runtime ]] \
+                && [[ "$(<"${bundle_target}")" == old-bundle ]]
+        }
+        # shellcheck disable=SC2329
+        plugin_tx_verify_previous_plugin() {
+            [[ "${failure_mode}" != verify ]]
+        }
+        # shellcheck disable=SC2329
+        plugin_tx_path_exists() { [[ -e "$1" ]]; }
+        # shellcheck disable=SC2329
+        plugin_tx_move() { mv "$1" "$2"; }
+
+        set +e
+        notifier_plugin_transaction \
+            "${target}" "${stage}" "${backup}" "${failed}" \
+            "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+            true true > "${case_dir}/stdout" 2> "${case_dir}/stderr"
+        transaction_result=$?
+        set -e
+        [[ "${transaction_result}" == 70 ]] || return 1
+        [[ "$(<"${case_dir}/service")" == stopped ]] || return 1
+        [[ "$(<"${case_dir}/control")" == disabled ]] || return 1
+        [[ "$(<"${target}/generation")" == old-runtime ]] || return 1
+        [[ "$(<"${bundle_target}")" == old-bundle ]] || return 1
+    done
+)
+
+test_rollback_verifies_restored_pair_before_service_start() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+    printf 'old-runtime\n' > "${target}/generation"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'active\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() { printf 'running\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 93; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() { return 98; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() { mv "$1" "$2"; }
+
+    set +e
+    notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true > "${fixture}/stdout" 2> "${fixture}/stderr"
+    transaction_result=$?
+    set -e
+    [[ "${transaction_result}" == 70 ]] || return 1
+    grep -F 'object_verify' "${fixture}/stderr" >/dev/null || return 1
+    [[ "$(<"${fixture}/service")" == stopped ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]]
+)
+
+test_rollback_rechecks_pair_after_mattermost_synchronization() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+    printf 'old-runtime\n' > "${target}/generation"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'active\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+    printf '0\n' > "${fixture}/start-attempts"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() { printf 'stopped\n' > "${fixture}/service"; }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() {
+        attempts="$(<"${fixture}/start-attempts")"
+        attempts=$((attempts + 1))
+        printf '%s\n' "${attempts}" > "${fixture}/start-attempts"
+        printf 'running\n' > "${fixture}/service"
+        if ((attempts == 2)); then
+            rm "${bundle_target}"
+        fi
+    }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { plugin_tx_enable_plugin; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 93; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() {
+        [[ "$(<"${target}/generation")" == old-runtime \
+            && -f "${bundle_target}" \
+            && "$(<"${bundle_target}")" == old-bundle ]]
+    }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() { mv "$1" "$2"; }
+
+    set +e
+    notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true > "${fixture}/stdout" 2> "${fixture}/stderr"
+    transaction_result=$?
+    set -e
+    [[ "${transaction_result}" == 70 ]] || return 1
+    grep -F 'object_post_start_verify' "${fixture}/stderr" >/dev/null || return 1
+    [[ "$(<"${fixture}/service")" == stopped ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]]
 )
 
 test_symlink_referents_unchanged() (
@@ -822,6 +1147,30 @@ if test_transaction_rejects_fresh_target_publish_race; then
     pass "plugin transaction rejects a fresh target that wins the no-clobber publish race"
 else
     fail "plugin transaction accepts a fresh target that wins the no-clobber publish race"
+fi
+
+if test_transaction_rejects_asymmetric_prior_pair_before_mutation; then
+    pass "plugin transaction rejects asymmetric prior objects before mutation"
+else
+    fail "plugin transaction mutates an asymmetric prior plugin pair"
+fi
+
+if test_rollback_stops_service_after_enable_or_state_verification_failure; then
+    pass "plugin rollback stops Mattermost after enable or state verification failure"
+else
+    fail "plugin rollback leaves Mattermost running after enable or state verification failure"
+fi
+
+if test_rollback_verifies_restored_pair_before_service_start; then
+    pass "plugin rollback verifies the restored pair before restarting Mattermost"
+else
+    fail "plugin rollback starts Mattermost without verifying the restored pair"
+fi
+
+if test_rollback_rechecks_pair_after_mattermost_synchronization; then
+    pass "plugin rollback rechecks the restored pair after Mattermost synchronization"
+else
+    fail "plugin rollback trusts a restored pair that Mattermost deletes or replaces"
 fi
 
 if test_symlink_referents_unchanged; then

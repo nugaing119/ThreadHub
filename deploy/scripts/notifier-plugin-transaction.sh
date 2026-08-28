@@ -34,11 +34,24 @@ notifier_plugin_transaction() (
     rollback_failures=""
     object_restore_complete=true
     object_transaction_started=false
+    rollback_service_started=false
+    rollback_recovery_failed=false
 
     [[ "${was_running}" == true || "${was_running}" == false ]] || return 2
     [[ "${was_active}" == true || "${was_active}" == false ]] || return 2
     plugin_tx_path_exists "${stage_root}" || return 2
     plugin_tx_path_exists "${bundle_stage}" || return 2
+    if plugin_tx_path_exists "${target_root}"; then
+        had_target=true
+    fi
+    if plugin_tx_path_exists "${bundle_target}"; then
+        had_bundle=true
+    fi
+    [[ "${had_target}" == "${had_bundle}" ]] || return 2
+    # The caller's production-specific preflight verifies either the complete
+    # prior pair or the complete fresh-install absence before control/service
+    # state is changed.
+    plugin_tx_prepare_targets || return $?
 
     # shellcheck disable=SC2329 # called indirectly by the EXIT rollback guard
     record_rollback_failure() {
@@ -159,12 +172,36 @@ notifier_plugin_transaction() (
             fi
         fi
 
+        (plugin_tx_verify_previous_objects) \
+            || record_object_rollback_failure object_verify
+
         if [[ "${was_running}" == true && "${object_restore_complete}" == true ]]; then
-            (plugin_tx_start_service) || record_rollback_failure service_start
-            if [[ "${was_active}" == true ]]; then
-                (plugin_tx_enable_plugin) || record_rollback_failure plugin_enable
-                (plugin_tx_verify_previous_plugin) || record_rollback_failure plugin_verify
+            if (plugin_tx_start_service); then
+                rollback_service_started=true
+            else
+                rollback_recovery_failed=true
+                record_rollback_failure service_start
             fi
+            if [[ "${rollback_service_started}" == true ]]; then
+                if [[ "${was_active}" == true ]] \
+                    && ! (plugin_tx_enable_previous_plugin); then
+                    rollback_recovery_failed=true
+                    record_rollback_failure plugin_enable
+                fi
+                if ! (plugin_tx_verify_previous_plugin); then
+                    rollback_recovery_failed=true
+                    record_rollback_failure plugin_verify
+                fi
+                if ! (plugin_tx_verify_previous_objects); then
+                    rollback_recovery_failed=true
+                    record_object_rollback_failure object_post_start_verify
+                fi
+            fi
+        fi
+        if [[ "${rollback_recovery_failed}" == true \
+            && "${rollback_service_started}" == true ]]; then
+            (plugin_tx_stop_service) \
+                || record_rollback_failure recovery_service_stop
         fi
 
         if [[ -n "${rollback_failures}" ]]; then
@@ -189,12 +226,16 @@ notifier_plugin_transaction() (
         plugin_tx_stop_service || return $?
     fi
     plugin_tx_prepare_targets || return $?
+    current_target_present=false
+    current_bundle_present=false
     if plugin_tx_path_exists "${target_root}"; then
-        had_target=true
+        current_target_present=true
     fi
     if plugin_tx_path_exists "${bundle_target}"; then
-        had_bundle=true
+        current_bundle_present=true
     fi
+    [[ "${current_target_present}" == "${current_bundle_present}" \
+        && "${current_target_present}" == "${had_target}" ]] || return 1
     object_transaction_started=true
     if [[ "${had_target}" == true && "${target_backup_done}" == false ]]; then
         plugin_tx_move "${target_root}" "${backup_root}" || return $?

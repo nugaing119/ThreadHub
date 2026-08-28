@@ -14,6 +14,9 @@ source /threadhub-deploy/notifier-plugin-transaction.sh
 
 # shellcheck disable=SC2034 # consumed by the sourced production helper functions
 SUDO_COMMAND=()
+mode="${1:-install}"
+[[ "$#" -le 1 ]] || exit 2
+[[ "${mode}" == install || "${mode}" == verify ]] || exit 2
 plugin_id="${NOTIFIER_PLUGIN_ID:?notifier plugin ID is required}"
 notifier_version="${NOTIFIER_VERSION:?notifier version is required}"
 [[ "${plugin_id}" == com.threadhub.channel-email-notifier ]] || exit 2
@@ -21,6 +24,7 @@ notifier_version="${NOTIFIER_VERSION:?notifier version is required}"
 
 data_root=/threadhub-data
 reviewed_bundle=/reviewed/plugin.tar.gz
+reviewed_manifest=/reviewed/plugin.json
 runtime_parent="${data_root}/mattermost/plugins"
 filestore_parent="${data_root}/mattermost/data/plugins"
 release_dir="${data_root}/notifier/release"
@@ -43,6 +47,7 @@ trap cleanup_plugin_install EXIT HUP INT TERM
 for parent in "${runtime_parent}" "${filestore_parent}" "${release_dir}"; do
     [[ -d "${parent}" && ! -L "${parent}" ]] || exit 1
 done
+[[ -f "${reviewed_manifest}" && ! -L "${reviewed_manifest}" ]] || exit 1
 for mattermost_parent in "${runtime_parent}" "${filestore_parent}"; do
     [[ "$(stat -c '%u:%g:%a' "${mattermost_parent}")" == 2000:2000:750 ]] || exit 1
 done
@@ -76,8 +81,29 @@ tar --extract --gzip --file "${reviewed_bundle}" \
     --directory "${tmp_dir}/extracted" \
     --no-same-owner --no-same-permissions
 reviewed_root="${tmp_dir}/extracted/${plugin_id}"
+cmp -s "${reviewed_manifest}" "${reviewed_root}/plugin.json"
 bundle_sha="$(notifier_plugin_privileged_sha256 "${reviewed_bundle}")"
 [[ "${bundle_sha}" =~ ^[a-f0-9]{64}$ ]] || exit 1
+
+if [[ "${mode}" == verify ]]; then
+    notifier_plugin_pair_is_exact \
+        "${target_root}" "${bundle_target}" "${reviewed_root}" \
+        "${bundle_sha}" "${tmp_dir}"
+    exit 0
+fi
+
+previous_pair_presence="$(notifier_plugin_pair_presence \
+    "${target_root}" "${bundle_target}")" || exit 1
+if [[ "${previous_pair_presence}" == present ]]; then
+    # The isolated real-image run starts from a fresh data volume. A repeated
+    # exact invocation is idempotent; any different prior pair must be handled
+    # by the production installer, whose validated rollback path has service
+    # and plugin-state callbacks unavailable in this stopped-service fixture.
+    notifier_plugin_pair_is_exact \
+        "${target_root}" "${bundle_target}" "${reviewed_root}" \
+        "${bundle_sha}" "${tmp_dir}"
+    exit 0
+fi
 
 install -d -o root -g root -m 0750 "${backup_dir}"
 notifier_plugin_stage_pair \
@@ -89,14 +115,23 @@ plugin_tx_disable_plugin() { :; }
 plugin_tx_stop_service() { :; }
 plugin_tx_start_service() { :; }
 plugin_tx_enable_plugin() { :; }
+plugin_tx_enable_previous_plugin() { :; }
+plugin_tx_verify_previous_objects() {
+    [[ "$(notifier_plugin_pair_presence \
+        "${target_root}" "${bundle_target}")" == "${previous_pair_presence}" ]]
+}
 plugin_tx_verify_previous_plugin() { :; }
 
 plugin_tx_prepare_targets() {
     local path
+    local current_presence
 
     notifier_plugin_tree_is_exact "${stage_root}" "${reviewed_root}" "${tmp_dir}" \
         || return 1
     notifier_plugin_bundle_is_exact "${bundle_stage}" "${bundle_sha}" || return 1
+    current_presence="$(notifier_plugin_pair_presence \
+        "${target_root}" "${bundle_target}")" || return 1
+    [[ "${current_presence}" == "${previous_pair_presence}" ]] || return 1
     for path in \
         "${target_root}" "${bundle_target}" "${stage_root}" "${bundle_stage}" \
         "${backup_root}" "${failed_root}" "${bundle_backup}" "${bundle_failed}"; do

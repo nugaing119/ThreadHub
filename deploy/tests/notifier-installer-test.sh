@@ -638,6 +638,34 @@ notifier_test_plugin_files_privileged() {
     command "${command_name}" "$@"
 }
 
+make_reviewed_plugin_pair_fixture() {
+    local fixture="$1"
+    local version="$2"
+    local plugin_id=com.threadhub.channel-email-notifier
+    local reviewed_root="${fixture}/reviewed/${plugin_id}"
+    local reviewed_bundle="${fixture}/reviewed.tar.gz"
+    local runtime_root="${fixture}/runtime/${plugin_id}"
+    local bundle_target="${fixture}/filestore/${plugin_id}.tar.gz"
+    local expected_sha
+
+    mkdir -p \
+        "${reviewed_root}/server/dist" \
+        "${fixture}/runtime" \
+        "${fixture}/filestore" \
+        "${fixture}/scratch"
+    printf '%s\n' \
+        "{\"description\":\"reviewed\",\"homepage_url\":\"https://threadhub.invalid\",\"id\":\"${plugin_id}\",\"min_server_version\":\"11.7.7\",\"name\":\"ThreadHub Notifier\",\"server\":{\"executables\":{\"linux-amd64\":\"server/dist/plugin-linux-amd64\"}},\"support_url\":\"https://threadhub.invalid\",\"version\":\"${version}\"}" \
+        > "${reviewed_root}/plugin.json"
+    printf 'reviewed-executable-%s\n' "${version}" \
+        > "${reviewed_root}/server/dist/plugin-linux-amd64"
+    COPYFILE_DISABLE=1 tar -czf "${reviewed_bundle}" \
+        -C "${fixture}/reviewed" "${plugin_id}"
+    expected_sha="$(openssl dgst -sha256 "${reviewed_bundle}" | awk '{print $NF}')"
+    notifier_plugin_stage_pair \
+        "${reviewed_bundle}" "${reviewed_root}" "${runtime_root}" "${bundle_target}" \
+        "${expected_sha}" "${fixture}/scratch"
+}
+
 test_plugin_filestore_bundle_requires_exact_sha_identity_and_mode() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -663,6 +691,183 @@ test_plugin_filestore_bundle_requires_exact_sha_identity_and_mode() (
     mv "${bundle}" "${fixture}/referent"
     ln -s "${fixture}/referent" "${bundle}"
     ! notifier_plugin_bundle_is_exact "${bundle}" "${expected_sha}" >/dev/null 2>&1
+)
+
+test_plugin_pair_presence_requires_both_objects_or_neither() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(env)
+
+    runtime="${fixture}/plugins/com.threadhub.channel-email-notifier"
+    bundle="${fixture}/data/plugins/com.threadhub.channel-email-notifier.tar.gz"
+    mkdir -p "$(dirname "${runtime}")" "$(dirname "${bundle}")"
+
+    [[ "$(notifier_plugin_pair_presence "${runtime}" "${bundle}")" == absent ]] \
+        || return 1
+    mkdir "${runtime}"
+    if notifier_plugin_pair_presence "${runtime}" "${bundle}" >/dev/null 2>&1; then
+        return 1
+    fi
+    rmdir "${runtime}"
+    printf 'bundle-only\n' > "${bundle}"
+    if notifier_plugin_pair_presence "${runtime}" "${bundle}" >/dev/null 2>&1; then
+        return 1
+    fi
+    mkdir "${runtime}"
+    [[ "$(notifier_plugin_pair_presence "${runtime}" "${bundle}")" == present ]]
+)
+
+test_prior_plugin_pair_capture_validates_archive_tree_identity_and_metadata() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+    plugin_id=com.threadhub.channel-email-notifier
+    version=0.0.9
+    runtime_root="${fixture}/runtime/${plugin_id}"
+    bundle_target="${fixture}/filestore/${plugin_id}.tar.gz"
+    reviewed_root="${fixture}/reviewed/${plugin_id}"
+    scratch="${fixture}/scratch"
+
+    make_reviewed_plugin_pair_fixture "${fixture}" "${version}" || return 1
+    expected_sha="$(openssl dgst -sha256 "${bundle_target}" | awk '{print $NF}')"
+    metadata="$(notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${fixture}/captured-good" "${scratch}")" || return 1
+    [[ "${metadata}" == $'0.0.9\t'"${expected_sha}" ]] || return 1
+    notifier_plugin_pair_is_exact \
+        "${runtime_root}" "${bundle_target}" "${fixture}/captured-good/${plugin_id}" \
+        "${expected_sha}" "${scratch}" || return 1
+
+    printf 'tampered-runtime\n' \
+        > "${runtime_root}/server/dist/plugin-linux-amd64"
+    chmod 0755 "${runtime_root}/server/dist/plugin-linux-amd64"
+    if notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${fixture}/captured-mismatch" "${scratch}" >/dev/null 2>&1; then
+        return 1
+    fi
+    install -m 0755 "${reviewed_root}/server/dist/plugin-linux-amd64" \
+        "${runtime_root}/server/dist/plugin-linux-amd64"
+
+    chmod 0640 "${runtime_root}/server/dist/plugin-linux-amd64"
+    if notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${fixture}/captured-mode" "${scratch}" >/dev/null 2>&1; then
+        return 1
+    fi
+    chmod 0755 "${runtime_root}/server/dist/plugin-linux-amd64"
+
+    rm "${runtime_root}/server/dist/plugin-linux-amd64"
+    ln -s "${fixture}/referent" "${runtime_root}/server/dist/plugin-linux-amd64"
+    printf 'do-not-follow\n' > "${fixture}/referent"
+    if notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${fixture}/captured-runtime-link" "${scratch}" >/dev/null 2>&1; then
+        return 1
+    fi
+    rm "${runtime_root}/server/dist/plugin-linux-amd64"
+    install -m 0755 "${reviewed_root}/server/dist/plugin-linux-amd64" \
+        "${runtime_root}/server/dist/plugin-linux-amd64"
+
+    unsafe_root="${fixture}/unsafe/${plugin_id}"
+    mkdir -p "${unsafe_root}/server/dist"
+    cp "${reviewed_root}/plugin.json" "${unsafe_root}/plugin.json"
+    ln -s /etc/passwd "${unsafe_root}/server/dist/plugin-linux-amd64"
+    COPYFILE_DISABLE=1 tar -czf "${fixture}/unsafe.tar.gz" \
+        -C "${fixture}/unsafe" "${plugin_id}"
+    install -m 0640 "${fixture}/unsafe.tar.gz" "${bundle_target}"
+    if notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${fixture}/captured-archive-link" "${scratch}" >/dev/null 2>&1; then
+        return 1
+    fi
+
+    wrong_root="${fixture}/wrong/${plugin_id}"
+    mkdir -p "${wrong_root}/server/dist"
+    printf '%s\n' \
+        "{\"description\":\"reviewed\",\"homepage_url\":\"https://threadhub.invalid\",\"id\":\"wrong.plugin.id\",\"min_server_version\":\"11.7.7\",\"name\":\"ThreadHub Notifier\",\"server\":{\"executables\":{\"linux-amd64\":\"server/dist/plugin-linux-amd64\"}},\"support_url\":\"https://threadhub.invalid\",\"version\":\"${version}\"}" \
+        > "${wrong_root}/plugin.json"
+    cp "${reviewed_root}/server/dist/plugin-linux-amd64" \
+        "${wrong_root}/server/dist/plugin-linux-amd64"
+    COPYFILE_DISABLE=1 tar -czf "${fixture}/wrong.tar.gz" \
+        -C "${fixture}/wrong" "${plugin_id}"
+    install -m 0640 "${fixture}/wrong.tar.gz" "${bundle_target}"
+    ! notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${fixture}/captured-wrong-id" "${scratch}" >/dev/null 2>&1
+)
+
+test_post_start_pair_verification_rejects_deleted_or_replaced_objects() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+    plugin_id=com.threadhub.channel-email-notifier
+    runtime_root="${fixture}/runtime/${plugin_id}"
+    bundle_target="${fixture}/filestore/${plugin_id}.tar.gz"
+    reviewed_root="${fixture}/reviewed/${plugin_id}"
+    scratch="${fixture}/scratch"
+
+    make_reviewed_plugin_pair_fixture "${fixture}" 0.1.0 || return 1
+    expected_sha="$(openssl dgst -sha256 "${bundle_target}" | awk '{print $NF}')"
+    notifier_plugin_pair_is_exact \
+        "${runtime_root}" "${bundle_target}" "${reviewed_root}" \
+        "${expected_sha}" "${scratch}" || return 1
+
+    mv "${bundle_target}" "${fixture}/saved-bundle"
+    if notifier_plugin_pair_is_exact \
+        "${runtime_root}" "${bundle_target}" "${reviewed_root}" \
+        "${expected_sha}" "${scratch}" >/dev/null 2>&1; then
+        return 1
+    fi
+    mv "${fixture}/saved-bundle" "${bundle_target}"
+
+    mv "${runtime_root}" "${fixture}/saved-runtime"
+    mkdir -p "${runtime_root}/server/dist"
+    printf 'replacement\n' > "${runtime_root}/plugin.json"
+    printf 'replacement\n' > "${runtime_root}/server/dist/plugin-linux-amd64"
+    chmod 0744 "${runtime_root}" "${runtime_root}/server" "${runtime_root}/server/dist"
+    chmod 0755 "${runtime_root}/server/dist/plugin-linux-amd64"
+    chmod 0644 "${runtime_root}/plugin.json"
+    ! notifier_plugin_pair_is_exact \
+        "${runtime_root}" "${bundle_target}" "${reviewed_root}" \
+        "${expected_sha}" "${scratch}" >/dev/null 2>&1
+)
+
+test_prior_pair_recovery_evidence_survives_post_start_deletion() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+    plugin_id=com.threadhub.channel-email-notifier
+    runtime_root="${fixture}/runtime/${plugin_id}"
+    bundle_target="${fixture}/filestore/${plugin_id}.tar.gz"
+    reviewed_root="${fixture}/reviewed/${plugin_id}"
+    evidence_root="${fixture}/evidence/runtime"
+    evidence_bundle="${fixture}/evidence/bundle.tar.gz"
+    scratch="${fixture}/scratch"
+
+    make_reviewed_plugin_pair_fixture "${fixture}" 0.1.0 || return 1
+    mkdir "${fixture}/evidence"
+    expected_sha="$(openssl dgst -sha256 "${bundle_target}" | awk '{print $NF}')"
+    notifier_plugin_preserve_pair \
+        "${runtime_root}" "${bundle_target}" \
+        "${evidence_root}" "${evidence_bundle}" \
+        "${reviewed_root}" "${expected_sha}" "${scratch}" || return 1
+    notifier_plugin_pair_is_exact \
+        "${evidence_root}" "${evidence_bundle}" "${reviewed_root}" \
+        "${expected_sha}" "${scratch}" || return 1
+
+    rm "${bundle_target}"
+    notifier_plugin_pair_is_exact \
+        "${evidence_root}" "${evidence_bundle}" "${reviewed_root}" \
+        "${expected_sha}" "${scratch}"
 )
 
 test_plugin_pair_staging_materializes_only_the_reviewed_objects() (
@@ -691,9 +896,9 @@ test_plugin_pair_staging_materializes_only_the_reviewed_objects() (
     notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch}" \
         || return 1
     notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}" || return 1
-    [[ "$(portable_mode "${runtime_stage}")" == 750 ]] || return 1
-    [[ "$(portable_mode "${runtime_stage}/plugin.json")" == 640 ]] || return 1
-    [[ "$(portable_mode "${runtime_stage}/server/dist/plugin-linux-amd64")" == 750 ]] \
+    [[ "$(portable_mode "${runtime_stage}")" == 744 ]] || return 1
+    [[ "$(portable_mode "${runtime_stage}/plugin.json")" == 644 ]] || return 1
+    [[ "$(portable_mode "${runtime_stage}/server/dist/plugin-linux-amd64")" == 755 ]] \
         || return 1
 
     rm -rf "${runtime_stage}"
@@ -789,6 +994,18 @@ run_test \
 run_test \
     'plugin filestore bundle requires exact SHA ownership and mode' \
     test_plugin_filestore_bundle_requires_exact_sha_identity_and_mode
+run_test \
+    'plugin pair presence requires both runtime and filestore objects or neither' \
+    test_plugin_pair_presence_requires_both_objects_or_neither
+run_test \
+    'prior plugin pair capture validates archive tree identity and verified metadata' \
+    test_prior_plugin_pair_capture_validates_archive_tree_identity_and_metadata
+run_test \
+    'post-start pair verification rejects deleted or replaced production objects' \
+    test_post_start_pair_verification_rejects_deleted_or_replaced_objects
+run_test \
+    'verified prior pair recovery evidence survives post-start deletion' \
+    test_prior_pair_recovery_evidence_survives_post_start_deletion
 run_test \
     'plugin pair staging materializes only the reviewed runtime tree and filestore bundle' \
     test_plugin_pair_staging_materializes_only_the_reviewed_objects

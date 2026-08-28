@@ -408,6 +408,8 @@ compose_private run --rm --no-deps volume-init || abort_run NF-HARNESS-plugin-re
 result_assertion=NF-HARNESS-plugin-restart
 compose_private up -d --no-build --no-deps mattermost || abort_run NF-HARNESS-plugin-restart
 wait_http "http://${mattermost_address}/api/v4/system/ping" 180 || abort_run NF-HARNESS-plugin-restart
+result_assertion=NF-HARNESS-plugin-pair
+compose_private run --rm --no-deps plugin-install verify || abort_run NF-HARNESS-plugin-pair
 
 result_assertion=NF-HARNESS-plugin-active-list
 read_plugin_state() {

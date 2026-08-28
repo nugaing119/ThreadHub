@@ -86,6 +86,7 @@ services:
       - /threadhub-install/plugin-install.sh
     volumes:
       - "${INTEGRATION_PLUGIN_BUNDLE:?set INTEGRATION_PLUGIN_BUNDLE}:/reviewed/plugin.tar.gz:ro"
+      - "../plugin/plugin.json:/reviewed/plugin.json:ro"
       - threadhub-data:/threadhub-data:rw
       - "../../deploy/scripts/notifier-plugin-files.sh:/threadhub-deploy/notifier-plugin-files.sh:ro"
       - "../../deploy/scripts/notifier-plugin-transaction.sh:/threadhub-deploy/notifier-plugin-transaction.sh:ro"

@@ -33,6 +33,7 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`/threadhub-deploy/notifier-plugin-files.sh:ro`,
 		`/threadhub-deploy/notifier-plugin-transaction.sh:ro`,
 		`/threadhub-install/plugin-install.sh:ro`,
+		`../plugin/plugin.json:/reviewed/plugin.json:ro`,
 		`threadhub-data:/threadhub-data:rw`,
 		`MM_FILESETTINGS_DIRECTORY: /threadhub-data/mattermost/data`,
 		`MM_PLUGINSETTINGS_DIRECTORY: /threadhub-data/mattermost/plugins`,
@@ -63,6 +64,8 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`result_assertion=NF-HARNESS-plugin-restart`,
 		`result_assertion=NF-HARNESS-plugin-enable`,
 		`result_assertion=NF-HARNESS-plugin-active-list`,
+		`result_assertion=NF-HARNESS-plugin-pair`,
+		`compose_private run --rm --no-deps plugin-install verify`,
 		`mmctl plugin list --local --suppress-warnings --json`,
 		`source "${repository_root}/deploy/scripts/notifier-lib.sh"`,
 		`notifier_plugin_list_target_state`,
@@ -89,6 +92,9 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`filestore_parent="${data_root}/mattermost/data/plugins"`,
 		`target_root="${runtime_parent}/${plugin_id}"`,
 		`bundle_target="${filestore_parent}/${plugin_id}.tar.gz"`,
+		`[[ "${mode}" == install || "${mode}" == verify ]]`,
+		`notifier_plugin_pair_is_exact`,
+		`plugin_tx_verify_previous_objects`,
 	} {
 		if !strings.Contains(installer, required) {
 			t.Fatalf("integration installer does not exercise shared production behavior %q", required)

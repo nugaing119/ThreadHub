@@ -18,6 +18,7 @@ require_command git
 require_command jq
 require_command tar
 require_command cmp
+require_command sort
 require_ubuntu_amd64
 validate_base_env
 validate_notifier_env
@@ -32,7 +33,7 @@ filestore_plugins_root="${data_root}/mattermost/data/plugins"
 tmp_dir="$(mktemp -d)"
 
 cleanup() {
-    rm -rf "${tmp_dir}"
+    "${SUDO_COMMAND[@]}" rm -rf -- "${tmp_dir}" >/dev/null 2>&1 || true
 }
 trap cleanup EXIT HUP INT TERM
 
@@ -142,6 +143,30 @@ if "${SUDO_COMMAND[@]}" test -e "${bundle_target}" \
     die "Refusing non-regular notifier filestore bundle"
 fi
 
+previous_pair_presence="$(notifier_plugin_pair_presence \
+    "${target_root}" "${bundle_target}")" \
+    || die "Notifier runtime and filestore objects must both exist or both be absent"
+previous_pair_present=false
+previous_plugin_version=""
+previous_bundle_sha=""
+previous_reviewed_root=""
+if [[ "${previous_pair_presence}" == present ]]; then
+    previous_pair_present=true
+    previous_capture_dir="${tmp_dir}/previous-pair"
+    previous_metadata="$(notifier_plugin_capture_pair \
+        "${target_root}" "${bundle_target}" "${plugin_id}" \
+        "${previous_capture_dir}" "${tmp_dir}")" \
+        || die "Existing notifier runtime and filestore pair is unsafe or incoherent"
+    metadata_extra=""
+    IFS=$'\t' read -r previous_plugin_version previous_bundle_sha metadata_extra \
+        <<< "${previous_metadata}"
+    [[ "${previous_plugin_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
+        && "${previous_bundle_sha}" =~ ^[a-f0-9]{64}$ \
+        && -z "${metadata_extra}" ]] \
+        || die "Existing notifier pair returned invalid verified metadata"
+    previous_reviewed_root="${previous_capture_dir}/${plugin_id}"
+fi
+
 mattermost_id="$(compose ps -q mattermost)"
 was_running=false
 if [[ -n "${mattermost_id}" ]]; then
@@ -153,19 +178,26 @@ plugin_list_json() {
         mmctl plugin list --local --suppress-warnings --json
 }
 
-enable_expected_plugin() {
+enable_plugin_version() {
+    local expected_version="$1"
+    local state_file="$2"
     local state
 
-    plugin_list_json > "${tmp_dir}/plugin-list-enable.json" || return 1
+    [[ "${expected_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || return 1
+    plugin_list_json > "${state_file}" || return 1
     if notifier_plugin_list_is_exact_active \
-        "${tmp_dir}/plugin-list-enable.json" "${plugin_id}" "${notifier_version}"; then
+        "${state_file}" "${plugin_id}" "${expected_version}"; then
         return 0
     fi
     state="$(notifier_plugin_list_target_state \
-        "${tmp_dir}/plugin-list-enable.json" "${plugin_id}")" || return 1
-    [[ "${state}" == $'inactive\t'"${notifier_version}" ]] || return 1
+        "${state_file}" "${plugin_id}")" || return 1
+    [[ "${state}" == $'inactive\t'"${expected_version}" ]] || return 1
     compose exec -T mattermost \
         mmctl plugin enable "${plugin_id}" --local --suppress-warnings >/dev/null
+}
+
+enable_expected_plugin() {
+    enable_plugin_version "${notifier_version}" "${tmp_dir}/plugin-list-enable.json"
 }
 
 ensure_plugin_active() {
@@ -184,32 +216,26 @@ if notifier_plugin_tree_is_exact "${target_root}" "${extracted_root}" "${tmp_dir
 fi
 
 plugin_was_active=false
-previous_plugin_version=""
+previous_plugin_state=$'missing\t-'
 if [[ "${was_running}" == true ]]; then
     plugin_list_json > "${tmp_dir}/plugin-list-before.json" \
         || die "Mattermost plugin state could not be read"
     previous_plugin_state="$(notifier_plugin_list_target_state \
         "${tmp_dir}/plugin-list-before.json" "${plugin_id}")" \
         || die "Mattermost returned ambiguous notifier plugin state"
-    case "${previous_plugin_state}" in
-        $'active\t'*)
-            plugin_was_active=true
-            previous_plugin_version="${previous_plugin_state#*$'\t'}"
-            ;;
-        $'inactive\t'*|$'missing\t-')
-            ;;
-        *)
-            die "Mattermost returned invalid notifier plugin state"
-            ;;
-    esac
-fi
-
-previous_bundle_sha=""
-if "${SUDO_COMMAND[@]}" test -e "${bundle_target}"; then
-    previous_bundle_sha="$(notifier_plugin_privileged_sha256 "${bundle_target}")" \
-        || die "Existing notifier filestore bundle could not be hashed"
-    notifier_plugin_bundle_is_exact "${bundle_target}" "${previous_bundle_sha}" \
-        || die "Existing notifier filestore bundle has unsafe identity or mode"
+    if [[ "${previous_pair_present}" == true ]]; then
+        case "${previous_plugin_state}" in
+            $'active\t'"${previous_plugin_version}")
+                plugin_was_active=true
+                ;;
+            $'inactive\t'"${previous_plugin_version}") ;;
+            *)
+                die "Mattermost plugin state does not match the verified notifier pair"
+                ;;
+        esac
+    elif [[ "${previous_plugin_state}" != $'missing\t-' ]]; then
+        die "Mattermost reports notifier state without a production plugin pair"
+    fi
 fi
 
 transaction_suffix="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -266,6 +292,7 @@ plugin_tx_stop_service() {
 plugin_tx_prepare_targets() {
     local path
     local identity
+    local current_presence
 
     validate_notifier_host_path "${data_root}" || return 1
     identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${backup_dir}")" || return 1
@@ -280,11 +307,13 @@ plugin_tx_prepare_targets() {
         "${backup_root}" "${failed_root}" "${bundle_backup}" "${bundle_failed}"; do
         "${SUDO_COMMAND[@]}" test ! -L "${path}" || return 1
     done
-    if "${SUDO_COMMAND[@]}" test -e "${target_root}"; then
-        "${SUDO_COMMAND[@]}" test -d "${target_root}" || return 1
-    fi
-    if "${SUDO_COMMAND[@]}" test -e "${bundle_target}"; then
-        "${SUDO_COMMAND[@]}" test -f "${bundle_target}" || return 1
+    current_presence="$(notifier_plugin_pair_presence \
+        "${target_root}" "${bundle_target}")" || return 1
+    [[ "${current_presence}" == "${previous_pair_presence}" ]] || return 1
+    if [[ "${previous_pair_present}" == true ]]; then
+        notifier_plugin_pair_is_exact \
+            "${target_root}" "${bundle_target}" "${previous_reviewed_root}" \
+            "${previous_bundle_sha}" "${tmp_dir}" || return 1
     fi
     for path in "${backup_root}" "${failed_root}" "${bundle_backup}" "${bundle_failed}"; do
         "${SUDO_COMMAND[@]}" test ! -e "${path}" || return 1
@@ -299,20 +328,54 @@ plugin_tx_enable_plugin() {
     enable_expected_plugin
 }
 
+plugin_tx_enable_previous_plugin() {
+    [[ "${previous_pair_present}" == true \
+        && "${plugin_was_active}" == true ]] || return 1
+    enable_plugin_version \
+        "${previous_plugin_version}" "${tmp_dir}/plugin-list-rollback-enable.json"
+}
+
 plugin_tx_verify_plugin() {
-    notifier_plugin_tree_is_exact "${target_root}" "${extracted_root}" "${tmp_dir}" \
-        && notifier_plugin_bundle_is_exact "${bundle_target}" "${bundle_sha256}" \
+    notifier_plugin_pair_is_exact \
+        "${target_root}" "${bundle_target}" "${extracted_root}" \
+        "${bundle_sha256}" "${tmp_dir}" \
         && plugin_list_json > "${tmp_dir}/plugin-list-transaction.json" \
         && notifier_plugin_list_is_exact_active \
             "${tmp_dir}/plugin-list-transaction.json" "${plugin_id}" "${notifier_version}"
 }
 
+plugin_tx_verify_previous_objects() {
+    local current_presence
+    local evidence_presence
+
+    current_presence="$(notifier_plugin_pair_presence \
+        "${target_root}" "${bundle_target}")" || return 1
+    [[ "${current_presence}" == "${previous_pair_presence}" ]] || return 1
+    if [[ "${previous_pair_present}" == true ]]; then
+        notifier_plugin_preserve_pair \
+            "${target_root}" "${bundle_target}" \
+            "${backup_root}" "${bundle_backup}" \
+            "${previous_reviewed_root}" "${previous_bundle_sha}" "${tmp_dir}"
+    else
+        evidence_presence="$(notifier_plugin_pair_presence \
+            "${backup_root}" "${bundle_backup}")" || return 1
+        [[ "${evidence_presence}" == absent ]]
+    fi
+}
+
 plugin_tx_verify_previous_plugin() {
-    plugin_list_json > "${tmp_dir}/plugin-list-rollback.json" \
-        && notifier_plugin_list_is_exact_active \
-            "${tmp_dir}/plugin-list-rollback.json" "${plugin_id}" "${previous_plugin_version}" \
-        && { [[ -z "${previous_bundle_sha}" ]] \
-            || notifier_plugin_bundle_is_exact "${bundle_target}" "${previous_bundle_sha}"; }
+    local state
+
+    plugin_list_json > "${tmp_dir}/plugin-list-rollback.json" || return 1
+    state="$(notifier_plugin_list_target_state \
+        "${tmp_dir}/plugin-list-rollback.json" "${plugin_id}")" || return 1
+    if [[ "${previous_pair_present}" != true ]]; then
+        [[ "${state}" == $'missing\t-' ]]
+    elif [[ "${plugin_was_active}" == true ]]; then
+        [[ "${state}" == $'active\t'"${previous_plugin_version}" ]]
+    else
+        [[ "${state}" == $'inactive\t'"${previous_plugin_version}" ]]
+    fi
 }
 
 plugin_tx_path_exists() {

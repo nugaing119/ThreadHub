@@ -99,9 +99,10 @@ func (r *reporter) failure(assertion string) error {
 }
 
 type capture struct {
-	RecipientHash  string `json:"recipient_hash"`
-	EnvelopeCount  int    `json:"envelope_count"`
-	GenericContent bool   `json:"generic_content"`
+	RecipientHash   string `json:"recipient_hash"`
+	EnvelopeCount   int    `json:"envelope_count"`
+	GenericContent  bool   `json:"generic_content"`
+	LastAttemptAtMS int64  `json:"last_attempt_at_ms"`
 }
 
 type captureSnapshot struct {
@@ -327,7 +328,7 @@ func hasExactDelta(before, after captureSnapshot, expected map[string]int) bool 
 func validateCaptureSnapshot(snapshot captureSnapshot) bool {
 	seen := make(map[string]struct{}, len(snapshot.Captures))
 	for _, value := range snapshot.Captures {
-		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 0 {
+		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 0 || value.EnvelopeCount == 0 && value.LastAttemptAtMS != 0 || value.EnvelopeCount > 0 && value.LastAttemptAtMS <= 0 {
 			return false
 		}
 		for _, character := range value.RecipientHash {
@@ -430,6 +431,15 @@ type mmPost struct {
 	CreateAt  int64  `json:"create_at"`
 }
 
+const mattermostPluginStateRunning = 2
+
+type mmPluginStatus struct {
+	PluginID string `json:"plugin_id"`
+	State    int    `json:"state"`
+	Error    string `json:"error"`
+	Version  string `json:"version"`
+}
+
 type fixtureUsers struct {
 	admin, recipientA, recipientB, nonMember, inactive, bot mmUser
 }
@@ -462,6 +472,7 @@ type acceptance struct {
 	compose    composeClient
 	mattermost *mattermostClient
 	http       *http.Client
+	diagnostic io.Writer
 	users      fixtureUsers
 	channels   fixtureChannels
 	team       mmTeam
@@ -470,11 +481,14 @@ type acceptance struct {
 func newAcceptance(cfg integrationConfig) *acceptance {
 	return &acceptance{
 		cfg: cfg, compose: newComposeClient(cfg), mattermost: newMattermostClient(cfg.mattermostURL),
-		http: newHTTPClient(8 * time.Second),
+		http: newHTTPClient(8 * time.Second), diagnostic: os.Stderr,
 	}
 }
 
 func (a *acceptance) run(ctx context.Context) string {
+	if err := a.verifyPluginPair(ctx); err != nil {
+		return "NF-HARNESS-plugin-pair"
+	}
 	if err := a.verifyPluginActive(ctx); err != nil {
 		return "NF-HARNESS-plugin-active-list"
 	}
@@ -483,6 +497,9 @@ func (a *acceptance) run(ctx context.Context) string {
 	}
 	if err := a.enableAndRestart(ctx, time.Now().Add(-time.Minute).UnixMilli()); err != nil {
 		return "NF-HARNESS-compose"
+	}
+	if err := a.verifyPluginPair(ctx); err != nil {
+		return "NF-HARNESS-plugin-pair"
 	}
 	if err := a.verifyPluginActive(ctx); err != nil {
 		return "NF-HARNESS-plugin-active-list"
@@ -532,6 +549,9 @@ func (a *acceptance) bootstrap(ctx context.Context) string {
 	}
 	a.mattermost.token = response.Header.Get("Token")
 	a.users.admin = loggedIn
+	if err := a.waitPluginRuntime(ctx, 60*time.Second); err != nil {
+		return "NF-HARNESS-plugin-runtime"
+	}
 
 	var team mmTeam
 	if _, err := a.mattermost.request(ctx, http.MethodPost, "/teams", map[string]string{
@@ -661,6 +681,53 @@ func (a *acceptance) verifyPluginActive(ctx context.Context) error {
 	return command.Run()
 }
 
+func (a *acceptance) verifyPluginPair(ctx context.Context) error {
+	_, err := a.compose.run(ctx, "run", "--rm", "--no-deps", "plugin-install", "verify")
+	return err
+}
+
+func pluginRuntimeReady(statuses []mmPluginStatus) bool {
+	return pluginRuntimeClassification(statuses) == "running"
+}
+
+func pluginRuntimeClassification(statuses []mmPluginStatus) string {
+	const pluginID = "com.threadhub.channel-email-notifier"
+	const pluginVersion = "0.1.0"
+	targets := 0
+	for _, status := range statuses {
+		if status.PluginID != pluginID {
+			continue
+		}
+		targets++
+		if status.State != mattermostPluginStateRunning || status.Version != pluginVersion || status.Error != "" {
+			return "not-ready"
+		}
+	}
+	if targets != 1 {
+		return "not-ready"
+	}
+	return "running"
+}
+
+func (a *acceptance) waitPluginRuntime(ctx context.Context, timeout time.Duration) error {
+	lastClassification := ""
+	return waitCondition(ctx, timeout, func() bool {
+		var statuses []mmPluginStatus
+		_, err := a.mattermost.request(ctx, http.MethodGet, "/plugins/statuses", nil, &statuses, http.StatusOK)
+		classification := "api-unavailable"
+		if err == nil {
+			classification = pluginRuntimeClassification(statuses)
+		}
+		if classification != lastClassification {
+			if a.diagnostic != nil {
+				_, _ = fmt.Fprintf(a.diagnostic, "plugin-runtime=%s\n", classification)
+			}
+			lastClassification = classification
+		}
+		return classification == "running"
+	})
+}
+
 func (a *acceptance) enableAndRestart(ctx context.Context, activatedAt int64) error {
 	if err := writeControl(a.cfg.controlFile, controlState{Enabled: true, DeliveryEnabled: true, Mode: "all_channels", ChannelIDs: []string{}, ActivatedAt: activatedAt}); err != nil {
 		return err
@@ -703,7 +770,10 @@ func (a *acceptance) waitServices(ctx context.Context, timeout time.Duration) er
 	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", timeout); err != nil {
 		return err
 	}
-	return waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", timeout)
+	if err := waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", timeout); err != nil {
+		return err
+	}
+	return a.waitPluginRuntime(ctx, timeout)
 }
 
 func waitHTTP(ctx context.Context, client *http.Client, endpoint string, timeout time.Duration) error {
@@ -832,20 +902,49 @@ func (a *acceptance) waitExactDelta(ctx context.Context, before captureSnapshot,
 	})
 }
 
-func (a *acceptance) waitFirstCapture(ctx context.Context, before captureSnapshot, hashes []string, timeout time.Duration) error {
-	return waitCondition(ctx, timeout, func() bool {
+func firstCaptureLatency(createdAtMS int64, before, after captureSnapshot, hashes []string) (time.Duration, bool) {
+	if createdAtMS <= 0 || len(hashes) == 0 || !validateCaptureSnapshot(before) || !validateCaptureSnapshot(after) {
+		return 0, false
+	}
+	beforeMap, afterMap := captureMap(before), captureMap(after)
+	var first time.Duration
+	found := false
+	seen := make(map[string]struct{}, len(hashes))
+	for _, hash := range hashes {
+		if _, duplicate := seen[hash]; duplicate {
+			return 0, false
+		}
+		seen[hash] = struct{}{}
+		prior, current := beforeMap[hash], afterMap[hash]
+		if current.EnvelopeCount != prior.EnvelopeCount+1 {
+			continue
+		}
+		latencyMS := current.LastAttemptAtMS - createdAtMS
+		if latencyMS < 0 {
+			continue
+		}
+		latency := time.Duration(latencyMS) * time.Millisecond
+		if !found || latency < first {
+			first, found = latency, true
+		}
+	}
+	return first, found
+}
+
+func (a *acceptance) waitFirstCapture(ctx context.Context, createdAtMS int64, before captureSnapshot, hashes []string, timeout time.Duration) (time.Duration, error) {
+	var latency time.Duration
+	err := waitCondition(ctx, timeout, func() bool {
 		after, err := a.captureSnapshot(ctx)
 		if err != nil {
 			return false
 		}
-		beforeMap, afterMap := captureMap(before), captureMap(after)
-		for _, hash := range hashes {
-			if afterMap[hash].EnvelopeCount > beforeMap[hash].EnvelopeCount {
-				return true
-			}
+		measured, ok := firstCaptureLatency(createdAtMS, before, after, hashes)
+		if ok {
+			latency = measured
 		}
-		return false
+		return ok
 	})
+	return latency, err
 }
 
 func (a *acceptance) post(ctx context.Context, channelID, rootID string) (mmPost, time.Duration, error) {
@@ -878,12 +977,18 @@ func (a *acceptance) functionalScenarios(ctx context.Context) string {
 	if err != nil {
 		return "NF-HARNESS-capture-api"
 	}
-	firstStarted := time.Now()
-	publicRoot, _, err := a.post(ctx, a.channels.public.ID, "")
+	publicRoot, postResponseLatency, err := a.post(ctx, a.channels.public.ID, "")
 	if err != nil {
 		return "NF-FN-01-public-root"
 	}
-	if err := a.waitFirstCapture(ctx, before, []string{a.recipientHash(a.users.recipientA.Email), a.recipientHash(a.users.recipientB.Email)}, 10*time.Second); err != nil || time.Since(firstStarted) > 10*time.Second {
+	if a.diagnostic != nil {
+		_, _ = fmt.Fprintf(a.diagnostic, "first-post-response-ms=%d\n", postResponseLatency.Milliseconds())
+	}
+	firstLatency, err := a.waitFirstCapture(ctx, publicRoot.CreateAt, before, []string{a.recipientHash(a.users.recipientA.Email), a.recipientHash(a.users.recipientB.Email)}, 10*time.Second)
+	if a.diagnostic != nil && err == nil {
+		_, _ = fmt.Fprintf(a.diagnostic, "first-smtp-attempt-ms=%d\n", firstLatency.Milliseconds())
+	}
+	if err != nil || firstLatency > 10*time.Second {
 		return "NF-FN-01-first-attempt-latency"
 	}
 	if err := a.waitMailerIdle(ctx, 30*time.Second); err != nil {
@@ -1087,8 +1192,11 @@ func (a *acceptance) mattermostRecreateScenario(ctx context.Context) string {
 	}
 	a.cfg.mattermostURL = mattermostURL
 	a.mattermost.baseURL = mattermostURL.String()
-	if err := waitHTTP(ctx, a.mattermost.client, mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil {
+	if err := waitHTTP(ctx, a.mattermost.client, mattermostURL.String()+"/api/v4/system/ping", 120*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 120*time.Second) != nil {
 		return "NF-REL-05-mattermost-recreate"
+	}
+	if err := a.verifyPluginPair(ctx); err != nil {
+		return "NF-HARNESS-plugin-pair"
 	}
 	if err := a.startMailer(ctx); err != nil || a.waitExactDelta(ctx, before, a.expectedAB(), 40*time.Second) != nil {
 		return "NF-REL-05-mattermost-recreate"
@@ -1138,12 +1246,18 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil || a.waitServices(ctx, 90*time.Second) != nil {
 		return "NF-REL-05-control-disable"
 	}
+	if err := a.verifyPluginPair(ctx); err != nil {
+		return "NF-HARNESS-plugin-pair"
+	}
 	disabledPost, _, err := a.post(ctx, a.channels.public.ID, "")
 	if err != nil {
 		return "NF-REL-05-control-disable"
 	}
 	if err := a.enableAndRestart(ctx, disabledPost.CreateAt+1); err != nil {
 		return "NF-REL-05-control-disable"
+	}
+	if err := a.verifyPluginPair(ctx); err != nil {
+		return "NF-HARNESS-plugin-pair"
 	}
 	if _, _, err := a.post(ctx, a.channels.public.ID, ""); err != nil || a.waitExactDelta(ctx, before, a.expectedAB(), 35*time.Second) != nil {
 		return "NF-REL-05-control-disable"
@@ -1166,8 +1280,11 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "restart", "mattermost"); err != nil {
 		return "NF-REL-05-activation-cutoff"
 	}
-	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", 90*time.Second); err != nil || a.verifyPluginActive(ctx) != nil {
+	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", 90*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 90*time.Second) != nil {
 		return "NF-REL-05-activation-cutoff"
+	}
+	if err := a.verifyPluginPair(ctx); err != nil {
+		return "NF-HARNESS-plugin-pair"
 	}
 	if err := a.startMailer(ctx); err != nil {
 		return "NF-REL-05-activation-cutoff"

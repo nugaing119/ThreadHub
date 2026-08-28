@@ -168,8 +168,12 @@ func TestCaptureStoreSnapshotContainsHashesAndAggregatesOnly(t *testing.T) {
 	t.Parallel()
 
 	store := newCaptureStore([]byte("0123456789abcdef0123456789abcdef"), "threadhub.integration.test")
-	if generic, err := store.record("recipient-one@integration.invalid", testNotice("https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", "")); err != nil || !generic {
-		t.Fatal("record() rejected a valid capture")
+	attemptAt := time.UnixMilli(1787790000123)
+	if generic, err := store.recordAt("recipient-one@integration.invalid", testNotice("https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", ""), attemptAt); err != nil || !generic {
+		t.Fatal("recordAt() rejected a valid capture")
+	}
+	if got := store.snapshot().Captures[0].LastAttemptAtMS; got != attemptAt.UnixMilli() {
+		t.Fatalf("last attempt timestamp = %d, want %d", got, attemptAt.UnixMilli())
 	}
 
 	raw, err := json.Marshal(store.snapshot())
@@ -186,8 +190,8 @@ func TestCaptureStoreSnapshotContainsHashesAndAggregatesOnly(t *testing.T) {
 			t.Fatalf("snapshot disclosed protected capture data: %q", forbidden)
 		}
 	}
-	if !strings.Contains(got, `"recipient_hash":"`) || !strings.Contains(got, `"envelope_count":1`) || !strings.Contains(got, `"generic_content":true`) {
-		t.Fatalf("snapshot = %s, want hash/count/generic aggregate", got)
+	if !strings.Contains(got, `"recipient_hash":"`) || !strings.Contains(got, `"envelope_count":1`) || !strings.Contains(got, `"generic_content":true`) || !strings.Contains(got, `"last_attempt_at_ms":1787790000123`) {
+		t.Fatalf("snapshot = %s, want hash/count/generic/timing aggregate", got)
 	}
 }
 
@@ -232,9 +236,12 @@ func TestCaptureStorePersistsOnlyAggregatesAcrossRestart(t *testing.T) {
 
 	validHash := strings.Repeat("a", 64)
 	for name, malformed := range map[string]string{
-		"invalid hash":   `{"captures":[{"recipient_hash":"bad","envelope_count":1,"generic_content":true}]}`,
-		"negative count": `{"captures":[{"recipient_hash":"` + validHash + `","envelope_count":-1,"generic_content":true}]}`,
-		"duplicate hash": `{"captures":[{"recipient_hash":"` + validHash + `","envelope_count":1,"generic_content":true},{"recipient_hash":"` + validHash + `","envelope_count":2,"generic_content":true}]}`,
+		"invalid hash":      `{"captures":[{"recipient_hash":"bad","envelope_count":1,"generic_content":true,"last_attempt_at_ms":1}]}`,
+		"negative count":    `{"captures":[{"recipient_hash":"` + validHash + `","envelope_count":-1,"generic_content":true,"last_attempt_at_ms":1}]}`,
+		"missing timestamp": `{"captures":[{"recipient_hash":"` + validHash + `","envelope_count":1,"generic_content":true}]}`,
+		"negative timestamp": `{"captures":[{"recipient_hash":"` + validHash + `","envelope_count":1,"generic_content":true,
+			"last_attempt_at_ms":-1}]}`,
+		"duplicate hash": `{"captures":[{"recipient_hash":"` + validHash + `","envelope_count":1,"generic_content":true,"last_attempt_at_ms":1},{"recipient_hash":"` + validHash + `","envelope_count":2,"generic_content":true,"last_attempt_at_ms":2}]}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			if err := os.WriteFile(statePath, []byte(malformed), 0o600); err != nil {

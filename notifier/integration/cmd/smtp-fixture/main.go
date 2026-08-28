@@ -45,9 +45,10 @@ const (
 )
 
 type capture struct {
-	RecipientHash  string `json:"recipient_hash"`
-	EnvelopeCount  int    `json:"envelope_count"`
-	GenericContent bool   `json:"generic_content"`
+	RecipientHash   string `json:"recipient_hash"`
+	EnvelopeCount   int    `json:"envelope_count"`
+	GenericContent  bool   `json:"generic_content"`
+	LastAttemptAtMS int64  `json:"last_attempt_at_ms"`
 }
 
 type captureSnapshot struct {
@@ -87,6 +88,13 @@ func newPersistentCaptureStore(secret []byte, domain, statePath string) (*captur
 }
 
 func (s *captureStore) record(recipient string, raw []byte) (bool, error) {
+	return s.recordAt(recipient, raw, time.Now().UTC())
+}
+
+func (s *captureStore) recordAt(recipient string, raw []byte, attemptAt time.Time) (bool, error) {
+	if attemptAt.UnixMilli() <= 0 {
+		return false, errors.New("invalid capture time")
+	}
 	hash := protocol.HashIdentifier(s.secret, "integration-recipient", strings.ToLower(recipient))
 	generic := inspectGenericMessage(raw, s.domain)
 	s.mu.Lock()
@@ -98,6 +106,7 @@ func (s *captureStore) record(recipient string, raw []byte) (bool, error) {
 	current := next[hash]
 	current.RecipientHash = hash
 	current.EnvelopeCount++
+	current.LastAttemptAtMS = attemptAt.UnixMilli()
 	if current.EnvelopeCount == 1 {
 		current.GenericContent = generic
 	} else {
@@ -159,7 +168,7 @@ func loadCaptureSnapshot(statePath string) (captureSnapshot, error) {
 func validCaptureSnapshot(snapshot captureSnapshot) bool {
 	seen := make(map[string]struct{}, len(snapshot.Captures))
 	for _, value := range snapshot.Captures {
-		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 1 {
+		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 1 || value.LastAttemptAtMS <= 0 {
 			return false
 		}
 		for _, character := range value.RecipientHash {
@@ -597,6 +606,7 @@ func handleSMTP(connection net.Conn, tlsConfig *tls.Config, cfg fixtureConfig, s
 	writeSMTP(writer, "220 threadhub-fixture ESMTP")
 	var tlsActive, authenticated bool
 	var envelopeFrom string
+	var attemptAt time.Time
 	var recipients []string
 	for {
 		line, err := reader.ReadString('\n')
@@ -607,7 +617,7 @@ func handleSMTP(connection net.Conn, tlsConfig *tls.Config, cfg fixtureConfig, s
 		command, argument, _ := strings.Cut(line, " ")
 		switch strings.ToUpper(command) {
 		case "EHLO", "HELO":
-			authenticated, envelopeFrom, recipients = false, "", nil
+			authenticated, envelopeFrom, recipients, attemptAt = false, "", nil, time.Time{}
 			if tlsActive {
 				writeSMTP(writer, "250-threadhub-fixture", "250 AUTH PLAIN")
 			} else {
@@ -626,7 +636,7 @@ func handleSMTP(connection net.Conn, tlsConfig *tls.Config, cfg fixtureConfig, s
 			connection = tlsConnection
 			reader = bufio.NewReader(io.LimitReader(connection, 8<<20))
 			writer = bufio.NewWriter(connection)
-			tlsActive, authenticated, envelopeFrom, recipients = true, false, "", nil
+			tlsActive, authenticated, envelopeFrom, recipients, attemptAt = true, false, "", nil, time.Time{}
 		case "AUTH":
 			if !tlsActive {
 				writeSMTP(writer, "530 STARTTLS required")
@@ -649,7 +659,7 @@ func handleSMTP(connection net.Conn, tlsConfig *tls.Config, cfg fixtureConfig, s
 				writeSMTP(writer, "501 invalid sender")
 				continue
 			}
-			envelopeFrom, recipients = value, nil
+			envelopeFrom, recipients, attemptAt = value, nil, time.Now().UTC()
 			writeSMTP(writer, "250 sender accepted")
 		case "RCPT":
 			if envelopeFrom == "" {
@@ -679,15 +689,15 @@ func handleSMTP(connection net.Conn, tlsConfig *tls.Config, cfg fixtureConfig, s
 			if store.consumeFailure() {
 				writeSMTP(writer, "450 injected temporary failure")
 			} else {
-				if _, err := store.record(recipients[0], raw); err != nil {
+				if _, err := store.recordAt(recipients[0], raw, attemptAt); err != nil {
 					writeSMTP(writer, "450 capture state unavailable")
 				} else {
 					writeSMTP(writer, "250 accepted")
 				}
 			}
-			envelopeFrom, recipients = "", nil
+			envelopeFrom, recipients, attemptAt = "", nil, time.Time{}
 		case "RSET":
-			envelopeFrom, recipients = "", nil
+			envelopeFrom, recipients, attemptAt = "", nil, time.Time{}
 			writeSMTP(writer, "250 reset")
 		case "NOOP":
 			writeSMTP(writer, "250 ok")

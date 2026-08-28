@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"io"
 	"net/http"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -134,6 +136,8 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-HARNESS-plugin-restart",
 		"NF-HARNESS-plugin-enable",
 		"NF-HARNESS-plugin-active-list",
+		"NF-HARNESS-plugin-runtime",
+		"NF-HARNESS-plugin-pair",
 		"NF-HARNESS-capture-api",
 		"NF-HARNESS-compose",
 		"NF-FN-01-public-root",
@@ -167,6 +171,112 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 	}
 	if !reflect.DeepEqual(allowedFailureAssertions, wantAssertions) {
 		t.Fatalf("allowedFailureAssertions = %#v", allowedFailureAssertions)
+	}
+}
+
+func TestVerifyPluginPairPropagatesPostStartDeletionOrReplacement(t *testing.T) {
+	root := t.TempDir()
+	composeCommand := filepath.Join(root, "compose-fixture")
+	fixture := `#!/usr/bin/env bash
+set -Eeuo pipefail
+[[ " $* " == *" run --rm --no-deps plugin-install verify "* ]] || exit 97
+[[ "${THREADHUB_TEST_PAIR_STATE:-}" == exact ]]
+`
+	if err := os.WriteFile(composeCommand, []byte(fixture), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	client := composeClient{
+		command: []string{composeCommand}, composeFile: filepath.Join(root, "compose.yml"),
+		envFile: filepath.Join(root, "integration.env"), projectName: "threadhub-test",
+	}
+	acceptance := acceptance{compose: client}
+	for _, test := range []struct {
+		state string
+		ok    bool
+	}{
+		{state: "exact", ok: true},
+		{state: "deleted", ok: false},
+		{state: "replaced", ok: false},
+	} {
+		t.Run(test.state, func(t *testing.T) {
+			t.Setenv("THREADHUB_TEST_PAIR_STATE", test.state)
+			err := acceptance.verifyPluginPair(context.Background())
+			if (err == nil) != test.ok {
+				t.Fatalf("verifyPluginPair() error = %v, want success %t", err, test.ok)
+			}
+		})
+	}
+}
+
+func TestPluginRuntimeReadyRequiresExactlyOneRunningTarget(t *testing.T) {
+	t.Parallel()
+
+	running := mmPluginStatus{
+		PluginID: "com.threadhub.channel-email-notifier",
+		State:    mattermostPluginStateRunning,
+		Version:  "0.1.0",
+	}
+	if !pluginRuntimeReady([]mmPluginStatus{running}) {
+		t.Fatal("pluginRuntimeReady() rejected the exact running plugin")
+	}
+	if got := pluginRuntimeClassification([]mmPluginStatus{running}); got != "running" {
+		t.Fatalf("pluginRuntimeClassification() = %q, want running", got)
+	}
+
+	for name, statuses := range map[string][]mmPluginStatus{
+		"missing":       nil,
+		"duplicate":     {running, running},
+		"starting":      {{PluginID: running.PluginID, State: 1, Version: running.Version}},
+		"failed":        {{PluginID: running.PluginID, State: 3, Version: running.Version}},
+		"wrong version": {{PluginID: running.PluginID, State: running.State, Version: "0.1.1"}},
+		"reported error": {{
+			PluginID: running.PluginID, State: running.State, Version: running.Version, Error: "startup failed",
+		}},
+	} {
+		statuses := statuses
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			if pluginRuntimeReady(statuses) {
+				t.Fatalf("pluginRuntimeReady() accepted %s state", name)
+			}
+			if got := pluginRuntimeClassification(statuses); got != "not-ready" {
+				t.Fatalf("pluginRuntimeClassification() = %q, want not-ready", got)
+			}
+		})
+	}
+}
+
+func TestWaitPluginRuntimeDoesNotTreatPingOrConfiguredActiveAsReady(t *testing.T) {
+	t.Parallel()
+
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if request.URL.Path != "/api/v4/plugins/statuses" || request.Header.Get("Authorization") != "Bearer integration-token" {
+			http.Error(response, "rejected", http.StatusUnauthorized)
+			return
+		}
+		requests++
+		state := 1
+		if requests >= 2 {
+			state = mattermostPluginStateRunning
+		}
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `[{"plugin_id":"com.threadhub.channel-email-notifier","state":`+strconv.Itoa(state)+`,"version":"0.1.0","error":""}]`)
+	}))
+	defer server.Close()
+
+	var diagnostic bytes.Buffer
+	acceptance := acceptance{mattermost: &mattermostClient{
+		baseURL: server.URL, token: "integration-token", client: newHTTPClient(time.Second),
+	}, diagnostic: &diagnostic}
+	if err := acceptance.waitPluginRuntime(context.Background(), time.Second); err != nil {
+		t.Fatalf("waitPluginRuntime() error = %v", err)
+	}
+	if requests < 2 {
+		t.Fatalf("plugin runtime status requests = %d, want at least 2", requests)
+	}
+	if got := diagnostic.String(); got != "plugin-runtime=not-ready\nplugin-runtime=running\n" {
+		t.Fatalf("private diagnostic = %q", got)
 	}
 }
 
@@ -220,10 +330,10 @@ func TestCaptureDeltaRequiresExactRecipientCountsAndGenericContent(t *testing.T)
 
 	hashA := strings.Repeat("a", 64)
 	hashB := strings.Repeat("b", 64)
-	before := captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 2, GenericContent: true}}}
+	before := captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 2, GenericContent: true, LastAttemptAtMS: 100}}}
 	after := captureSnapshot{Captures: []capture{
-		{RecipientHash: hashA, EnvelopeCount: 3, GenericContent: true},
-		{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: true},
+		{RecipientHash: hashA, EnvelopeCount: 3, GenericContent: true, LastAttemptAtMS: 200},
+		{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: 201},
 	}}
 	if !hasExactDelta(before, after, map[string]int{hashA: 1, hashB: 1}) {
 		t.Fatal("hasExactDelta() rejected exact per-recipient increments")
@@ -244,7 +354,10 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 	for name, snapshot := range map[string]captureSnapshot{
 		"duplicate": {Captures: []capture{{RecipientHash: strings.Repeat("a", 64)}, {RecipientHash: strings.Repeat("a", 64)}}},
 		"negative":  {Captures: []capture{{RecipientHash: strings.Repeat("b", 64), EnvelopeCount: -1}}},
-		"bad hash":  {Captures: []capture{{RecipientHash: "recipient@integration.invalid", EnvelopeCount: 1}}},
+		"bad hash":  {Captures: []capture{{RecipientHash: "recipient@integration.invalid", EnvelopeCount: 1, LastAttemptAtMS: 1}}},
+		"missing attempt timestamp": {Captures: []capture{{
+			RecipientHash: strings.Repeat("d", 64), EnvelopeCount: 1, GenericContent: true,
+		}}},
 	} {
 		snapshot := snapshot
 		t.Run(name, func(t *testing.T) {
@@ -256,6 +369,36 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 	}
 	if !validateCaptureSnapshot(captureSnapshot{Captures: []capture{{RecipientHash: strings.Repeat("c", 64), EnvelopeCount: 0, GenericContent: true}}}) {
 		t.Fatal("validateCaptureSnapshot() rejected a valid aggregate")
+	}
+}
+
+func TestFirstCaptureLatencyUsesServerCreationAndSMTPAttemptTimestamps(t *testing.T) {
+	t.Parallel()
+
+	hashA := strings.Repeat("a", 64)
+	hashB := strings.Repeat("b", 64)
+	createdAtMS := int64(1787790000000)
+	before := captureSnapshot{Captures: []capture{}}
+	after := captureSnapshot{Captures: []capture{
+		{RecipientHash: hashA, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: createdAtMS + 9999},
+		{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: createdAtMS + 10001},
+	}}
+	latency, ok := firstCaptureLatency(createdAtMS, before, after, []string{hashA, hashB})
+	if !ok || latency != 9999*time.Millisecond {
+		t.Fatalf("firstCaptureLatency() = %s, %t, want 9.999s, true", latency, ok)
+	}
+
+	late := captureSnapshot{Captures: []capture{{
+		RecipientHash: hashB, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: createdAtMS + 10001,
+	}}}
+	if latency, ok := firstCaptureLatency(createdAtMS, before, late, []string{hashA, hashB}); !ok || latency != 10001*time.Millisecond {
+		t.Fatalf("firstCaptureLatency() = %s, %t, want measurable late attempt", latency, ok)
+	}
+	beforeCreation := captureSnapshot{Captures: []capture{{
+		RecipientHash: hashA, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: createdAtMS - 1,
+	}}}
+	if _, ok := firstCaptureLatency(createdAtMS, before, beforeCreation, []string{hashA}); ok {
+		t.Fatal("firstCaptureLatency() accepted an SMTP timestamp before post creation")
 	}
 }
 

@@ -32,6 +32,8 @@ NF-HARNESS-plugin-reinit
 NF-HARNESS-plugin-restart
 NF-HARNESS-plugin-enable
 NF-HARNESS-plugin-active-list
+NF-HARNESS-plugin-runtime
+NF-HARNESS-plugin-pair
 NF-HARNESS-capture-api
 NF-HARNESS-compose
 NF-FN-01-public-root
