@@ -916,12 +916,19 @@ func firstCaptureLatency(createdAtMS int64, before, after captureSnapshot, hashe
 		}
 		seen[hash] = struct{}{}
 		prior, current := beforeMap[hash], afterMap[hash]
-		if current.EnvelopeCount != prior.EnvelopeCount+1 {
+		delta := current.EnvelopeCount - prior.EnvelopeCount
+		if delta < 0 || delta > 1 {
+			return 0, false
+		}
+		if delta == 0 {
 			continue
+		}
+		if prior.EnvelopeCount > 0 && current.LastAttemptAtMS <= prior.LastAttemptAtMS {
+			return 0, false
 		}
 		latencyMS := current.LastAttemptAtMS - createdAtMS
 		if latencyMS < 0 {
-			continue
+			return 0, false
 		}
 		latency := time.Duration(latencyMS) * time.Millisecond
 		if !found || latency < first {

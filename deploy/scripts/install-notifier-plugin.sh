@@ -205,7 +205,11 @@ ensure_plugin_active() {
     enable_expected_plugin || return 1
     plugin_list_json > "${tmp_dir}/plugin-list.json" || return 1
     notifier_plugin_list_is_exact_active \
-        "${tmp_dir}/plugin-list.json" "${plugin_id}" "${notifier_version}"
+        "${tmp_dir}/plugin-list.json" "${plugin_id}" "${notifier_version}" \
+        || return 1
+    notifier_plugin_pair_is_exact \
+        "${target_root}" "${bundle_target}" "${extracted_root}" \
+        "${bundle_sha256}" "${tmp_dir}"
 }
 
 if notifier_plugin_tree_is_exact "${target_root}" "${extracted_root}" "${tmp_dir}" \

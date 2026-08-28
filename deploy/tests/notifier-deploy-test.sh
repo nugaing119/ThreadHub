@@ -699,6 +699,90 @@ test_rollback_stops_service_after_enable_or_state_verification_failure() (
     done
 )
 
+test_rollback_stops_service_after_failed_start_attempt() (
+    transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
+    # shellcheck source=/dev/null
+    source "${transaction_library}"
+
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    target="${fixture}/plugins/notifier"
+    stage="${fixture}/release/runtime-stage"
+    backup="${fixture}/release/runtime-backup"
+    failed="${fixture}/release/runtime-failed"
+    bundle_target="${fixture}/data/plugins/notifier.tar.gz"
+    bundle_stage="${fixture}/release/bundle-stage.tar.gz"
+    bundle_backup="${fixture}/release/bundle-backup.tar.gz"
+    bundle_failed="${fixture}/release/bundle-failed.tar.gz"
+    mkdir -p "${target}" "${stage}" "$(dirname "${bundle_target}")"
+    printf 'old-runtime\n' > "${target}/generation"
+    printf 'new-runtime\n' > "${stage}/generation"
+    printf 'old-bundle\n' > "${bundle_target}"
+    printf 'new-bundle\n' > "${bundle_stage}"
+    printf 'running\n' > "${fixture}/service"
+    printf 'active\n' > "${fixture}/plugin"
+    printf 'enabled\n' > "${fixture}/control"
+    printf '0\n' > "${fixture}/start-attempts"
+    printf '0\n' > "${fixture}/stop-attempts"
+
+    # shellcheck disable=SC2329
+    plugin_tx_disable_control() { printf 'disabled\n' > "${fixture}/control"; }
+    # shellcheck disable=SC2329
+    plugin_tx_disable_plugin() { printf 'inactive\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_stop_service() {
+        attempts="$(<"${fixture}/stop-attempts")"
+        attempts=$((attempts + 1))
+        printf '%s\n' "${attempts}" > "${fixture}/stop-attempts"
+        printf 'stopped\n' > "${fixture}/service"
+    }
+    # shellcheck disable=SC2329
+    plugin_tx_prepare_targets() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_start_service() {
+        attempts="$(<"${fixture}/start-attempts")"
+        attempts=$((attempts + 1))
+        printf '%s\n' "${attempts}" > "${fixture}/start-attempts"
+        printf 'running\n' > "${fixture}/service"
+        if ((attempts == 2)); then
+            return 99
+        fi
+    }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_enable_previous_plugin() { printf 'active\n' > "${fixture}/plugin"; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_plugin() { return 93; }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_objects() {
+        [[ "$(<"${target}/generation")" == old-runtime ]] \
+            && [[ "$(<"${bundle_target}")" == old-bundle ]]
+    }
+    # shellcheck disable=SC2329
+    plugin_tx_verify_previous_plugin() { return 0; }
+    # shellcheck disable=SC2329
+    plugin_tx_path_exists() { [[ -e "$1" ]]; }
+    # shellcheck disable=SC2329
+    plugin_tx_move() { mv "$1" "$2"; }
+
+    set +e
+    notifier_plugin_transaction \
+        "${target}" "${stage}" "${backup}" "${failed}" \
+        "${bundle_target}" "${bundle_stage}" "${bundle_backup}" "${bundle_failed}" \
+        true true > "${fixture}/stdout" 2> "${fixture}/stderr"
+    transaction_result=$?
+    set -e
+    [[ "${transaction_result}" == 70 ]] || return 1
+    grep -F 'service_start' "${fixture}/stderr" >/dev/null || return 1
+    [[ "$(<"${fixture}/start-attempts")" == 2 ]] || return 1
+    [[ "$(<"${fixture}/stop-attempts")" == 3 ]] || return 1
+    [[ "$(<"${fixture}/service")" == stopped ]] || return 1
+    [[ "$(<"${fixture}/control")" == disabled ]] || return 1
+    [[ "$(<"${target}/generation")" == old-runtime ]] || return 1
+    [[ "$(<"${bundle_target}")" == old-bundle ]]
+)
+
 test_rollback_verifies_restored_pair_before_service_start() (
     transaction_library="${DEPLOY_DIR}/scripts/notifier-plugin-transaction.sh"
     # shellcheck source=/dev/null
@@ -1159,6 +1243,12 @@ if test_rollback_stops_service_after_enable_or_state_verification_failure; then
     pass "plugin rollback stops Mattermost after enable or state verification failure"
 else
     fail "plugin rollback leaves Mattermost running after enable or state verification failure"
+fi
+
+if test_rollback_stops_service_after_failed_start_attempt; then
+    pass "plugin rollback compensates every failed Mattermost start attempt"
+else
+    fail "plugin rollback can leave Mattermost running after a failed start attempt"
 fi
 
 if test_rollback_verifies_restored_pair_before_service_start; then

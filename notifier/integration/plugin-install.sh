@@ -16,7 +16,7 @@ source /threadhub-deploy/notifier-plugin-transaction.sh
 SUDO_COMMAND=()
 mode="${1:-install}"
 [[ "$#" -le 1 ]] || exit 2
-[[ "${mode}" == install || "${mode}" == verify ]] || exit 2
+[[ "${mode}" == install || "${mode}" == verify || "${mode}" == tamper-bundle ]] || exit 2
 plugin_id="${NOTIFIER_PLUGIN_ID:?notifier plugin ID is required}"
 notifier_version="${NOTIFIER_VERSION:?notifier version is required}"
 [[ "${plugin_id}" == com.threadhub.channel-email-notifier ]] || exit 2
@@ -37,6 +37,7 @@ backup_root="${backup_dir}/${plugin_id}-runtime-$$"
 failed_root="${backup_dir}/${plugin_id}-runtime-failed-$$"
 bundle_backup="${backup_dir}/${plugin_id}-bundle-$$.tar.gz"
 bundle_failed="${backup_dir}/${plugin_id}-bundle-failed-$$.tar.gz"
+tampered_bundle="${release_dir}/.${plugin_id}.integration-tampered-bundle"
 tmp_dir="$(mktemp -d /tmp/threadhub-plugin-install.XXXXXX)"
 
 cleanup_plugin_install() {
@@ -55,7 +56,7 @@ done
 for path in \
     "${target_root}" "${bundle_target}" "${stage_root}" "${bundle_stage}" \
     "${backup_dir}" "${backup_root}" "${failed_root}" \
-    "${bundle_backup}" "${bundle_failed}"; do
+    "${bundle_backup}" "${bundle_failed}" "${tampered_bundle}"; do
     [[ ! -L "${path}" ]] || exit 1
 done
 for path in \
@@ -86,9 +87,31 @@ bundle_sha="$(notifier_plugin_privileged_sha256 "${reviewed_bundle}")"
 [[ "${bundle_sha}" =~ ^[a-f0-9]{64}$ ]] || exit 1
 
 if [[ "${mode}" == verify ]]; then
+    if notifier_plugin_pair_is_exact \
+        "${target_root}" "${bundle_target}" "${reviewed_root}" \
+        "${bundle_sha}" "${tmp_dir}"; then
+        exit 0
+    fi
+    exit 42
+fi
+
+if [[ "${mode}" == tamper-bundle ]]; then
     notifier_plugin_pair_is_exact \
         "${target_root}" "${bundle_target}" "${reviewed_root}" \
-        "${bundle_sha}" "${tmp_dir}"
+        "${bundle_sha}" "${tmp_dir}" || exit 1
+    [[ -d "${backup_dir}" && ! -L "${backup_dir}" ]] || exit 1
+    [[ ! -e "${tampered_bundle}" && ! -L "${tampered_bundle}" ]] || exit 1
+    notifier_plugin_move_no_clobber "${bundle_target}" "${tampered_bundle}" \
+        || exit 1
+    notifier_plugin_tree_is_exact "${target_root}" "${reviewed_root}" "${tmp_dir}" \
+        || exit 1
+    notifier_plugin_bundle_is_exact "${tampered_bundle}" "${bundle_sha}" || exit 1
+    if notifier_plugin_pair_presence \
+        "${target_root}" "${bundle_target}" >/dev/null 2>&1; then
+        exit 1
+    fi
+    [[ -d "${target_root}" && ! -e "${bundle_target}" && ! -L "${bundle_target}" ]] \
+        || exit 1
     exit 0
 fi
 

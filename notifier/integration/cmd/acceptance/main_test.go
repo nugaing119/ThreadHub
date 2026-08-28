@@ -138,6 +138,8 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-HARNESS-plugin-active-list",
 		"NF-HARNESS-plugin-runtime",
 		"NF-HARNESS-plugin-pair",
+		"NF-HARNESS-plugin-pair-tamper",
+		"NF-HARNESS-plugin-pair-negative",
 		"NF-HARNESS-capture-api",
 		"NF-HARNESS-compose",
 		"NF-FN-01-public-root",
@@ -399,6 +401,13 @@ func TestFirstCaptureLatencyUsesServerCreationAndSMTPAttemptTimestamps(t *testin
 	}}}
 	if _, ok := firstCaptureLatency(createdAtMS, before, beforeCreation, []string{hashA}); ok {
 		t.Fatal("firstCaptureLatency() accepted an SMTP timestamp before post creation")
+	}
+	mixedImpossibleAndValid := captureSnapshot{Captures: []capture{
+		{RecipientHash: hashA, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: createdAtMS - 1},
+		{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: true, LastAttemptAtMS: createdAtMS + 100},
+	}}
+	if _, ok := firstCaptureLatency(createdAtMS, before, mixedImpossibleAndValid, []string{hashA, hashB}); ok {
+		t.Fatal("firstCaptureLatency() accepted another recipient after an impossible new timestamp")
 	}
 }
 

@@ -34,6 +34,7 @@ notifier_plugin_transaction() (
     rollback_failures=""
     object_restore_complete=true
     object_transaction_started=false
+    rollback_service_start_attempted=false
     rollback_service_started=false
     rollback_recovery_failed=false
 
@@ -176,6 +177,7 @@ notifier_plugin_transaction() (
             || record_object_rollback_failure object_verify
 
         if [[ "${was_running}" == true && "${object_restore_complete}" == true ]]; then
+            rollback_service_start_attempted=true
             if (plugin_tx_start_service); then
                 rollback_service_started=true
             else
@@ -199,7 +201,7 @@ notifier_plugin_transaction() (
             fi
         fi
         if [[ "${rollback_recovery_failed}" == true \
-            && "${rollback_service_started}" == true ]]; then
+            && "${rollback_service_start_attempted}" == true ]]; then
             (plugin_tx_stop_service) \
                 || record_rollback_failure recovery_service_stop
         fi

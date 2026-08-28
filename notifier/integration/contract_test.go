@@ -65,7 +65,12 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`result_assertion=NF-HARNESS-plugin-enable`,
 		`result_assertion=NF-HARNESS-plugin-active-list`,
 		`result_assertion=NF-HARNESS-plugin-pair`,
+		`result_assertion=NF-HARNESS-plugin-pair-tamper`,
+		`result_assertion=NF-HARNESS-plugin-pair-negative`,
 		`compose_private run --rm --no-deps plugin-install verify`,
+		`compose_private run --rm --no-deps plugin-install tamper-bundle`,
+		`tamper_verify_status=$?`,
+		`[[ "${tamper_verify_status}" -eq 42 ]]`,
 		`mmctl plugin list --local --suppress-warnings --json`,
 		`source "${repository_root}/deploy/scripts/notifier-lib.sh"`,
 		`notifier_plugin_list_target_state`,
@@ -92,13 +97,18 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`filestore_parent="${data_root}/mattermost/data/plugins"`,
 		`target_root="${runtime_parent}/${plugin_id}"`,
 		`bundle_target="${filestore_parent}/${plugin_id}.tar.gz"`,
-		`[[ "${mode}" == install || "${mode}" == verify ]]`,
+		`tampered_bundle="${release_dir}/.${plugin_id}.integration-tampered-bundle"`,
+		`[[ "${mode}" == install || "${mode}" == verify || "${mode}" == tamper-bundle ]]`,
+		`if [[ "${mode}" == tamper-bundle ]]`,
 		`notifier_plugin_pair_is_exact`,
 		`plugin_tx_verify_previous_objects`,
 	} {
 		if !strings.Contains(installer, required) {
 			t.Fatalf("integration installer does not exercise shared production behavior %q", required)
 		}
+	}
+	if strings.Contains(installer, `notifier_plugin_move_no_clobber "${bundle_target}" "${bundle_failed}"`) {
+		t.Fatal("integration tamper reuses a transaction PID-scoped failure slot")
 	}
 }
 

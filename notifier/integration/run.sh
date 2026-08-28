@@ -477,6 +477,16 @@ set -e
 
 if [[ "${acceptance_status}" -eq 0 ]]; then
     cmp -s "${scenario_ids_file}" "${acceptance_output}" || abort_run NF-HARNESS-compose
+    result_assertion=NF-HARNESS-plugin-pair-tamper
+    compose_private stop --timeout 60 mattermost || abort_run NF-HARNESS-plugin-pair-tamper
+    compose_private run --rm --no-deps plugin-install tamper-bundle \
+        || abort_run NF-HARNESS-plugin-pair-tamper
+    result_assertion=NF-HARNESS-plugin-pair-negative
+    set +e
+    compose_private run --rm --no-deps plugin-install verify
+    tamper_verify_status=$?
+    set -e
+    [[ "${tamper_verify_status}" -eq 42 ]] || abort_run NF-HARNESS-plugin-pair-negative
     result_kind=success
     result_source="${acceptance_output}"
     exit 0
