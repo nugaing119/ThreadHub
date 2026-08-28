@@ -423,9 +423,31 @@ published_address() {
     local service="$1"
     local port="$2"
     local address=""
-    address="$(compose_run port "${service}" "${port}" 2>>"${diagnostic_file}")" || return 1
-    [[ "${address}" != *$'\n'* && "${address}" =~ ^127\.0\.0\.1:[0-9]+$ ]] || return 1
-    printf '%s' "${address}"
+    local classification=command
+    local attempt=0
+
+    case "${service}" in
+        mattermost | smtp-fixture | threadhub-mailer) ;;
+        *) service=unknown ;;
+    esac
+    while ((attempt < 10)); do
+        if address="$(compose_run port "${service}" "${port}" 2>>"${diagnostic_file}")"; then
+            classification="$(notifier_harness_classify_published_address "${address}")" \
+                || classification=format
+            if [[ "${classification}" == ok ]]; then
+                printf '%s' "${address}"
+                return 0
+            fi
+        else
+            classification='command'
+        fi
+        ((attempt += 1))
+        if ((attempt < 10)); then
+            sleep 1
+        fi
+    done
+    printf 'published_address_failure=%s-%s\n' "${service}" "${classification}" >&3
+    return 1
 }
 
 wait_http() {

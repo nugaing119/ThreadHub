@@ -51,6 +51,53 @@ func TestHarnessFileModeDetectionIsCrossPlatform(t *testing.T) {
 	}
 }
 
+func TestHarnessClassifiesPublishedAddressesWithoutDisclosingPorts(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		address   string
+		wantClass string
+	}{
+		{name: "loopback", address: "127.0.0.1:49152", wantClass: "ok"},
+		{name: "empty", address: "", wantClass: "empty"},
+		{name: "multiple", address: "127.0.0.1:49152\n127.0.0.1:49153", wantClass: "multiple"},
+		{name: "all interfaces", address: "0.0.0.0:49152", wantClass: "all-interfaces"},
+		{name: "IPv6", address: "[::1]:49152", wantClass: "ipv6"},
+		{name: "unexpected", address: "localhost:49152", wantClass: "format"},
+	}
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			command := exec.Command(
+				"bash",
+				"-c",
+				`source ./harness-lib.sh; notifier_harness_classify_published_address "$1"`,
+				"bash",
+				testCase.address,
+			)
+			output, err := command.CombinedOutput()
+			if err != nil {
+				t.Fatalf("published address classifier failed: %v: %s", err, output)
+			}
+			if got := string(output); got != testCase.wantClass {
+				t.Fatalf("classification = %q, want %q", got, testCase.wantClass)
+			}
+		})
+	}
+
+	runner := readContractFile(t, "run.sh")
+	for _, required := range []string{
+		`notifier_harness_classify_published_address "${address}"`,
+		`printf 'published_address_failure=%s-%s\n'`,
+	} {
+		if !strings.Contains(runner, required) {
+			t.Fatalf("runner privacy-safe port diagnostic is missing %q", required)
+		}
+	}
+}
+
 func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	t.Parallel()
 
