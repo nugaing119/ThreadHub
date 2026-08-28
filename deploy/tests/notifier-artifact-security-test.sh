@@ -256,6 +256,21 @@ assert_history_rejected() {
     assert_safe_failure image-metadata run_gate
 }
 
+assert_history_accepted() {
+    local created_by="$1"
+    local history_json=""
+
+    history_json="$(jq -cn --arg created_by "${created_by}" \
+        '[{created_by:$created_by}]')"
+    make_image 'safe mailer fixture' '[]' "${history_json}"
+    if ! run_gate >"${temporary_dir}/accepted-history-output" 2>&1; then
+        fail 'statically safe history metadata was rejected'
+    fi
+    grep -Fx 'ok - notifier artifact secret gate: bundle and image passed' \
+        "${temporary_dir}/accepted-history-output" >/dev/null \
+        || fail 'accepted history scan did not emit the fixed success diagnostic'
+}
+
 for created_by in \
     'export "SMTP_PASSWORD"=x' \
     'export SMTP_"PASSWORD"=x' \
@@ -290,6 +305,12 @@ for created_by in \
     assert_history_rejected "${created_by}"
 done
 
+# A backslash-newline is removed by the shell before token recognition. Both
+# placements below therefore create a nonempty protected assignment even
+# though a later assignment in the same history entry clears the key.
+assert_history_rejected $'export SMTP_\\\nPASSWORD=x; SMTP_PASSWORD='
+assert_history_rejected $'export SMTP_PASSWORD\\\n=x; SMTP_PASSWORD='
+
 # These are literal shell-history fixtures; expansion is not intended.
 # shellcheck disable=SC2016
 for created_by in \
@@ -308,6 +329,64 @@ for created_by in \
     assert_history_rejected "${created_by}"
 done
 
+# Fully dynamic export arguments can expand to protected assignments without a
+# literal key or equals sign in the history text. The release grammar must fail
+# closed and must still inspect an earlier occurrence when the key is cleared
+# later in the same entry.
+# shellcheck disable=SC2016
+for created_by in \
+    'export ${X:-${Y}}SMTP_PASSWORD=x; SMTP_PASSWORD=' \
+    'export $PAIR; SMTP_PASSWORD=' \
+    'export ${PAIR}; SMTP_PASSWORD=' \
+    'export $(printf %s%s SMTP_ PASSWORD=x); SMTP_PASSWORD=' \
+    'export `printf %s%s SMTP_ PASSWORD=x`; SMTP_PASSWORD='; do
+    assert_history_rejected "${created_by}"
+done
+assert_history_rejected "export SMTP_PASSWORD\$'\\x3d'x; SMTP_PASSWORD="
+
+# Bash assignment append, brace expansion and pathname expansion are also
+# ambiguous export forms. Keep the strings as metadata only: this suite never
+# evaluates history.
+assert_history_rejected \
+    "export SMTP_PASSWORD+=${history_planted_value}; SMTP_PASSWORD="
+assert_history_rejected \
+    "export {SMTP_PASSWORD,FOO}=${history_planted_value}; SMTP_PASSWORD="
+# shellcheck disable=SC2016
+for created_by in \
+    'export *; SMTP_PASSWORD=' \
+    'export [S]MTP_PASSWORD=x; SMTP_PASSWORD='; do
+    assert_history_rejected "${created_by}"
+done
+
+# CR, vertical tab and form feed are ordinary token characters in the shell,
+# not lexical separators. They keep the protected text inside a larger literal
+# token on either side and are therefore statically safe nonmatches.
+for non_separator in $'\r' $'\v' $'\f'; do
+    assert_history_accepted "RUN X${non_separator}SMTP_PASSWORD=x"
+    assert_history_accepted "RUN SMTP_PASSWORD${non_separator}=x"
+done
+
+# Space, tab, newline and the shell operators remain real token boundaries.
+assert_history_rejected $'RUN\tSMTP_PASSWORD=x; SMTP_PASSWORD='
+assert_history_rejected $'RUN true\nSMTP_PASSWORD=x; SMTP_PASSWORD='
+
+# Policy: this gate deliberately does not interpret quote state. Assignment-
+# looking quoted data and unrelated dynamic export/assignment forms fail closed
+# even when a complete shell evaluation might prove a particular use harmless.
+assert_history_rejected "RUN printf '%s' 'SMTP_PASSWORD=x'"
+assert_history_rejected "RUN printf '%s' 'export FOO=x'"
+assert_history_rejected 'RUN export SMTP_PASSWORD=""'
+assert_history_rejected "RUN SMTP_USERNAME=''"
+# shellcheck disable=SC2016
+assert_history_rejected 'export FOO_$BAR=x'
+
+# The allowlist still admits demonstrably plain static history, including
+# protected key-only/explicit-empty forms and literal larger identifiers.
+assert_history_accepted \
+    'RUN FOO=bar; export BAR=baz; SMTP_PASSWORD=; export SMTP_USERNAME'
+assert_history_accepted \
+    'RUN XSMTP_PASSWORD=x SMTP_PASSWORDX=x éSMTP_PASSWORD=x SMTP_PASSWORDé=x 变量SMTP_PASSWORD=x'
+
 assert_history_rejected \
     "export SMTP_\"PASSWORD\"=${history_planted_value}; SMTP_PASSWORD="
 
@@ -322,7 +401,7 @@ for created_by in \
 done
 make_image 'safe mailer fixture' \
     '["SMTP_PASSWORD=","SMTP_USERNAME","NOTIFIER_HMAC_SECRET="]' \
-    '[{"created_by":"ENV SMTP_PASSWORD="},{"created_by":"ENV NOTIFIER_HMAC_SECRET"},{"created_by":"export \"SMTP_USERNAME=\""},{"created_by":"SMTP_PASSWORD_SUFFIX=x MY_SMTP_PASSWORD=x"},{"created_by":"XSMTP_PASSWORD=x SMTP_PASSWORDX=x"},{"created_by":"éSMTP_PASSWORD=x SMTP_PASSWORDé=x"},{"created_by":"变量SMTP_PASSWORD=x SMTP_PASSWORD变量=x"},{"created_by":"RUN SMTP_PASSWORD"},{"created_by":"RUN export SMTP_PASSWORD"},{"created_by":"RUN SMTP_PASSWORD= SMTP_USERNAME= NOTIFIER_HMAC_SECRET="},{"created_by":"RUN export SMTP_PASSWORD=\"\" SMTP_USERNAME=\u0027\u0027"}]'
+    '[{"created_by":"ENV SMTP_PASSWORD="},{"created_by":"ENV NOTIFIER_HMAC_SECRET"},{"created_by":"SMTP_PASSWORD_SUFFIX=x MY_SMTP_PASSWORD=x"},{"created_by":"XSMTP_PASSWORD=x SMTP_PASSWORDX=x"},{"created_by":"éSMTP_PASSWORD=x SMTP_PASSWORDé=x"},{"created_by":"变量SMTP_PASSWORD=x SMTP_PASSWORD变量=x"},{"created_by":"RUN SMTP_PASSWORD"},{"created_by":"RUN export SMTP_PASSWORD"},{"created_by":"RUN SMTP_PASSWORD= SMTP_USERNAME= NOTIFIER_HMAC_SECRET="},{"created_by":"RUN export SMTP_PASSWORD= SMTP_USERNAME="}]'
 run_gate >"${temporary_dir}/empty-key-only-output" 2>&1 \
     || fail 'absent, empty or key-only credential metadata was rejected'
 assert_history_rejected 'RUN SMTP_PASSWORD="x"'

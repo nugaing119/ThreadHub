@@ -205,60 +205,29 @@ if ! jq -e '
       . == "SMTP_USERNAME" or
       . == "SMTP_PASSWORD" or
       . == "NOTIFIER_HMAC_SECRET";
-    def quoted_delimiter: "\ue000";
-    def literal_dollar: "\ue001";
-    def literal_backtick: "\ue002";
-    def literal_backslash: "\ue003";
-    def literal_quote: "\ue004";
-    def ambiguous_fragment: "\ue005";
-    def protect_quoted_delimiters:
-      gsub("[[:space:];&|()]"; quoted_delimiter);
-    def protect_single_quoted_syntax:
-      protect_quoted_delimiters |
-      gsub("\\$"; literal_dollar) |
-      gsub("`"; literal_backtick) |
-      gsub("\\\\"; literal_backslash) |
-      gsub("[\\\"\\x27]"; literal_quote);
-    def protect_double_quoted_syntax:
-      protect_quoted_delimiters |
-      gsub("\\x27"; literal_quote);
-    def protect_ansi_c_quoted_syntax:
-      gsub("\\\\."; ambiguous_fragment; "s") |
-      protect_single_quoted_syntax;
-    def protect_escaped_syntax:
-      if test("^[[:space:];&|()]$") then quoted_delimiter
-      elif . == "$" then literal_dollar
-      elif . == "`" then literal_backtick
-      elif . == "\\" then literal_backslash
-      elif . == "\"" or . == "\u0027" then literal_quote
-      else .
-      end;
-    def canonicalize_shell_syntax:
-      gsub("\\$\\x27(?<body>(?:\\\\.|[^\\x27])*)\\x27";
-           (.body | protect_ansi_c_quoted_syntax)) |
-      gsub("\\x27(?<body>[^\\x27]*)\\x27";
-           (.body | protect_single_quoted_syntax)) |
-      gsub("\\\"(?<body>(?:\\\\.|[^\\\"])*)\\\"";
-           (.body | protect_double_quoted_syntax)) |
-      gsub("\\\\(?<escaped>.)";
-           (.escaped | protect_escaped_syntax); "s");
+    def remove_line_continuations:
+      gsub("\\\\\n"; "");
+    def export_token:
+      test("(^|[ \\t\\n;&|()])export($|[ \\t\\n;&|()])");
+    def has_ambiguous_dynamic_or_escape:
+      contains("$") or contains("`") or contains("\\") or contains("+=");
+    def has_ambiguous_export_syntax:
+      export_token and
+      (contains("{") or contains("}") or
+       contains("*") or contains("?") or
+       contains("[") or contains("]"));
+    def has_ambiguous_quote_state:
+      (contains("\"") or contains("\u0027")) and
+      (contains("=") or export_token);
     def protected_assignment_values:
-      scan("(?<![^[:space:];&|()])(?:SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[[:space:]]*=([^;&|()]*?)(?=[[:space:]]+[A-Za-z_][A-Za-z0-9_]*[[:space:]]*=|[;&|()]|$)");
-    def dynamic_key_fragment_pattern:
-      "(?:\\$\\{[^}]*\\}|\\$\\((?:[^()]|\\([^()]*\\))*\\)|\\$[A-Za-z0-9_@*#?$!-]+|`[^`]*`|\ue005)";
-    def ambiguous_dynamic_assignments:
-      dynamic_key_fragment_pattern as $dynamic |
-      scan("(?<![^[:space:];&|()])[A-Za-z0-9_]*(?:" + $dynamic + ")(?:[A-Za-z0-9_]|" + $dynamic + ")*[[:space:]]*=");
-    def ambiguous_prefixed_assignments:
-      scan("(?<![^[:space:];&|()])(?:SMTP_|NOTIFIER_HMAC_)(?=[^=]*[\\$`])[^=]*="; "s");
+      scan("(?<![^ \\t\\n;&|()])(?:SMTP_USERNAME|SMTP_PASSWORD|NOTIFIER_HMAC_SECRET)[ \\t\\n]*=([^;&|()]*?)(?=[ \\t\\n]+[A-Za-z_][A-Za-z0-9_]*[ \\t\\n]*=|[;&|()]|$)");
     def history_text_is_safe:
-      if test("[\ue000-\ue005]") then false
-      else canonicalize_shell_syntax as $canonical |
-        ([ $canonical | protected_assignment_values |
-           select(.[0] != "") ] | length == 0) and
-        ([ $canonical | ambiguous_dynamic_assignments ] | length == 0) and
-        ([ $canonical | ambiguous_prefixed_assignments ] | length == 0)
-      end;
+      remove_line_continuations as $literal |
+      (($literal | has_ambiguous_dynamic_or_escape) | not) and
+      (($literal | has_ambiguous_export_syntax) | not) and
+      (($literal | has_ambiguous_quote_state) | not) and
+      ([ $literal | protected_assignment_values |
+         select(.[0] != "") ] | length == 0);
     if (.config | type) != "object" then false
     else
       (if ((.config | has("Env")) and .config.Env != null)
