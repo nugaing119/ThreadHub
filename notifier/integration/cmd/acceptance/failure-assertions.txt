@@ -19,6 +19,10 @@ NF-HARNESS-compose-cleanup-container
 NF-HARNESS-compose-cleanup-project-down
 NF-HARNESS-compose-cleanup-project-residue
 NF-HARNESS-compose-cleanup-workspace
+NF-HARNESS-published-mattermost
+NF-HARNESS-published-mailer
+NF-HARNESS-acceptance-run
+NF-HARNESS-acceptance-output
 NF-HARNESS-bootstrap-admin-create
 NF-HARNESS-bootstrap-admin-login
 NF-HARNESS-bootstrap-team-create

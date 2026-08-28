@@ -120,6 +120,8 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 		`source "${repository_root}/deploy/scripts/notifier-lib.sh"`,
 		`notifier_plugin_list_target_state`,
 		`rm -rf -- "${integration_root}"`,
+		`compose_run stop --timeout 10`,
+		`compose_run run --rm --no-deps volume-cleanup`,
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("runner contract is missing %q", required)
@@ -130,6 +132,25 @@ func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	}
 	if strings.Contains(runner, "./integration/cmd/plugin-state") {
 		t.Fatal("runner builds a harness-only plugin-state parser")
+	}
+	stopIndex := strings.Index(runner, `compose_run stop --timeout 10`)
+	ownershipIndex := strings.Index(runner, `compose_run run --rm --no-deps volume-cleanup`)
+	downIndex := strings.Index(runner, `compose_run down --volumes --remove-orphans --timeout 10`)
+	if stopIndex < 0 || ownershipIndex <= stopIndex || downIndex <= ownershipIndex {
+		t.Fatal("runner does not stop services, restore host ownership, then remove the project")
+	}
+
+	for _, required := range []string{
+		"  volume-cleanup:\n",
+		`chown -R ${INTEGRATION_HOST_UID:?set INTEGRATION_HOST_UID}:${INTEGRATION_HOST_UID}`,
+		`/integration/postgres`,
+		`/integration/mattermost-host`,
+		`/integration/mailer`,
+		`/integration/control`,
+	} {
+		if !strings.Contains(compose, required) {
+			t.Fatalf("host ownership cleanup contract is missing %q", required)
+		}
 	}
 
 	installer := readContractFile(t, "plugin-install.sh")

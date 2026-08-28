@@ -55,6 +55,32 @@ services:
       - smtp-private:/integration/smtp-private:rw
       - smtp-ca:/integration/smtp-ca:rw
 
+  volume-cleanup:
+    image: "${GO_BUILDER_IMAGE_REPOSITORY:?load versions}:${GO_BUILDER_IMAGE_TAG:?load versions}@${GO_BUILDER_IMAGE_DIGEST:?load versions}"
+    platform: linux/amd64
+    user: "0:0"
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    network_mode: none
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=16m
+    entrypoint:
+      - /bin/bash
+      - -c
+    command:
+      - >-
+        chown -R ${INTEGRATION_HOST_UID:?set INTEGRATION_HOST_UID}:${INTEGRATION_HOST_UID}
+        /integration/postgres
+        /integration/mattermost-host
+        /integration/mailer
+        /integration/control
+    volumes:
+      - "${INTEGRATION_DATA_ROOT:?set INTEGRATION_DATA_ROOT}/postgres:/integration/postgres:rw"
+      - "${INTEGRATION_DATA_ROOT}/mattermost:/integration/mattermost-host:rw"
+      - "${INTEGRATION_DATA_ROOT}/mailer:/integration/mailer:rw"
+      - "${INTEGRATION_DATA_ROOT}/control:/integration/control:rw"
+
   plugin-bundle:
     image: "threadhub/notifier-plugin-bundle:${NOTIFIER_VERSION:?load versions}"
     pull_policy: never

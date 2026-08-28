@@ -113,6 +113,16 @@ cleanup() {
     fi
 
     if [[ "${project_touched}" == true ]]; then
+        if ! compose_run stop --timeout 10 >/dev/null 2>&1; then
+            cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-project-down
+        fi
+        if ! compose_run run --rm --no-deps volume-cleanup >/dev/null 2>&1; then
+            cleanup_ok=false
+            [[ -n "${cleanup_assertion}" ]] \
+                || cleanup_assertion=NF-HARNESS-compose-cleanup-workspace
+        fi
         if ! compose_run down --volumes --remove-orphans --timeout 10 >/dev/null 2>&1; then
             cleanup_ok=false
             [[ -n "${cleanup_assertion}" ]] \
@@ -432,12 +442,12 @@ wait_http() {
     return 1
 }
 
-mattermost_address="$(published_address mattermost 8065)" || abort_run NF-HARNESS-compose
+mattermost_address="$(published_address mattermost 8065)" || abort_run NF-HARNESS-published-mattermost
 capture_address="$(published_address smtp-fixture 8081)" || abort_run NF-HARNESS-capture-api
-mailer_address="$(published_address threadhub-mailer 8080)" || abort_run NF-HARNESS-compose
+mailer_address="$(published_address threadhub-mailer 8080)" || abort_run NF-HARNESS-published-mailer
 wait_http "http://${mattermost_address}/api/v4/system/ping" 180 || abort_run NF-HARNESS-bootstrap
 wait_http "http://${capture_address}/healthz" 120 || abort_run NF-HARNESS-capture-api
-wait_http "http://${mailer_address}/healthz" 120 || abort_run NF-HARNESS-compose
+wait_http "http://${mailer_address}/healthz" 120 || abort_run NF-HARNESS-compose-start-mailer
 
 result_assertion=NF-HARNESS-plugin-stop
 compose_private stop --timeout 60 mattermost || abort_run NF-HARNESS-plugin-stop
@@ -491,7 +501,7 @@ case "${plugin_state_status}" in
         ;;
 esac
 
-result_assertion=NF-HARNESS-compose
+result_assertion=NF-HARNESS-acceptance-run
 set +e
 (
     cd -- "${notifier_root}" || exit 1
@@ -516,7 +526,7 @@ acceptance_status=$?
 set -e
 
 if [[ "${acceptance_status}" -eq 0 ]]; then
-    cmp -s "${scenario_ids_file}" "${acceptance_output}" || abort_run NF-HARNESS-compose
+    cmp -s "${scenario_ids_file}" "${acceptance_output}" || abort_run NF-HARNESS-acceptance-output
     result_assertion=NF-HARNESS-plugin-pair-tamper
     compose_private stop --timeout 60 mattermost || abort_run NF-HARNESS-plugin-pair-tamper
     compose_private run --rm --no-deps plugin-install tamper-bundle \
@@ -532,8 +542,8 @@ if [[ "${acceptance_status}" -eq 0 ]]; then
     exit 0
 fi
 
-[[ "$(wc -l <"${acceptance_output}" | tr -d '[:space:]')" == 1 ]] || abort_run NF-HARNESS-compose
+[[ "$(wc -l <"${acceptance_output}" | tr -d '[:space:]')" == 1 ]] || abort_run NF-HARNESS-acceptance-output
 result_assertion="$(<"${acceptance_output}")"
-is_failure_assertion "${result_assertion}" || abort_run NF-HARNESS-compose
+is_failure_assertion "${result_assertion}" || abort_run NF-HARNESS-acceptance-output
 result_kind=failure
 exit 1
