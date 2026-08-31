@@ -101,6 +101,7 @@ YAML
       SMTP_FROM_ADDRESS: "${THN_SMTP_FROM_ADDRESS:?set THN_SMTP_FROM_ADDRESS}"
       SMTP_REPLY_TO_ADDRESS: "${THN_SMTP_REPLY_TO_ADDRESS:?set THN_SMTP_REPLY_TO_ADDRESS}"
       SMTP_FEEDBACK_NAME: "${THN_SMTP_FEEDBACK_NAME:?set THN_SMTP_FEEDBACK_NAME}"
+      SSL_CERT_FILE: /run/threadhub-smtp-ca/ca.crt
     volumes:
       - type: bind
         source: "${THN_DATA_ROOT:?set THN_DATA_ROOT}/mailer"
@@ -109,6 +110,10 @@ YAML
       - type: bind
         source: "${THN_DATA_ROOT:?set THN_DATA_ROOT}/control"
         target: /run/threadhub-notifier
+        read_only: true
+      - type: bind
+        source: "${THN_SMTP_CA_FILE:?set THN_SMTP_CA_FILE}"
+        target: /run/threadhub-smtp-ca/ca.crt
         read_only: true
     networks:
       - threadhub-notifier-internal
@@ -141,19 +146,22 @@ existing_notifier_verify_combined_model() {
     local notifier_version
     local domain
     local hmac
+    local smtp_ca_file
 
     service="$(existing_notifier_value THN_MATTERMOST_SERVICE)"
     notifier_root="$(existing_notifier_value THN_DATA_ROOT)"
     notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")"
     domain="$(existing_notifier_value THN_DOMAIN)"
     hmac="$(existing_notifier_value THN_HMAC_SECRET)"
+    smtp_ca_file="$(existing_notifier_value THN_SMTP_CA_FILE)"
 
     jq -e \
         --arg service "${service}" \
         --arg notifier_root "${notifier_root}" \
         --arg mailer_image "threadhub/notifier-mailer:${notifier_version}" \
         --arg domain "${domain}" \
-        --arg hmac "${hmac}" '
+        --arg hmac "${hmac}" \
+        --arg smtp_ca_file "${smtp_ca_file}" '
         .services[$service] as $mm |
         .services["threadhub-mailer"] as $mailer |
         ($mm.environment.THREADHUB_DOMAIN == $domain) and
@@ -172,9 +180,11 @@ existing_notifier_verify_combined_model() {
         ($mailer.read_only == true) and
         ($mailer.cap_drop == ["ALL"]) and
         ($mailer.security_opt == ["no-new-privileges:true"]) and
+        ($mailer.environment.SSL_CERT_FILE == "/run/threadhub-smtp-ca/ca.crt") and
         (($mailer.ports // []) | length == 0) and
         ([$mailer.volumes[] | select(.type == "bind" and .source == ($notifier_root + "/mailer") and .target == "/var/lib/threadhub-notifier" and ((.read_only // false) == false))] | length == 1) and
         ([$mailer.volumes[] | select(.type == "bind" and .source == ($notifier_root + "/control") and .target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
+        ([$mailer.volumes[] | select(.type == "bind" and .source == $smtp_ca_file and .target == "/run/threadhub-smtp-ca/ca.crt" and .read_only == true)] | length == 1) and
         (($mailer.networks | keys | sort) == ["threadhub-notifier-internal", "threadhub-notifier-outbound"]) and
         (.networks["threadhub-notifier-internal"].internal == true) and
         ((.networks["threadhub-notifier-outbound"].internal // false) == false)

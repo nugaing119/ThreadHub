@@ -21,6 +21,7 @@ EXISTING_NOTIFIER_KEYS=(
     THN_DOMAIN
     THN_SMTP_SERVER
     THN_SMTP_PORT
+    THN_SMTP_CA_FILE
     THN_SMTP_USERNAME
     THN_SMTP_PASSWORD
     THN_SMTP_FROM_ADDRESS
@@ -124,7 +125,8 @@ existing_notifier_validate_config() {
         THN_COMPOSE_ENV_FILE \
         THN_MATTERMOST_PLUGINS_ROOT \
         THN_MATTERMOST_DATA_ROOT \
-        THN_DATA_ROOT; do
+        THN_DATA_ROOT \
+        THN_SMTP_CA_FILE; do
         existing_notifier_validate_clean_absolute_path "${key}" "$(existing_notifier_value "${key}")"
     done
 

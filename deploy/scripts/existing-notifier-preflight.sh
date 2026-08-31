@@ -30,6 +30,7 @@ existing_notifier_assert_input_paths() {
     local compose_env_file
     local plugins_root
     local data_root
+    local smtp_ca_file
     local path
 
     project_dir="$(existing_notifier_value THN_COMPOSE_PROJECT_DIR)"
@@ -37,6 +38,7 @@ existing_notifier_assert_input_paths() {
     compose_env_file="$(existing_notifier_value THN_COMPOSE_ENV_FILE)"
     plugins_root="$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)"
     data_root="$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)"
+    smtp_ca_file="$(existing_notifier_value THN_SMTP_CA_FILE)"
 
     [[ -d "${project_dir}" && ! -L "${project_dir}" ]] || return 1
     for path in "${compose_file}" "${compose_env_file}"; do
@@ -48,6 +50,8 @@ existing_notifier_assert_input_paths() {
         [[ -d "${path}" && ! -L "${path}" ]] || return 1
         existing_notifier_mode_is_not_writable_by_group_or_other "${path}" || return 1
     done
+    [[ -f "${smtp_ca_file}" && ! -L "${smtp_ca_file}" ]] || return 1
+    existing_notifier_mode_is_not_writable_by_group_or_other "${smtp_ca_file}" || return 1
 
 }
 

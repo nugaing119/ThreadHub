@@ -44,6 +44,7 @@ THN_DATA_ROOT=/srv/threadhub-notifier
 THN_DOMAIN=mattermost.valid.test
 THN_SMTP_SERVER=smtp.email.ap-singapore-1.oci.oraclecloud.com
 THN_SMTP_PORT=587
+THN_SMTP_CA_FILE=/etc/ssl/certs/ca-certificates.crt
 THN_SMTP_USERNAME=${FIXTURE_USERNAME}
 THN_SMTP_PASSWORD=${FIXTURE_PASSWORD}
 THN_SMTP_FROM_ADDRESS=no-reply@valid.test

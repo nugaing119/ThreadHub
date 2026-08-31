@@ -37,6 +37,7 @@ prepare_fixture() {
     plugins_root="${fixture}/mattermost/plugins"
     data_root="${fixture}/mattermost/data"
     notifier_root="${fixture}/notifier"
+    smtp_ca_file="${fixture}/smtp-ca.crt"
     config="${fixture}/existing-notifier.env"
     model="${fixture}/model.json"
     calls="${fixture}/calls"
@@ -45,6 +46,8 @@ prepare_fixture() {
     printf '%s\n' 'services:' '  mattermost:' '    image: mattermost/mattermost-team-edition:11.7.7' > "${compose_file}"
     printf '%s\n' 'EXISTING_VALUE=preserved' > "${existing_env}"
     chmod 0600 "${existing_env}"
+    printf '%s\n' 'fixture-ca' > "${smtp_ca_file}"
+    chmod 0644 "${smtp_ca_file}"
     cat > "${config}" <<EOF
 THN_COMPOSE_PROJECT_DIR=${project_dir}
 THN_COMPOSE_FILE=${compose_file}
@@ -56,6 +59,7 @@ THN_DATA_ROOT=${notifier_root}
 THN_DOMAIN=mattermost.valid.test
 THN_SMTP_SERVER=smtp.email.ap-singapore-1.oci.oraclecloud.com
 THN_SMTP_PORT=587
+THN_SMTP_CA_FILE=${smtp_ca_file}
 THN_SMTP_USERNAME=fixture-private-user
 THN_SMTP_PASSWORD=fixture-private-password
 THN_SMTP_FROM_ADDRESS=no-reply@valid.test
@@ -264,6 +268,31 @@ test_world_readable_existing_env_is_rejected() (
     assert_private_output
 )
 
+test_unsafe_smtp_ca_is_rejected_before_docker() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    chmod 0664 "${smtp_ca_file}"
+    set +e
+    run_preflight > "${output}" 2>&1
+    result=$?
+    set -e
+    assert_action_required_result "${result}" || return 1
+    [[ ! -s "${calls}" ]] || return 1
+    assert_private_output || return 1
+
+    : > "${calls}"
+    chmod 0644 "${smtp_ca_file}"
+    mv "${smtp_ca_file}" "${smtp_ca_file}.real"
+    ln -s "${smtp_ca_file}.real" "${smtp_ca_file}"
+    set +e
+    run_preflight > "${output}" 2>&1
+    result=$?
+    set -e
+    assert_action_required_result "${result}" || return 1
+    [[ ! -s "${calls}" ]] || return 1
+    assert_private_output
+)
+
 test_missing_data_bind_is_rejected() (
     prepare_fixture
     trap 'rm -rf "${fixture}"' EXIT
@@ -322,6 +351,7 @@ if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'symlinked base Compose is rejected before Docker' test_symlinked_compose_is_rejected_before_docker
     run_test 'invalid adoption configuration exits 20 before Docker' test_invalid_adoption_config_exits_twenty_before_docker
     run_test 'world-readable existing environment is rejected before Docker' test_world_readable_existing_env_is_rejected
+    run_test 'unsafe SMTP CA files are rejected before Docker' test_unsafe_smtp_ca_is_rejected_before_docker
     run_test 'missing Mattermost data bind is rejected' test_missing_data_bind_is_rejected
     run_test 'notifier environment and network collisions are rejected' test_notifier_environment_and_network_collisions_are_rejected
     run_test 'existing target plugin requires manual review' test_existing_target_plugin_is_rejected

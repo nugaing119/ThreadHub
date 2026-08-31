@@ -68,6 +68,7 @@ THN_DATA_ROOT=${notifier_root}
 THN_DOMAIN=mattermost.valid.test
 THN_SMTP_SERVER=smtp.email.ap-singapore-1.oci.oraclecloud.com
 THN_SMTP_PORT=587
+THN_SMTP_CA_FILE=/etc/ssl/certs/ca-certificates.crt
 THN_SMTP_USERNAME=${FIXTURE_USERNAME}
 THN_SMTP_PASSWORD=${FIXTURE_PASSWORD}
 THN_SMTP_FROM_ADDRESS=no-reply@valid.test
@@ -193,8 +194,10 @@ fixture_docker() {
               security_opt: ["no-new-privileges:true"],
               volumes: [
                 {type: "bind", source: ($notifier_root + "/mailer"), target: "/var/lib/threadhub-notifier", read_only: false},
-                {type: "bind", source: ($notifier_root + "/control"), target: "/run/threadhub-notifier", read_only: true}
+                {type: "bind", source: ($notifier_root + "/control"), target: "/run/threadhub-notifier", read_only: true},
+                {type: "bind", source: "/etc/ssl/certs/ca-certificates.crt", target: "/run/threadhub-smtp-ca/ca.crt", read_only: true}
               ],
+              environment: {SSL_CERT_FILE: "/run/threadhub-smtp-ca/ca.crt"},
               networks: {"threadhub-notifier-internal": null, "threadhub-notifier-outbound": null}
             }
           },
@@ -268,6 +271,8 @@ test_combined_model_preserves_base_and_hardens_mailer() (
         ($mailer.user == "65532:65532") and ($mailer.read_only == true) and
         ($mailer.cap_drop == ["ALL"]) and
         ($mailer.security_opt == ["no-new-privileges:true"]) and
+        ($mailer.environment.SSL_CERT_FILE == "/run/threadhub-smtp-ca/ca.crt") and
+        ([$mailer.volumes[] | select(.target == "/run/threadhub-smtp-ca/ca.crt" and .read_only == true)] | length == 1) and
         (.networks["threadhub-notifier-internal"].internal == true)
     ' "${combined_model}" >/dev/null || return 1
     assert_no_private_output_or_file

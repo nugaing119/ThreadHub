@@ -482,6 +482,7 @@ existing_notifier_setup_configure_interactively() (
     existing_notifier_setup_prompt_value notifier_root 'Notifier data root' /srv/threadhub-notifier
     existing_notifier_setup_prompt_value domain 'Mattermost HTTPS domain'
     existing_notifier_setup_prompt_value smtp_server 'OCI SMTP server'
+    existing_notifier_setup_prompt_value smtp_ca_file 'SMTP CA bundle' /etc/ssl/certs/ca-certificates.crt
     existing_notifier_setup_prompt_value smtp_username 'OCI SMTP username'
     existing_notifier_setup_prompt_value smtp_password 'OCI SMTP password' '' true
     existing_notifier_setup_prompt_value smtp_from 'Approved sender address'
@@ -503,6 +504,7 @@ existing_notifier_setup_configure_interactively() (
         existing_notifier_setup_write_env_value THN_DOMAIN "${domain}"
         existing_notifier_setup_write_env_value THN_SMTP_SERVER "${smtp_server}"
         existing_notifier_setup_write_env_value THN_SMTP_PORT 587
+        existing_notifier_setup_write_env_value THN_SMTP_CA_FILE "${smtp_ca_file}"
         existing_notifier_setup_write_env_value THN_SMTP_USERNAME "${smtp_username}"
         existing_notifier_setup_write_env_value THN_SMTP_PASSWORD "${smtp_password}"
         existing_notifier_setup_write_env_value THN_SMTP_FROM_ADDRESS "${smtp_from}"
