@@ -69,6 +69,16 @@
 | NF-IAM-05 | 라이브 승인 필요 | Project A credential 삭제 뒤 B 발송 |
 | NF-IAM-06 | 라이브 승인 필요 | Project A 종료 뒤 공유 DNS 유지 |
 | NF-IAM-07 | 라이브 승인 필요 | additive IAM policy audit |
+| NF-ADOPT-01 | 자동 | 지원 대상 기존 Compose preflight 무변경 |
+| NF-ADOPT-02 | 자동 | 비지원 버전이 쓰기 전 종료코드 20으로 중단 |
+| NF-ADOPT-03 | 자동 | 비활성 채택 과정의 기준 데이터 보존 |
+| NF-ADOPT-04 | 자동 | allowlist 공개·비공개 루트 글과 스레드 답글 전달 |
+| NF-ADOPT-05 | 자동 | 비allowlist·DM·시스템·작성자·비멤버 제외 |
+| NF-ADOPT-06 | 자동 | SMTP 장애 중 Mattermost 게시 성공 |
+| NF-ADOPT-07 | 자동 | Mailer 재시작 뒤 영구 큐 무손실 처리 |
+| NF-ADOPT-08 | 자동 | Team에 종속되지 않는 `/_redirect/pl/` permalink |
+| NF-ADOPT-09 | 자동 | rollback 뒤 원본 Compose·기준 데이터와 큐 증거 보존 |
+| NF-ADOPT-10 | 자동 | 신규 설치 real-image integration 회귀 없음 |
 
 라이브 시험은 Task 15의 새 명시적 승인 전에는 실행하지 않습니다. `NF-IAM`은 A/A 성공,
 A/B 거부, B/B 성공, B/A 거부와 additive policy audit을 비공개 change record에서

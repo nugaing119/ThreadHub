@@ -97,9 +97,16 @@ test_valid_config_and_compose_order() (
     # shellcheck source=../scripts/existing-notifier-common.sh
     source "${LIBRARY}"
     DOCKER_COMMAND=(docker)
+    SUDO_COMMAND=(sudo)
     existing_notifier_init_compose
     [[ "${EXISTING_NOTIFIER_BASE_COMPOSE[*]}" == \
         'docker compose --project-directory /opt/existing-mm --env-file /opt/existing-mm/.env -f /opt/existing-mm/compose.yml' ]] || return 1
+    [[ "${EXISTING_NOTIFIER_COMBINED_COMPOSE[*]}" == \
+        "sudo docker compose --project-directory /opt/existing-mm --env-file /opt/existing-mm/.env -f /opt/existing-mm/compose.yml --env-file ${config} -f /srv/threadhub-notifier/compose.override.yml" ]] || return 1
+
+    SUDO_COMMAND=()
+    DOCKER_COMMAND=(docker)
+    existing_notifier_init_compose
     [[ "${EXISTING_NOTIFIER_COMBINED_COMPOSE[*]}" == \
         "docker compose --project-directory /opt/existing-mm --env-file /opt/existing-mm/.env -f /opt/existing-mm/compose.yml --env-file ${config} -f /srv/threadhub-notifier/compose.override.yml" ]]
 )

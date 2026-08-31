@@ -162,11 +162,18 @@ existing_notifier_init_compose() {
     local compose_file
     local compose_env_file
     local override_file
+    local -a privileged_docker=()
 
     project_dir="$(existing_notifier_value THN_COMPOSE_PROJECT_DIR)"
     compose_file="$(existing_notifier_value THN_COMPOSE_FILE)"
     compose_env_file="$(existing_notifier_value THN_COMPOSE_ENV_FILE)"
     override_file="$(existing_notifier_value THN_DATA_ROOT)/compose.override.yml"
+
+    if [[ "${#SUDO_COMMAND[@]}" -gt 0 && "${DOCKER_COMMAND[0]:-}" != "${SUDO_COMMAND[0]}" ]]; then
+        privileged_docker=("${SUDO_COMMAND[@]}" docker)
+    else
+        privileged_docker=("${DOCKER_COMMAND[@]}")
+    fi
 
     EXISTING_NOTIFIER_BASE_COMPOSE=(
         "${DOCKER_COMMAND[@]}" compose
@@ -175,7 +182,10 @@ existing_notifier_init_compose() {
         -f "${compose_file}"
     )
     EXISTING_NOTIFIER_COMBINED_COMPOSE=(
-        "${EXISTING_NOTIFIER_BASE_COMPOSE[@]}"
+        "${privileged_docker[@]}" compose
+        --project-directory "${project_dir}"
+        --env-file "${compose_env_file}"
+        -f "${compose_file}"
         --env-file "${EXISTING_NOTIFIER_ENV_FILE}"
         -f "${override_file}"
     )

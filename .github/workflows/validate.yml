@@ -299,3 +299,40 @@ jobs:
           path: ${{ runner.temp }}/threadhub-notifier-integration-artifacts
           if-no-files-found: error
           retention-days: 7
+
+  notifier-existing-adoption:
+    needs: notifier-integration
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go 1.25.10
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.25.10
+          cache-dependency-path: notifier/go.sum
+
+      - name: Run existing Mattermost notifier adoption
+        shell: bash
+        env:
+          FRESH_INTEGRATION_VERIFIED: "true"
+          INTEGRATION_RESULT_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/results.txt
+          INTEGRATION_PUBLIC_EVIDENCE_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/public-evidence.txt
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0755 "${RUNNER_TEMP}/threadhub-existing-adoption-evidence"
+          ./notifier/integration/run-existing-adoption.sh
+
+      - name: Upload privacy-safe existing-adoption evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: notifier-existing-adoption-evidence
+          path: ${{ runner.temp }}/threadhub-existing-adoption-evidence
+          if-no-files-found: error
+          retention-days: 7
