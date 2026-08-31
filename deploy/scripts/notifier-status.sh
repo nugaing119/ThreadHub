@@ -38,14 +38,15 @@ notifier_status_dispatch() (
     trap 'rm -rf -- "${temporary_dir}"' EXIT
     plugin_id="$(env_value NOTIFIER_PLUGIN_ID "${VERSIONS_FILE}")"
     notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")"
-    if compose exec -T mattermost \
+    if notifier_compose exec -T "$(notifier_mattermost_service)" \
         mmctl plugin list --local --suppress-warnings --json > "${plugin_list_file}" \
         && notifier_plugin_list_is_exact_active \
             "${plugin_list_file}" "${plugin_id}" "${notifier_version}"; then
         plugin_state=active
     fi
     printf 'plugin=%s\n' "${plugin_state}"
-    compose exec -T threadhub-mailer /threadhub-mailer status --json > "${status_file}"
+    notifier_compose exec -T "$(notifier_mailer_service)" \
+        /threadhub-mailer status --json > "${status_file}"
     notifier_mailer_status_is_valid "${status_file}" \
         || die "Notifier Mailer returned invalid status JSON"
     jq -r '

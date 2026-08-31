@@ -159,6 +159,86 @@ existing_notifier_setup_write_disabled_control() {
         || die "Notifier disabled control state could not be installed"
 }
 
+existing_notifier_setup_rollback_capture_is_valid() {
+    local capture_file="$1"
+    local identity
+
+    "${SUDO_COMMAND[@]}" test -f "${capture_file}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${capture_file}" || return 1
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${capture_file}")" || return 1
+    [[ "${identity}" == 0:0:600 ]] || return 1
+    "${SUDO_COMMAND[@]}" jq -e \
+        --arg service "$(existing_notifier_value THN_MATTERMOST_SERVICE)" \
+        --arg plugins_root "$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)" \
+        --arg filestore_root "$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)/plugins" '
+        type == "object" and
+        keys == ["captured_at", "filestore_root", "mattermost_service", "plugin_id", "plugins_root", "previous_pair", "schema"] and
+        .schema == 1 and .previous_pair == "absent" and
+        .plugin_id == "com.threadhub.channel-email-notifier" and
+        .mattermost_service == $service and .plugins_root == $plugins_root and
+        .filestore_root == $filestore_root and
+        (.captured_at | type == "number" and floor == . and . > 0)
+    ' "${capture_file}" >/dev/null 2>&1
+}
+
+existing_notifier_setup_record_rollback_capture() (
+    local capture_file
+    local temporary_file
+    local staged_file
+    local presence
+
+    capture_file="$(existing_notifier_value THN_DATA_ROOT)/rollback/capture.json"
+    if "${SUDO_COMMAND[@]}" test -e "${capture_file}" \
+        || "${SUDO_COMMAND[@]}" test -L "${capture_file}"; then
+        existing_notifier_setup_rollback_capture_is_valid "${capture_file}" \
+            || die "Existing notifier rollback capture is invalid"
+        return 0
+    fi
+    presence="$(existing_notifier_target_objects_presence)" \
+        || die "Notifier runtime and filestore objects are asymmetric"
+    if [[ "${presence}" != absent ]]; then
+        existing_notifier_setup_action_required \
+            "A verified pre-adoption rollback capture is missing; the installed pair was not changed"
+        return $?
+    fi
+    temporary_file="$(mktemp)"
+    staged_file="${capture_file}.tmp.$$"
+    trap 'rm -f -- "${temporary_file}"' EXIT HUP INT TERM
+    jq -cn \
+        --arg service "$(existing_notifier_value THN_MATTERMOST_SERVICE)" \
+        --arg plugins_root "$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)" \
+        --arg filestore_root "$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)/plugins" \
+        --argjson captured_at "$(notifier_epoch_millis)" '
+        {
+          schema:1,
+          previous_pair:"absent",
+          plugin_id:"com.threadhub.channel-email-notifier",
+          mattermost_service:$service,
+          plugins_root:$plugins_root,
+          filestore_root:$filestore_root,
+          captured_at:$captured_at
+        }
+    ' > "${temporary_file}"
+    chmod 0600 "${temporary_file}"
+    "${SUDO_COMMAND[@]}" test ! -e "${staged_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${staged_file}" \
+        || die "Refusing existing rollback capture staging path"
+    "${SUDO_COMMAND[@]}" install -o root -g root -m 0600 \
+        "${temporary_file}" "${staged_file}" \
+        || die "Rollback capture could not be staged"
+    if ! "${SUDO_COMMAND[@]}" ln -T -- "${staged_file}" "${capture_file}"; then
+        "${SUDO_COMMAND[@]}" rm -f -- "${staged_file}" >/dev/null 2>&1 || true
+        existing_notifier_setup_action_required \
+            "Rollback capture appeared and was not overwritten"
+        return $?
+    fi
+    "${SUDO_COMMAND[@]}" rm -f -- "${staged_file}"
+    existing_notifier_setup_rollback_capture_is_valid "${capture_file}" \
+        || die "Published rollback capture is invalid"
+    rm -f -- "${temporary_file}"
+    trap - EXIT HUP INT TERM
+)
+
 existing_notifier_setup_build_artifacts() {
     local release_dir
     local release_file
@@ -273,8 +353,9 @@ existing_notifier_setup_require_current_smtp_marker() {
     local actual
     marker_file="$(existing_notifier_value THN_DATA_ROOT)/control/smtp-acceptance.json"
     expected="$(existing_notifier_setup_current_smtp_fingerprint)" || return 20
-    [[ -f "${marker_file}" && ! -L "${marker_file}" ]] || return 20
-    actual="$(jq -er '
+    "${SUDO_COMMAND[@]}" test -f "${marker_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${marker_file}" || return 20
+    actual="$("${SUDO_COMMAND[@]}" jq -er '
         if type == "object" and keys == ["accepted_at", "fingerprint"] and
            (.accepted_at | type == "number" and . > 0) and
            (.fingerprint | type == "string" and test("^[a-f0-9]{64}$"))
@@ -322,6 +403,7 @@ existing_notifier_setup_run() (
     for phase in \
         existing_notifier_setup_preflight \
         existing_notifier_setup_prepare_runtime \
+        existing_notifier_setup_record_rollback_capture \
         existing_notifier_setup_write_disabled_control \
         existing_notifier_setup_build_artifacts \
         existing_notifier_setup_write_override \

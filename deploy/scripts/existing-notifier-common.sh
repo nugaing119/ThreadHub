@@ -186,3 +186,86 @@ existing_notifier_compose_base() {
 existing_notifier_compose_combined() {
     "${EXISTING_NOTIFIER_COMBINED_COMPOSE[@]}" "$@"
 }
+
+existing_notifier_validate_control_path() {
+    local state_file="$1"
+    local notifier_root
+    local control_dir
+    local mailer_dir
+    local marker_file
+    local queue_file
+    local queue_mode
+    local parent_root
+    local path
+    local identity
+    local parent_uid
+    local parent_gid
+    local parent_mode
+
+    notifier_root="$(existing_notifier_value THN_DATA_ROOT)"
+    control_dir="${notifier_root}/control"
+    mailer_dir="${notifier_root}/mailer"
+    marker_file="${control_dir}/smtp-acceptance.json"
+    queue_file="${mailer_dir}/queue.db"
+    parent_root="$(dirname "${notifier_root}")"
+    [[ "${state_file}" == "${control_dir}/state.json" ]] \
+        || die "Refusing control outside the configured notifier state path"
+    for path in \
+        "${parent_root}" "${notifier_root}" "${control_dir}" "${mailer_dir}" \
+        "${state_file}" "${marker_file}" "${queue_file}"; do
+        "${SUDO_COMMAND[@]}" test ! -L "${path}" \
+            || die "Refusing a symbolic-link existing notifier control path"
+    done
+    "${SUDO_COMMAND[@]}" test -d "${parent_root}" \
+        || die "Existing notifier runtime parent is missing"
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${parent_root}")" \
+        || die "Existing notifier runtime parent identity is unavailable"
+    IFS=: read -r parent_uid parent_gid parent_mode <<< "${identity}"
+    [[ "${parent_uid}" == 0 && "${parent_gid}" == 0 \
+        && "${parent_mode}" =~ ^[0-7]{3,4}$ ]] \
+        || die "Existing notifier runtime parent must be owned by root"
+    (( (8#${parent_mode} & 0022) == 0 )) \
+        || die "Existing notifier runtime parent must not be writable by group or other users"
+    existing_notifier_directory_identity_is "${notifier_root}" 0:0:750 \
+        || die "Existing notifier root must be root:root with mode 0750"
+    existing_notifier_directory_identity_is "${control_dir}" 0:3000:750 \
+        || die "Existing notifier control directory must be root:3000 with mode 0750"
+    existing_notifier_directory_identity_is "${mailer_dir}" 65532:65532:700 \
+        || die "Existing notifier Mailer directory must be 65532:65532 with mode 0700"
+    "${SUDO_COMMAND[@]}" test -f "${state_file}" \
+        || die "Existing notifier control state must be an existing regular file"
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${state_file}")" \
+        || die "Existing notifier control state identity is unavailable"
+    [[ "${identity}" == 0:3000:640 ]] \
+        || die "Existing notifier control state must be root:3000 with mode 0640"
+    if "${SUDO_COMMAND[@]}" test -e "${marker_file}"; then
+        "${SUDO_COMMAND[@]}" test -f "${marker_file}" \
+            || die "Existing notifier SMTP marker must be a regular file"
+        identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${marker_file}")" \
+            || die "Existing notifier SMTP marker identity is unavailable"
+        [[ "${identity}" == 0:3000:640 ]] \
+            || die "Existing notifier SMTP marker must be root:3000 with mode 0640"
+    fi
+    if "${SUDO_COMMAND[@]}" test -e "${queue_file}"; then
+        "${SUDO_COMMAND[@]}" test -f "${queue_file}" \
+            || die "Existing notifier queue must be a regular file"
+        identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${queue_file}")" \
+            || die "Existing notifier queue identity is unavailable"
+        [[ "${identity}" =~ ^65532:65532:[0-7]{3,4}$ ]] \
+            || die "Existing notifier queue must be owned by the Mailer user"
+        queue_mode="${identity##*:}"
+        (( (8#${queue_mode} & 0022) == 0 )) \
+            || die "Existing notifier queue must not be writable by group or other users"
+    fi
+}
+
+existing_notifier_directory_identity_is() {
+    local path="$1"
+    local expected="$2"
+    local identity
+
+    "${SUDO_COMMAND[@]}" test -d "${path}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${path}" || return 1
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${path}")" || return 1
+    [[ "${identity}" == "${expected}" ]]
+}

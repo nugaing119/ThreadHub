@@ -43,6 +43,13 @@ setup_fixture_privileged() {
         command install "${filtered[@]}"
         return
     fi
+    if [[ "${command_name}" == ln ]]; then
+        while (($# > 0)); do
+            case "$1" in -T|--) shift ;; *) filtered+=("$1"); shift ;; esac
+        done
+        command ln "${filtered[@]}"
+        return
+    fi
     command "${command_name}" "$@"
 }
 
@@ -72,6 +79,9 @@ prepare_setup_fixture() {
     existing_notifier_setup_prepare_runtime() {
         printf 'prepare-runtime\n' >> "${calls}"
         mkdir -p "${runtime_root}/control"
+    }
+    existing_notifier_setup_record_rollback_capture() {
+        printf 'rollback-capture\n' >> "${calls}"
     }
     existing_notifier_setup_write_disabled_control() {
         printf 'write-disabled-control\n' >> "${calls}"
@@ -105,7 +115,7 @@ test_setup_orders_disabled_components_before_plugin_transaction() (
     result=$?
     set -e
     [[ "${result}" == 20 ]] || { report_setup_failure; return 1; }
-    [[ "$(<"${calls}")" == $'config\npreflight\nprepare-runtime\nwrite-disabled-control\nbuild-artifacts\nwrite-override\nmailer-up\nmailer-health\ninstall-plugin\nplugin-active\naction-required-smtp' ]] \
+    [[ "$(<"${calls}")" == $'config\npreflight\nprepare-runtime\nrollback-capture\nwrite-disabled-control\nbuild-artifacts\nwrite-override\nmailer-up\nmailer-health\ninstall-plugin\nplugin-active\naction-required-smtp' ]] \
         || { report_setup_failure; return 1; }
     jq -e '.enabled == false and .delivery_enabled == false and .activated_at == 0' \
         "${control_file}" >/dev/null || { report_setup_failure; return 1; }
@@ -198,6 +208,35 @@ test_resume_skips_plugin_replacement_when_pair_is_already_present() (
     [[ "${install_called}" == false ]]
 )
 
+test_rollback_absence_capture_is_atomic_and_idempotent() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    runtime_root="${fixture}/runtime"
+    mkdir -p "${runtime_root}/rollback"
+    chmod 0750 "${runtime_root}" "${runtime_root}/rollback"
+    existing_notifier_value() {
+        case "$1" in
+            THN_DATA_ROOT) printf '%s\n' "${runtime_root}" ;;
+            THN_MATTERMOST_SERVICE) printf '%s\n' existing-mm ;;
+            THN_MATTERMOST_PLUGINS_ROOT) printf '%s\n' "${fixture}/plugins" ;;
+            THN_MATTERMOST_DATA_ROOT) printf '%s\n' "${fixture}/data" ;;
+            *) return 1 ;;
+        esac
+    }
+    existing_notifier_target_objects_presence() { printf 'absent\n'; }
+    SUDO_COMMAND=(setup_fixture_privileged)
+    existing_notifier_setup_record_rollback_capture || return 1
+    capture="${runtime_root}/rollback/capture.json"
+    before="$(sha256_file "${capture}")"
+    jq -e '
+        .schema == 1 and .previous_pair == "absent" and
+        .plugin_id == "com.threadhub.channel-email-notifier" and
+        .mattermost_service == "existing-mm"
+    ' "${capture}" >/dev/null || return 1
+    existing_notifier_setup_record_rollback_capture || return 1
+    [[ "${before}" == "$(sha256_file "${capture}")" ]]
+)
+
 test_writable_runtime_parent_is_rejected_before_creation() (
     fixture="$(mktemp -d)"
     trap 'chmod 0700 "${fixture}"; rm -rf "${fixture}"' EXIT
@@ -228,6 +267,7 @@ if [[ -f "${SETUP_SCRIPT}" ]]; then
     run_test 'unknown runtime content is rejected without mutation' test_unknown_runtime_content_is_rejected_without_mutation
     run_test 'env writer preserves Compose-sensitive characters safely' test_env_writer_preserves_compose_sensitive_characters
     run_test 'resume skips replacement for an already present plugin pair' test_resume_skips_plugin_replacement_when_pair_is_already_present
+    run_test 'pre-adoption absence capture is atomic and idempotent' test_rollback_absence_capture_is_atomic_and_idempotent
     run_test 'writable runtime parent is rejected before creation' test_writable_runtime_parent_is_rejected_before_creation
 fi
 

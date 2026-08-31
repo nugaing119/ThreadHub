@@ -2,6 +2,20 @@
 
 # Shared notifier installer helpers. Entry-point scripts source common.sh first.
 
+notifier_compose() {
+    local compose_function="${NOTIFIER_COMPOSE_FUNCTION:-compose}"
+
+    "${compose_function}" "$@"
+}
+
+notifier_mailer_service() {
+    printf '%s\n' "${NOTIFIER_MAILER_SERVICE:-threadhub-mailer}"
+}
+
+notifier_mattermost_service() {
+    printf '%s\n' "${NOTIFIER_MATTERMOST_SERVICE:-mattermost}"
+}
+
 notifier_env_key_state() {
     local file="$1"
     local key
@@ -177,9 +191,9 @@ notifier_target_config_fingerprint() {
     require_command jq
     output_file="$(mktemp)"
     trap 'rm -f "${output_file}"' RETURN
-    compose run --rm --no-deps -T \
+    notifier_compose run --rm --no-deps -T \
         --entrypoint /threadhub-mailer \
-        threadhub-mailer config-fingerprint --json > "${output_file}" \
+        "$(notifier_mailer_service)" config-fingerprint --json > "${output_file}" \
         || return 1
     notifier_config_fingerprint_from_json "${output_file}"
 }
@@ -190,9 +204,9 @@ notifier_run_smtp_acceptance() {
     require_command jq
     output_file="$(mktemp)"
     trap 'rm -f "${output_file}"' RETURN
-    compose run --rm --no-deps -T \
+    notifier_compose run --rm --no-deps -T \
         --entrypoint /threadhub-mailer \
-        threadhub-mailer smtp-test --recipient-stdin > "${output_file}" \
+        "$(notifier_mailer_service)" smtp-test --recipient-stdin > "${output_file}" \
         || return 1
     notifier_config_fingerprint_from_json "${output_file}"
 }
