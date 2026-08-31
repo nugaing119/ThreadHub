@@ -250,7 +250,7 @@ existing_notifier_preflight_dispatch() (
     [[ "${target_mode}" == initial || "${target_mode}" == installed ]] || return 2
 
     temporary_dir="$(mktemp -d)"
-    trap 'rm -rf -- "${temporary_dir}"' EXIT
+    trap 'notifier_plugin_cleanup_scratch_root "${temporary_dir}"' EXIT
     chmod 0700 "${temporary_dir}"
     umask 077
     model_file="${temporary_dir}/compose.json"

@@ -946,6 +946,55 @@ test_prior_plugin_pair_capture_validates_archive_tree_identity_and_metadata() (
         "${fixture}/captured-wrong-id" "${scratch}" >/dev/null 2>&1
 )
 
+test_pair_capture_normalizes_review_tree_under_restrictive_umask() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+    plugin_id=com.threadhub.channel-email-notifier
+    version=0.0.9
+    runtime_root="${fixture}/runtime/${plugin_id}"
+    bundle_target="${fixture}/filestore/${plugin_id}.tar.gz"
+    scratch="${fixture}/scratch"
+    capture_root="${fixture}/captured-restrictive"
+
+    make_reviewed_plugin_pair_fixture "${fixture}" "${version}" || return 1
+    umask 077
+    notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${capture_root}" "${scratch}" >/dev/null || return 1
+
+    [[ "$(portable_mode "${capture_root}/${plugin_id}")" == 755 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/server")" == 755 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/server/dist")" == 755 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/plugin.json")" == 644 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/server/dist/plugin-linux-amd64")" == 644 ]]
+)
+
+test_plugin_scratch_cleanup_falls_back_to_privilege() (
+    fixture="$(mktemp -d)"
+    calls="${fixture}.calls"
+    trap 'if [[ -e "${fixture}" ]]; then chmod -R u+rwx "${fixture}"; rm -rf "${fixture}"; fi; rm -f "${calls}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    mkdir "${fixture}/root-owned-review"
+    printf 'review\n' > "${fixture}/root-owned-review/plugin.json"
+    chmod 000 "${fixture}/root-owned-review"
+    fixture_privileged_cleanup() {
+        printf '%s\n' "$*" >> "${calls}"
+        [[ "$1" == rm ]] || return 2
+        shift
+        chmod -R u+rwx "${fixture}"
+        command rm "$@"
+    }
+    SUDO_COMMAND=(fixture_privileged_cleanup)
+
+    notifier_plugin_cleanup_scratch_root "${fixture}" || return 1
+    [[ ! -e "${fixture}" ]] || return 1
+    grep -F 'rm -rf --' "${calls}" >/dev/null
+)
+
 test_post_start_pair_verification_rejects_deleted_or_replaced_objects() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -1151,6 +1200,12 @@ run_test \
 run_test \
     'prior plugin pair capture validates archive tree identity and verified metadata' \
     test_prior_plugin_pair_capture_validates_archive_tree_identity_and_metadata
+run_test \
+    'plugin pair capture normalizes its review tree under a restrictive umask' \
+    test_pair_capture_normalizes_review_tree_under_restrictive_umask
+run_test \
+    'plugin review scratch cleanup falls back to privilege' \
+    test_plugin_scratch_cleanup_falls_back_to_privilege
 run_test \
     'post-start pair verification rejects deleted or replaced production objects' \
     test_post_start_pair_verification_rejects_deleted_or_replaced_objects

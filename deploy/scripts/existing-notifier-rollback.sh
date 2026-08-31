@@ -124,7 +124,7 @@ existing_notifier_rollback_restore_pair() (
     removed_bundle="${rollback_root}/removed-bundle.tar.gz"
     temporary_dir="$(mktemp -d)"
     capture_dir="${temporary_dir}/installed-pair"
-    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    trap 'notifier_plugin_cleanup_scratch_root "${temporary_dir}"' EXIT HUP INT TERM
 
     mkdir -m 0700 "${temporary_dir}/review"
     existing_notifier_installed_target_plugin_is_reviewed "${service}" "${temporary_dir}/review" \
@@ -174,7 +174,7 @@ existing_notifier_rollback_verify_base() (
     local service
 
     temporary_dir="$(mktemp -d)"
-    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    trap 'notifier_plugin_cleanup_scratch_root "${temporary_dir}"' EXIT HUP INT TERM
     service="$(existing_notifier_value THN_MATTERMOST_SERVICE)"
     if ! existing_notifier_single_container_id "${service}" "${temporary_dir}/container-id" \
         || ! existing_notifier_live_version_is_supported "${service}" "${temporary_dir}/version" \

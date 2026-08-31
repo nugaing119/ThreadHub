@@ -339,7 +339,7 @@ existing_notifier_setup_install_plugin() {
 
 existing_notifier_setup_verify_plugin() (
     temporary_dir="$(mktemp -d)"
-    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    trap 'notifier_plugin_cleanup_scratch_root "${temporary_dir}"' EXIT HUP INT TERM
     existing_notifier_installed_target_plugin_is_reviewed \
         "$(existing_notifier_value THN_MATTERMOST_SERVICE)" "${temporary_dir}"
 )
