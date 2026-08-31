@@ -283,7 +283,7 @@ func inspectGenericMessage(raw []byte, domain string) bool {
 	}
 	wantPlain := "ThreadHub에 새 메시지가 등록되었습니다.\r\n로그인하여 확인해 주세요.\r\n\r\n[메시지 확인]\r\n" + permalink + "\r\n"
 	wantHTML := "<p>ThreadHub에 새 메시지가 등록되었습니다.<br>로그인하여 확인해 주세요.</p><p><a href=\"" + permalink + "\">메시지 확인</a></p>\r\n"
-	postID := strings.TrimPrefix(permalink, "https://"+domain+"/pl/")
+	postID := strings.TrimPrefix(permalink, "https://"+domain+"/_redirect/pl/")
 	return plainText == wantPlain && htmlText == wantHTML &&
 		!strings.Contains(message.Header.Get("Message-ID"), postID)
 }
@@ -303,8 +303,8 @@ func noticePermalink(plain, domain string) string {
 	if err != nil || u.Scheme != "https" || u.Host != domain || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
 		return ""
 	}
-	postID := strings.TrimPrefix(u.EscapedPath(), "/pl/")
-	if u.EscapedPath() != "/pl/"+postID || len(postID) != 26 {
+	postID := strings.TrimPrefix(u.EscapedPath(), "/_redirect/pl/")
+	if u.EscapedPath() != "/_redirect/pl/"+postID || len(postID) != 26 {
 		return ""
 	}
 	for _, character := range postID {

@@ -182,7 +182,7 @@ func TestAcceptRejectsConflictingEventMetadata(t *testing.T) {
 		name   string
 		mutate func(*protocol.Event)
 	}{
-		{"permalink", func(e *protocol.Event) { e.Permalink = "https://other.example.test/pl/" + e.PostID }},
+		{"permalink", func(e *protocol.Event) { e.Permalink = "https://other.example.test/_redirect/pl/" + e.PostID }},
 		{"occurred_at", func(e *protocol.Event) { e.OccurredAt++ }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -601,7 +601,7 @@ func eventWithID(id string) protocol.Event {
 	return protocol.Event{
 		EventID:    id,
 		PostID:     id,
-		Permalink:  "https://threadhub.example.test/pl/" + id,
+		Permalink:  "https://threadhub.example.test/_redirect/pl/" + id,
 		OccurredAt: testNow.Add(-time.Minute).UnixMilli(),
 		Recipients: []protocol.Recipient{{
 			UserID: "cccccccccccccccccccccccccc",

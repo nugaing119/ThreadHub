@@ -89,7 +89,7 @@ func (c *MailerClient) Enqueue(ctx context.Context, event OutboxEvent, recipient
 	payload := protocol.Event{
 		EventID:    event.PostID,
 		PostID:     event.PostID,
-		Permalink:  "https://" + c.domain + "/pl/" + event.PostID,
+		Permalink:  "https://" + c.domain + "/_redirect/pl/" + event.PostID,
 		OccurredAt: event.CreateAt,
 		Recipients: recipients,
 	}

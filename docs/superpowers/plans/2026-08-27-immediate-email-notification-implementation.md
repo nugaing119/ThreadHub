@@ -141,7 +141,8 @@ type Recipient struct {
 ```
 
 - `event_id == post_id`이며 Mattermost 26자 ID 형식이어야 한다.
-- `permalink`는 정확히 `https://$THREADHUB_DOMAIN/pl/$POST_ID`여야 한다.
+- `permalink`는 정확히 `https://$THREADHUB_DOMAIN/_redirect/pl/$POST_ID`여야 한다.
+- 루트 `/pl/$POST_ID`는 Mattermost가 `pl`을 Team 이름으로 해석하므로 거부한다. Team 이름을 이메일에 노출하지 않는 공식 팀 독립 리디렉션 경로만 허용한다.
 - 요청당 수신자는 1~250명이고 user ID가 중복되지 않아야 한다. ThreadHub 운영정책상 실제 active recipient는 50명 이하다.
 - 요청 헤더는 `X-ThreadHub-Timestamp`, `X-ThreadHub-Nonce`, `X-ThreadHub-Signature: sha256=<64-hex>`다.
 - canonical bytes는 `timestamp + "\n" + nonce + "\n" + rawBody`다.
@@ -332,8 +333,8 @@ Mailer는 기존 `THREADHUB_DOMAIN`, `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`
   }{
       {name: "valid minimal event"},
       {name: "event and post ids differ", mutate: func(e *Event) { e.EventID = model.NewId() }, wantErr: true},
-      {name: "http permalink", mutate: func(e *Event) { e.Permalink = "http://threadhub.test/pl/" + e.PostID }, wantErr: true},
-      {name: "foreign host", mutate: func(e *Event) { e.Permalink = "https://other.test/pl/" + e.PostID }, wantErr: true},
+      {name: "http permalink", mutate: func(e *Event) { e.Permalink = "http://threadhub.test/_redirect/pl/" + e.PostID }, wantErr: true},
+      {name: "foreign host", mutate: func(e *Event) { e.Permalink = "https://other.test/_redirect/pl/" + e.PostID }, wantErr: true},
       {name: "unknown post path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/channels/town-square" }, wantErr: true},
       {name: "no recipients", mutate: func(e *Event) { e.Recipients = nil }, wantErr: true},
       {name: "more than two hundred fifty recipients", mutate: addRecipients(251), wantErr: true},
@@ -395,7 +396,7 @@ Mailer는 기존 `THREADHUB_DOMAIN`, `SMTP_SERVER`, `SMTP_PORT`, `SMTP_USERNAME`
   ```
 
   - Mattermost ID는 `^[a-z0-9]{26}$`로 검증한다.
-  - `url.URL`을 사용해 scheme, host, query/fragment 부재와 정확한 `/pl/<post_id>`를 검사한다.
+  - `url.URL`을 사용해 scheme, host, query/fragment 부재와 정확한 `/_redirect/pl/<post_id>`를 검사한다.
   - 이메일은 `net/mail.ParseAddress` 후 parsed address가 입력과 같고 CR/LF가 없는지 검사한다.
   - HMAC key는 `HMAC-SHA256(master, "threadhub/<label>/v1")`로 domain separation 한다.
   - signature 비교는 `hmac.Equal`만 사용한다.

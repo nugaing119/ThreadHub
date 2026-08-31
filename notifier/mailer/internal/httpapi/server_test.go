@@ -311,7 +311,7 @@ func openQueue(t *testing.T, path string) *store.SQLiteStore {
 func validEventBody() []byte {
 	event := protocol.Event{
 		EventID: testPostID, PostID: testPostID,
-		Permalink:  "https://threadhub.example.test/pl/" + testPostID,
+		Permalink:  "https://threadhub.example.test/_redirect/pl/" + testPostID,
 		OccurredAt: testNow.UnixMilli(),
 		Recipients: []protocol.Recipient{{UserID: testUserID, Email: "recipient@example.test"}},
 	}

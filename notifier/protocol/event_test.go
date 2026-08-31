@@ -17,7 +17,7 @@ func validEvent() Event {
 	return Event{
 		EventID:    testID,
 		PostID:     testID,
-		Permalink:  "https://" + testDomain + "/pl/" + testID,
+		Permalink:  "https://" + testDomain + "/_redirect/pl/" + testID,
 		OccurredAt: 1787790000000,
 		Recipients: []Recipient{{
 			UserID: testID,
@@ -52,9 +52,10 @@ func TestEventValidate(t *testing.T) {
 	}{
 		{name: "valid minimal event"},
 		{name: "event and post ids differ", mutate: func(e *Event) { e.EventID = model.NewId() }, wantErr: true},
-		{name: "http permalink", mutate: func(e *Event) { e.Permalink = "http://threadhub.test/pl/" + e.PostID }, wantErr: true},
-		{name: "percent-encoded permalink path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/pl%2f" + e.PostID }, wantErr: true},
-		{name: "foreign host", mutate: func(e *Event) { e.Permalink = "https://other.test/pl/" + e.PostID }, wantErr: true},
+		{name: "http permalink", mutate: func(e *Event) { e.Permalink = "http://threadhub.test/_redirect/pl/" + e.PostID }, wantErr: true},
+		{name: "percent-encoded permalink path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/_redirect/pl%2f" + e.PostID }, wantErr: true},
+		{name: "foreign host", mutate: func(e *Event) { e.Permalink = "https://other.test/_redirect/pl/" + e.PostID }, wantErr: true},
+		{name: "teamless route interpreted as team name", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/pl/" + e.PostID }, wantErr: true},
 		{name: "unknown post path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/channels/town-square" }, wantErr: true},
 		{name: "no recipients", mutate: func(e *Event) { e.Recipients = nil }, wantErr: true},
 		{name: "more than two hundred fifty recipients", mutate: addRecipients(251), wantErr: true},

@@ -156,7 +156,7 @@ func newClient(server *testutil.SMTPServer) *smtpclient.Client {
 
 func testMessage(t *testing.T) message.Message {
 	t.Helper()
-	msg, err := message.Render(message.Input{FromName: "ThreadHub", FromAddress: "no-reply@example.test", ReplyTo: "feedback@example.test", ToAddress: "recipient@example.test", Domain: "threadhub.example.test", EventHash: "event", RecipientHash: "recipient", Permalink: "https://threadhub.example.test/pl/abcdefghijklmnopqrstuvwxyz", Date: time.Now().UTC()})
+	msg, err := message.Render(message.Input{FromName: "ThreadHub", FromAddress: "no-reply@example.test", ReplyTo: "feedback@example.test", ToAddress: "recipient@example.test", Domain: "threadhub.example.test", EventHash: "event", RecipientHash: "recipient", Permalink: "https://threadhub.example.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", Date: time.Now().UTC()})
 	if err != nil {
 		t.Fatal(err)
 	}
