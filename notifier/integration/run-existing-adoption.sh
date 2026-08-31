@@ -718,7 +718,10 @@ mkdir -p \
 sudo chown -R 999:999 "${integration_root}/data/postgres" || fail NF-ADOPT-01
 sudo chown -R 2000:2000 "${integration_root}/data/mattermost" || fail NF-ADOPT-01
 sudo chown -R 65532:65532 "${integration_root}/data/smtp-private" "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
-sudo chmod 0750 "${integration_root}/data/mattermost/plugins" "${integration_root}/data/mattermost/data" || fail NF-ADOPT-01
+sudo chmod 0750 \
+    "${integration_root}/data/mattermost/plugins" \
+    "${integration_root}/data/mattermost/data" \
+    "${integration_root}/data/mattermost/data/plugins" || fail NF-ADOPT-01
 sudo install -d -o root -g root -m 0750 "${runtime_parent}" || fail NF-ADOPT-01
 runtime_touched=true
 
