@@ -428,7 +428,7 @@ func getCaptures(ctx context.Context, c *client) (captureSnapshot, error) {
 	}
 	seen := make(map[string]struct{}, len(snapshot.Captures))
 	for _, item := range snapshot.Captures {
-		if !recipientHashPattern.MatchString(item.RecipientHash) || item.EnvelopeCount < 1 || !item.GenericContent || item.LastAttemptMS <= 0 {
+		if !recipientHashPattern.MatchString(item.RecipientHash) || item.EnvelopeCount < 1 || item.LastAttemptMS <= 0 {
 			return captureSnapshot{}, errors.New("invalid capture")
 		}
 		if _, duplicate := seen[item.RecipientHash]; duplicate {
@@ -453,9 +453,13 @@ func waitDelta(ctx context.Context, c *client, secret []byte, before captureSnap
 		after, err := getCaptures(ctx, c)
 		if err == nil {
 			afterCounts := captureCounts(after)
+			afterCaptures := captureByHash(after)
 			matched := true
 			for hash, count := range expectedHashes {
 				matched = matched && afterCounts[hash]-beforeCounts[hash] == count
+				if count > 0 {
+					matched = matched && afterCaptures[hash].GenericContent
+				}
 			}
 			if matched {
 				return nil
@@ -469,6 +473,14 @@ func waitDelta(ctx context.Context, c *client, secret []byte, before captureSnap
 		case <-ticker.C:
 		}
 	}
+}
+
+func captureByHash(snapshot captureSnapshot) map[string]capture {
+	result := make(map[string]capture, len(snapshot.Captures))
+	for _, item := range snapshot.Captures {
+		result[item.RecipientHash] = item
+	}
+	return result
 }
 
 func captureCounts(snapshot captureSnapshot) map[string]int {

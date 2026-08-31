@@ -1,12 +1,24 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/nugaing119/ThreadHub/notifier/protocol"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (fn roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return fn(request)
+}
 
 func TestAcceptanceFailurePhaseIsSafeAndBounded(t *testing.T) {
 	t.Parallel()
@@ -85,5 +97,51 @@ func TestCaptureCountsUsesOnlyRecipientHashes(t *testing.T) {
 	counts := captureCounts(snapshot)
 	if len(counts) != 2 || counts[strings.Repeat("a", 64)] != 2 || counts[strings.Repeat("b", 64)] != 5 {
 		t.Fatalf("capture counts = %#v", counts)
+	}
+}
+
+func TestGetCapturesAcceptsNonGenericSMTPAcceptanceBaseline(t *testing.T) {
+	t.Parallel()
+
+	wantHash := strings.Repeat("a", 64)
+	c := &client{http: &http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.Method != http.MethodGet || request.URL.String() != captureURL+"/v1/captures" {
+			t.Fatalf("unexpected capture request: %s %s", request.Method, request.URL)
+		}
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{"captures":[{"recipient_hash":"` + wantHash +
+				`","envelope_count":1,"generic_content":false,"last_attempt_at_ms":1}]}`)),
+			Header: make(http.Header),
+		}, nil
+	})}}
+
+	snapshot, err := getCaptures(context.Background(), c)
+	if err != nil {
+		t.Fatalf("getCaptures() rejected a structurally valid SMTP acceptance baseline: %v", err)
+	}
+	if len(snapshot.Captures) != 1 || snapshot.Captures[0].RecipientHash != wantHash || snapshot.Captures[0].GenericContent {
+		t.Fatalf("getCaptures() = %#v, want preserved non-generic SMTP acceptance capture", snapshot)
+	}
+}
+
+func TestWaitDeltaRejectsNonGenericNotification(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	recipient := "recipient@integration.invalid"
+	recipientHash := protocol.HashIdentifier(secret, "integration-recipient", recipient)
+	c := &client{http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{"captures":[{"recipient_hash":"` + recipientHash +
+				`","envelope_count":1,"generic_content":false,"last_attempt_at_ms":1}]}`)),
+			Header: make(http.Header),
+		}, nil
+	})}}
+
+	err := waitDelta(context.Background(), c, secret, captureSnapshot{Captures: []capture{}}, map[string]int{recipient: 1}, 5*time.Millisecond)
+	if err == nil {
+		t.Fatal("waitDelta() accepted a non-generic notification delivery")
 	}
 }
