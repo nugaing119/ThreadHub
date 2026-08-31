@@ -441,6 +441,7 @@ private "${docker_command[@]}" build --platform linux/amd64 \
 project_touched=true
 result_stage=base-compose-start
 private compose_base up -d --no-build --wait --wait-timeout 180 postgres smtp-fixture mattermost || fail NF-ADOPT-01
+result_stage=smtp-ca-permissions
 sudo chown root:root "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chmod 0644 "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chown root:root "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
@@ -448,12 +449,16 @@ sudo chmod 0755 "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 
 result_stage=acceptance-build
 private env GOCACHE="${integration_root}/go-cache" go build -o "${acceptance_binary}" ./notifier/integration/cmd/existing-acceptance || fail NF-ADOPT-01
+result_stage=admin-create
 private compose_base exec -T mattermost mmctl user create --local --suppress-warnings \
     --email admin@integration.invalid --username existing-admin --password "${admin_password}" \
     --system-admin --email-verified || fail NF-ADOPT-03
+result_stage=acceptance-bootstrap
 private acceptance bootstrap || fail NF-ADOPT-03
+result_stage=recipient-verify
 private compose_base exec -T mattermost mmctl user verify existing-recipient-a --local --suppress-warnings || fail NF-ADOPT-03
 private compose_base exec -T mattermost mmctl user verify existing-recipient-b --local --suppress-warnings || fail NF-ADOPT-03
+result_stage=baseline-counts
 db_counts "${integration_root}/counts-baseline" || fail NF-ADOPT-03
 
 portable_hash "${compose_file}" >"${integration_root}/base-compose-before.sha256"
