@@ -30,6 +30,7 @@ result_assertion=NF-ADOPT-01
 result_stage=bootstrap
 generated_bundle=false
 bundle_sha_public=""
+setup_status=""
 
 declare -a docker_command=()
 declare -a privileged_docker_command=()
@@ -311,6 +312,58 @@ safe_input_path_failures() {
     printf '%s\n' "${failures:-none}"
 }
 
+safe_disabled_setup_failure() {
+    local logs=""
+    local classification=unavailable
+
+    [[ -n "${diagnostic_file}" && -f "${diagnostic_file}" ]] || {
+        printf '%s\n' "${classification}"
+        return 0
+    }
+    logs="$(awk '
+        $0 == "[HARNESS] disabled-setup-start" { capture = 1; next }
+        capture { print }
+    ' "${diagnostic_file}" 2>/dev/null)" || logs=""
+    case "${logs}" in
+        *'Run ./deploy/scripts/existing-notifier-smtp-test.sh'*) classification=smtp-handoff ;;
+        *'Existing notifier configuration changed during setup'*) classification=config-changed ;;
+        *'Notifier runtime parent is missing or unsafe'*) classification=runtime-parent ;;
+        *'Notifier runtime parent must be owned by root'*) classification=runtime-parent-owner ;;
+        *'Notifier runtime parent must not be writable by group or other users'*) classification=runtime-parent-mode ;;
+        *'Notifier runtime directory identity is invalid'*) classification=runtime-identity ;;
+        *'rollback capture'*) classification=rollback-capture ;;
+        *'disabled control state could not be installed'*) classification=disabled-control ;;
+        *'notifier release identity differs'*) classification=release-conflict ;;
+        *'Notifier runtime and filestore plugin objects are asymmetric'*) classification=plugin-pair ;;
+        *)
+            if [[ -n "${logs}" ]]; then
+                classification=unclassified
+            fi
+            ;;
+    esac
+    printf '%s\n' "${classification}"
+}
+
+safe_disabled_setup_phase() {
+    local phase=""
+
+    [[ -n "${diagnostic_file}" && -f "${diagnostic_file}" ]] || {
+        printf '%s\n' unavailable
+        return 0
+    }
+    phase="$(awk -F': ' '
+        $0 == "[HARNESS] disabled-setup-start" { capture = 1; next }
+        capture && $1 == "[threadhub] Existing notifier setup phase" { value = $2 }
+        END { print value }
+    ' "${diagnostic_file}" 2>/dev/null)" || phase=""
+    case "${phase}" in
+        preflight|prepare_runtime|record_rollback_capture|write_disabled_control|build_artifacts|write_override|start_mailer|verify_mailer|install_plugin|verify_plugin)
+            printf '%s\n' "${phase}"
+            ;;
+        *) printf '%s\n' unavailable ;;
+    esac
+}
+
 safe_writable_state() {
     local path="$1"
 
@@ -336,6 +389,9 @@ write_safe_diagnostic() {
     local harness_log_flags=""
     local supported_preflight_failure=""
     local input_path_failures=""
+    local disabled_setup_failure=""
+    local disabled_setup_phase=""
+    local setup_exit=""
     local integration_root_writable=""
     local go_cache_writable=""
 
@@ -356,6 +412,13 @@ write_safe_diagnostic() {
     harness_log_flags="$(safe_harness_log_flags)"
     supported_preflight_failure="$(safe_supported_preflight_failure)"
     input_path_failures="$(safe_input_path_failures)"
+    disabled_setup_failure="$(safe_disabled_setup_failure)"
+    disabled_setup_phase="$(safe_disabled_setup_phase)"
+    if [[ "${setup_status}" =~ ^[0-9]+$ && "${setup_status}" -le 255 ]]; then
+        setup_exit="${setup_status}"
+    else
+        setup_exit=unavailable
+    fi
     integration_root_writable="$(safe_writable_state "${integration_root}")"
     go_cache_writable="$(safe_writable_state "${integration_root}/go-cache")"
     (set -o noclobber; {
@@ -371,6 +434,9 @@ write_safe_diagnostic() {
         printf 'harness_log_flags=%s\n' "${harness_log_flags}"
         printf 'supported_preflight_failure=%s\n' "${supported_preflight_failure}"
         printf 'input_path_failures=%s\n' "${input_path_failures}"
+        printf 'disabled_setup_failure=%s\n' "${disabled_setup_failure}"
+        printf 'disabled_setup_phase=%s\n' "${disabled_setup_phase}"
+        printf 'disabled_setup_exit=%s\n' "${setup_exit}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
         printf 'go_cache_writable=%s\n' "${go_cache_writable}"
     } >"${safe_diagnostic_output_path}") || return 0
@@ -764,6 +830,7 @@ db_counts "${integration_root}/counts-after-preflight" || fail NF-ADOPT-01
 cmp -s "${integration_root}/counts-baseline" "${integration_root}/counts-after-preflight" || fail NF-ADOPT-01
 
 result_stage=disabled-setup
+printf '%s\n' '[HARNESS] disabled-setup-start' >>"${diagnostic_file}"
 set +e
 generated_bundle=true
 THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \

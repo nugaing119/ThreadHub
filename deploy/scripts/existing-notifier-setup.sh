@@ -417,6 +417,7 @@ existing_notifier_setup_run() (
         existing_notifier_setup_verify_mailer \
         existing_notifier_setup_install_plugin \
         existing_notifier_setup_verify_plugin; do
+        log "Existing notifier setup phase: ${phase#existing_notifier_setup_}"
         existing_notifier_setup_recheck_config \
             || die "Existing notifier configuration changed during setup"
         "${phase}" || return $?
