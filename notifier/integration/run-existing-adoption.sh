@@ -231,6 +231,37 @@ EOF
     printf '%s\n' "${flags:-none}"
 }
 
+safe_supported_preflight_failure() {
+    local logs=""
+    local classification=unavailable
+
+    [[ -n "${diagnostic_file}" && -f "${diagnostic_file}" ]] || {
+        printf '%s\n' "${classification}"
+        return 0
+    }
+    logs="$(awk '
+        $0 == "[HARNESS] supported-preflight-start" { capture = 1; next }
+        capture { print }
+    ' "${diagnostic_file}" 2>/dev/null)" || logs=""
+    case "${logs}" in
+        *'Existing notifier configuration is invalid or unsafe'*) classification=config ;;
+        *'Existing Compose inputs or Mattermost bind roots are unsafe'*) classification=input-paths ;;
+        *'Existing Compose configuration is invalid'*) classification=compose-config ;;
+        *'Existing Compose model could not be inspected'*) classification=compose-inspection ;;
+        *'Existing Compose model is unsupported or conflicts with notifier resources'*) classification=compose-model ;;
+        *'Exactly one running Mattermost container is required'*) classification=container-count ;;
+        *'Mattermost Team Edition 11.7.7 is required'*) classification=live-version ;;
+        *'Mattermost Site URL must match THN_DOMAIN over HTTPS'*) classification=site-url ;;
+        *'Existing ThreadHub notifier plugin state requires manual review'*) classification=plugin-state ;;
+        *)
+            if [[ -n "${logs}" ]]; then
+                classification=unclassified
+            fi
+            ;;
+    esac
+    printf '%s\n' "${classification}"
+}
+
 safe_writable_state() {
     local path="$1"
 
@@ -254,6 +285,7 @@ write_safe_diagnostic() {
     local mattermost_local_status=""
     local mattermost_log_flags=""
     local harness_log_flags=""
+    local supported_preflight_failure=""
     local integration_root_writable=""
     local go_cache_writable=""
 
@@ -272,6 +304,7 @@ write_safe_diagnostic() {
     mattermost_local_status="$(safe_mattermost_local_status)"
     mattermost_log_flags="$(safe_mattermost_log_flags)"
     harness_log_flags="$(safe_harness_log_flags)"
+    supported_preflight_failure="$(safe_supported_preflight_failure)"
     integration_root_writable="$(safe_writable_state "${integration_root}")"
     go_cache_writable="$(safe_writable_state "${integration_root}/go-cache")"
     (set -o noclobber; {
@@ -285,6 +318,7 @@ write_safe_diagnostic() {
         printf 'mattermost_local_status=%s\n' "${mattermost_local_status}"
         printf 'mattermost_log_flags=%s\n' "${mattermost_log_flags}"
         printf 'harness_log_flags=%s\n' "${harness_log_flags}"
+        printf 'supported_preflight_failure=%s\n' "${supported_preflight_failure}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
         printf 'go_cache_writable=%s\n' "${go_cache_writable}"
     } >"${safe_diagnostic_output_path}") || return 0
@@ -667,6 +701,7 @@ set -e
 [[ "${unsupported_status}" -eq 20 && ! -e "${runtime_parent}/notifier" ]] || fail NF-ADOPT-02
 
 result_stage=supported-preflight
+printf '%s\n' '[HARNESS] supported-preflight-start' >>"${diagnostic_file}"
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" || fail NF-ADOPT-01
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-01
