@@ -190,6 +190,21 @@ wait_queue_pending() {
     done
 }
 
+wait_http() {
+    local endpoint="$1"
+    local attempts="$2"
+    local attempt=0
+
+    while ((attempt < attempts)); do
+        if curl --noproxy '*' --fail --silent --max-time 2 "${endpoint}" >/dev/null 2>&1; then
+            return 0
+        fi
+        sleep 1
+        ((attempt += 1))
+    done
+    return 1
+}
+
 cleanup() {
     local incoming_status=$?
     local safe_output="${result_assertion}"
@@ -314,7 +329,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'result_kind=failure; result_assertion=NF-ADOPT-09; exit 130' HUP INT TERM
 
-for required in awk cat chmod cmp cp date dirname docker git go grep id jq mkdir mktemp openssl rm script sed sleep sort stat sudo tr wc; do
+for required in awk cat chmod cmp cp curl date dirname docker git go grep id jq mkdir mktemp openssl rm script sed sleep sort stat sudo tr wc; do
     command -v "${required}" >/dev/null 2>&1 || fail NF-ADOPT-01
 done
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || fail NF-ADOPT-01
@@ -439,8 +454,11 @@ private "${docker_command[@]}" build --platform linux/amd64 \
     --target smtp-fixture --tag "threadhub/notifier-smtp-fixture:${notifier_version}" \
     "${notifier_root}" || fail NF-ADOPT-01
 project_touched=true
-result_stage=base-compose-start
-private compose_base up -d --no-build --wait --wait-timeout 180 postgres smtp-fixture mattermost || fail NF-ADOPT-01
+result_stage=base-dependencies-start
+private compose_base up -d --no-build --wait --wait-timeout 180 postgres smtp-fixture || fail NF-ADOPT-01
+result_stage=base-mattermost-start
+private compose_base up -d --no-build mattermost || fail NF-ADOPT-01
+private wait_http 'http://127.0.0.1:49153/api/v4/system/ping' 180 || fail NF-ADOPT-01
 result_stage=smtp-ca-permissions
 sudo chown root:root "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chmod 0644 "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
