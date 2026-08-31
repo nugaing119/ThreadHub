@@ -647,14 +647,17 @@ private compose_base exec -T mattermost mmctl user verify existing-recipient-b -
 result_stage=baseline-counts
 db_counts "${integration_root}/counts-baseline" || fail NF-ADOPT-03
 
-portable_hash "${compose_file}" >"${integration_root}/base-compose-before.sha256"
-portable_hash "${integration_env}" >"${integration_root}/base-env-before.sha256"
-cp "${integration_env}" "${integration_root}/unsupported.env"
-sed -i 's/^MATTERMOST_IMAGE_TAG=11\.7\.7$/MATTERMOST_IMAGE_TAG=11.8.0/' "${integration_root}/unsupported.env"
-chmod 0600 "${integration_root}/unsupported.env"
+result_stage=unsupported-fixture-prepare
+portable_hash "${compose_file}" >"${integration_root}/base-compose-before.sha256" || fail NF-ADOPT-01
+portable_hash "${integration_env}" >"${integration_root}/base-env-before.sha256" || fail NF-ADOPT-01
+cp "${integration_env}" "${integration_root}/unsupported.env" || fail NF-ADOPT-01
+sed -i 's/^MATTERMOST_IMAGE_TAG=11\.7\.7$/MATTERMOST_IMAGE_TAG=11.8.0/' \
+    "${integration_root}/unsupported.env" || fail NF-ADOPT-01
+chmod 0600 "${integration_root}/unsupported.env" || fail NF-ADOPT-01
 sed "s|^THN_COMPOSE_ENV_FILE=.*$|THN_COMPOSE_ENV_FILE=${integration_root}/unsupported.env|" \
-    "${adoption_env}" >"${integration_root}/unsupported-notifier.env"
-chmod 0600 "${integration_root}/unsupported-notifier.env"
+    "${adoption_env}" >"${integration_root}/unsupported-notifier.env" || fail NF-ADOPT-01
+chmod 0600 "${integration_root}/unsupported-notifier.env" || fail NF-ADOPT-01
+result_stage=unsupported-preflight
 set +e
 THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${integration_root}/unsupported-notifier.env" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" \
@@ -663,6 +666,7 @@ unsupported_status=$?
 set -e
 [[ "${unsupported_status}" -eq 20 && ! -e "${runtime_parent}/notifier" ]] || fail NF-ADOPT-02
 
+result_stage=supported-preflight
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" || fail NF-ADOPT-01
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-01
