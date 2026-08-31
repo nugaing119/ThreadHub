@@ -417,6 +417,36 @@ safe_acceptance_exercise_failure() {
     esac
 }
 
+safe_acceptance_exercise_reason() {
+    local logs=""
+    local reason=""
+
+    [[ -n "${diagnostic_file}" && -f "${diagnostic_file}" ]] || {
+        printf '%s\n' unavailable
+        return 0
+    }
+    logs="$(awk '
+        $0 == "[HARNESS] acceptance-exercise-start" { capture = 1; next }
+        capture { print }
+    ' "${diagnostic_file}" 2>/dev/null)" || logs=""
+    reason="$(grep -Eo \
+        'existing adoption acceptance failed phase=[a-z-]+ reason=[a-z-]+' \
+        <<<"${logs}" | tail -n 1)" || reason=""
+    reason="${reason##*reason=}"
+    case "${reason}" in
+        capture-unavailable | no-deliveries | count-mismatch | content-mismatch | unavailable)
+            printf '%s\n' "${reason}"
+            ;;
+        *)
+            if [[ -n "${logs}" ]]; then
+                printf '%s\n' unclassified
+            else
+                printf '%s\n' unavailable
+            fi
+            ;;
+    esac
+}
+
 safe_writable_state() {
     local path="$1"
 
@@ -491,6 +521,7 @@ write_safe_diagnostic() {
     local setup_exit=""
     local disabled_count_differences=""
     local acceptance_exercise_failure=""
+    local acceptance_exercise_reason=""
     local safe_smtp_acceptance_failure=""
     local safe_smtp_acceptance_phase=""
     local integration_root_writable=""
@@ -517,6 +548,7 @@ write_safe_diagnostic() {
     disabled_setup_phase="$(safe_disabled_setup_phase)"
     disabled_count_differences="$(safe_disabled_count_differences)"
     acceptance_exercise_failure="$(safe_acceptance_exercise_failure)"
+    acceptance_exercise_reason="$(safe_acceptance_exercise_reason)"
     case "${smtp_acceptance_failure}" in
         none | unavailable | temporary-[0-9] | temporary-[0-9][0-9] | temporary-[0-9][0-9][0-9] \
             | permanent-[0-9] | permanent-[0-9][0-9] | permanent-[0-9][0-9][0-9] \
@@ -557,6 +589,7 @@ write_safe_diagnostic() {
         printf 'disabled_setup_exit=%s\n' "${setup_exit}"
         printf 'disabled_count_differences=%s\n' "${disabled_count_differences}"
         printf 'acceptance_exercise_failure=%s\n' "${acceptance_exercise_failure}"
+        printf 'acceptance_exercise_reason=%s\n' "${acceptance_exercise_reason}"
         printf 'smtp_acceptance_phase=%s\n' "${safe_smtp_acceptance_phase}"
         printf 'smtp_acceptance_failure=%s\n' "${safe_smtp_acceptance_failure}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"

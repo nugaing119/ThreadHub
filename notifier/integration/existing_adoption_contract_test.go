@@ -57,6 +57,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"--recipient-stdin",
 		"--channel-ids-stdin",
 		"acceptance_exercise_failure=",
+		"acceptance_exercise_reason=",
 		"[HARNESS] acceptance-exercise-start",
 	} {
 		if !strings.Contains(runner, required) {

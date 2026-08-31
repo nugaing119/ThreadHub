@@ -36,6 +36,12 @@ type acceptancePhaseError struct {
 func (e *acceptancePhaseError) Error() string { return "existing adoption acceptance phase failed" }
 func (e *acceptancePhaseError) Unwrap() error { return e.cause }
 
+type deliveryDeltaError struct {
+	reason string
+}
+
+func (e *deliveryDeltaError) Error() string { return "delivery delta did not converge" }
+
 func phaseError(phase string, err error) error {
 	if err == nil {
 		return nil
@@ -53,6 +59,19 @@ func safeFailurePhase(err error) string {
 		"public-thread", "private-thread", "excluded-root", "direct-root",
 		"system-membership", "delivery-delta":
 		return phased.phase
+	default:
+		return "unavailable"
+	}
+}
+
+func safeFailureReason(err error) string {
+	var delta *deliveryDeltaError
+	if !errors.As(err, &delta) {
+		return "unavailable"
+	}
+	switch delta.reason {
+	case "capture-unavailable", "no-deliveries", "count-mismatch", "content-mismatch":
+		return delta.reason
 	default:
 		return "unavailable"
 	}
@@ -111,7 +130,7 @@ type client struct {
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "existing adoption acceptance failed phase=%s\n", safeFailurePhase(err))
+		_, _ = fmt.Fprintf(os.Stderr, "existing adoption acceptance failed phase=%s reason=%s\n", safeFailurePhase(err), safeFailureReason(err))
 		os.Exit(1)
 	}
 }
@@ -442,6 +461,7 @@ func getCaptures(ctx context.Context, c *client) (captureSnapshot, error) {
 func waitDelta(ctx context.Context, c *client, secret []byte, before captureSnapshot, expected map[string]int, timeout time.Duration) error {
 	beforeCounts := captureCounts(before)
 	expectedHashes := make(map[string]int, len(expected))
+	var lastSnapshot *captureSnapshot
 	for email, count := range expected {
 		expectedHashes[protocol.HashIdentifier(secret, "integration-recipient", strings.ToLower(email))] = count
 	}
@@ -452,6 +472,8 @@ func waitDelta(ctx context.Context, c *client, secret []byte, before captureSnap
 	for {
 		after, err := getCaptures(ctx, c)
 		if err == nil {
+			latest := after
+			lastSnapshot = &latest
 			afterCounts := captureCounts(after)
 			afterCaptures := captureByHash(after)
 			matched := true
@@ -469,10 +491,44 @@ func waitDelta(ctx context.Context, c *client, secret []byte, before captureSnap
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-deadline.C:
-			return errors.New("capture timeout")
+			return &deliveryDeltaError{reason: deliveryDeltaReason(before, lastSnapshot, expectedHashes)}
 		case <-ticker.C:
 		}
 	}
+}
+
+func deliveryDeltaReason(before captureSnapshot, after *captureSnapshot, expected map[string]int) string {
+	if after == nil {
+		return "capture-unavailable"
+	}
+	beforeCounts := captureCounts(before)
+	afterCounts := captureCounts(*after)
+	afterCaptures := captureByHash(*after)
+	countMatch := true
+	contentMatch := true
+	noDeliveries := true
+	for hash, count := range expected {
+		delta := afterCounts[hash] - beforeCounts[hash]
+		if delta != 0 {
+			noDeliveries = false
+		}
+		if delta != count {
+			countMatch = false
+		}
+		if count > 0 && !afterCaptures[hash].GenericContent {
+			contentMatch = false
+		}
+	}
+	if countMatch && contentMatch {
+		return "unavailable"
+	}
+	if noDeliveries {
+		return "no-deliveries"
+	}
+	if countMatch {
+		return "content-mismatch"
+	}
+	return "count-mismatch"
 }
 
 func captureByHash(snapshot captureSnapshot) map[string]capture {

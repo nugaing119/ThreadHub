@@ -42,6 +42,58 @@ func TestAcceptanceFailurePhaseIsSafeAndBounded(t *testing.T) {
 	}
 }
 
+func TestDeliveryDeltaFailureReasonIsSafeAndBounded(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "known", err: phaseError("delivery-delta", &deliveryDeltaError{reason: "no-deliveries"}), want: "no-deliveries"},
+		{name: "unknown reason", err: phaseError("delivery-delta", &deliveryDeltaError{reason: "private-value"}), want: "unavailable"},
+		{name: "plain error", err: errors.New("private upstream detail"), want: "unavailable"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := safeFailureReason(test.err); got != test.want {
+				t.Fatalf("safeFailureReason() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
+func TestDeliveryDeltaReasonClassifiesSafeAggregateState(t *testing.T) {
+	t.Parallel()
+
+	hashA := strings.Repeat("a", 64)
+	hashB := strings.Repeat("b", 64)
+	before := captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 1, LastAttemptMS: 1}}}
+	expected := map[string]int{hashA: 2, hashB: 1}
+	for _, test := range []struct {
+		name  string
+		after *captureSnapshot
+		want  string
+	}{
+		{name: "capture unavailable", after: nil, want: "capture-unavailable"},
+		{name: "no deliveries", after: &captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 1, LastAttemptMS: 1}}}, want: "no-deliveries"},
+		{name: "count mismatch", after: &captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 2, GenericContent: true, LastAttemptMS: 2}}}, want: "count-mismatch"},
+		{name: "content mismatch", after: &captureSnapshot{Captures: []capture{
+			{RecipientHash: hashA, EnvelopeCount: 3, GenericContent: true, LastAttemptMS: 2},
+			{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: false, LastAttemptMS: 2},
+		}}, want: "content-mismatch"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := deliveryDeltaReason(before, test.after, expected); got != test.want {
+				t.Fatalf("deliveryDeltaReason() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
+
 func TestStateRoundTripContainsOnlySchemaAndMattermostIDs(t *testing.T) {
 	directory := t.TempDir()
 	path := filepath.Join(directory, "state.json")
