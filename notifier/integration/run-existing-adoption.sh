@@ -262,6 +262,54 @@ safe_supported_preflight_failure() {
     printf '%s\n' "${classification}"
 }
 
+safe_input_path_failures() {
+    local failures=""
+    local mode=""
+    local label=""
+    local path=""
+    local kind=""
+
+    safe_add_input_failure() {
+        failures="${failures:+${failures},}$1"
+    }
+    safe_check_input_path() {
+        label="$1"
+        path="$2"
+        kind="$3"
+        if [[ -L "${path}" ]]; then
+            safe_add_input_failure "${label}-symlink"
+            return
+        fi
+        if [[ "${kind}" == file && ! -f "${path}" ]]; then
+            safe_add_input_failure "${label}-not-file"
+            return
+        fi
+        if [[ "${kind}" == directory && ! -d "${path}" ]]; then
+            safe_add_input_failure "${label}-not-directory"
+            return
+        fi
+        mode="$(stat -c '%a' "${path}" 2>/dev/null)" || {
+            safe_add_input_failure "${label}-mode-unavailable"
+            return
+        }
+        if [[ ! "${mode}" =~ ^[0-7]{3,4}$ ]] || (( (8#${mode} & 0022) != 0 )); then
+            safe_add_input_failure "${label}-writable"
+        fi
+    }
+
+    if [[ ! -d "${script_dir}/existing" || -L "${script_dir}/existing" ]]; then
+        safe_add_input_failure project-dir
+    fi
+    safe_check_input_path compose-file "${compose_file}" file
+    safe_check_input_path compose-env "${integration_env}" file
+    [[ "$(stat -c '%a' "${integration_env}" 2>/dev/null)" == 600 ]] \
+        || safe_add_input_failure compose-env-not-0600
+    safe_check_input_path plugins-root "${integration_root}/data/mattermost/plugins" directory
+    safe_check_input_path data-root "${integration_root}/data/mattermost/data" directory
+    safe_check_input_path smtp-ca "${integration_root}/data/smtp-ca/ca.crt" file
+    printf '%s\n' "${failures:-none}"
+}
+
 safe_writable_state() {
     local path="$1"
 
@@ -286,6 +334,7 @@ write_safe_diagnostic() {
     local mattermost_log_flags=""
     local harness_log_flags=""
     local supported_preflight_failure=""
+    local input_path_failures=""
     local integration_root_writable=""
     local go_cache_writable=""
 
@@ -305,6 +354,7 @@ write_safe_diagnostic() {
     mattermost_log_flags="$(safe_mattermost_log_flags)"
     harness_log_flags="$(safe_harness_log_flags)"
     supported_preflight_failure="$(safe_supported_preflight_failure)"
+    input_path_failures="$(safe_input_path_failures)"
     integration_root_writable="$(safe_writable_state "${integration_root}")"
     go_cache_writable="$(safe_writable_state "${integration_root}/go-cache")"
     (set -o noclobber; {
@@ -319,6 +369,7 @@ write_safe_diagnostic() {
         printf 'mattermost_log_flags=%s\n' "${mattermost_log_flags}"
         printf 'harness_log_flags=%s\n' "${harness_log_flags}"
         printf 'supported_preflight_failure=%s\n' "${supported_preflight_failure}"
+        printf 'input_path_failures=%s\n' "${input_path_failures}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
         printf 'go_cache_writable=%s\n' "${go_cache_writable}"
     } >"${safe_diagnostic_output_path}") || return 0
