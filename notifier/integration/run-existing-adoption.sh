@@ -205,6 +205,44 @@ EOF
     printf '%s\n' "${flags:-none}"
 }
 
+safe_harness_log_flags() {
+    local logs=""
+    local flags=""
+    local label=""
+    local pattern=""
+
+    [[ -n "${diagnostic_file}" && -f "${diagnostic_file}" ]] || {
+        printf '%s\n' unavailable
+        return 0
+    }
+    logs="$(tail -n 200 "${diagnostic_file}" 2>/dev/null)" || logs=""
+    while IFS='|' read -r label pattern; do
+        if grep -Eiq -- "${pattern}" <<<"${logs}"; then
+            flags="${flags:+${flags},}${label}"
+        fi
+    done <<'EOF'
+go-cache|build cache|GOCACHE
+go-network|proxy\.golang\.org|TLS handshake|connection reset|dial tcp|i/o timeout
+go-compile|undefined:|syntax error|cannot use|build constraints exclude
+permission|permission denied|operation not permitted
+no-space|no space left on device
+timeout|timed out|timeout
+EOF
+    printf '%s\n' "${flags:-none}"
+}
+
+safe_writable_state() {
+    local path="$1"
+
+    if [[ -d "${path}" && -w "${path}" ]]; then
+        printf '%s\n' yes
+    elif [[ -d "${path}" ]]; then
+        printf '%s\n' no
+    else
+        printf '%s\n' missing
+    fi
+}
+
 write_safe_diagnostic() {
     local evidence_parent=""
     local postgres_state=""
@@ -215,6 +253,9 @@ write_safe_diagnostic() {
     local mattermost_restart_count=""
     local mattermost_local_status=""
     local mattermost_log_flags=""
+    local harness_log_flags=""
+    local integration_root_writable=""
+    local go_cache_writable=""
 
     [[ -n "${safe_diagnostic_output_path}" && "${result_kind}" != success ]] || return 0
     evidence_parent="$(dirname -- "${safe_diagnostic_output_path}")"
@@ -230,6 +271,9 @@ write_safe_diagnostic() {
     mattermost_restart_count="$(safe_mattermost_restart_count)"
     mattermost_local_status="$(safe_mattermost_local_status)"
     mattermost_log_flags="$(safe_mattermost_log_flags)"
+    harness_log_flags="$(safe_harness_log_flags)"
+    integration_root_writable="$(safe_writable_state "${integration_root}")"
+    go_cache_writable="$(safe_writable_state "${integration_root}/go-cache")"
     (set -o noclobber; {
         printf 'failure_stage=%s\n' "${result_stage}"
         printf 'postgres=%s\n' "${postgres_state}"
@@ -240,6 +284,9 @@ write_safe_diagnostic() {
         printf 'mattermost_restart_count=%s\n' "${mattermost_restart_count}"
         printf 'mattermost_local_status=%s\n' "${mattermost_local_status}"
         printf 'mattermost_log_flags=%s\n' "${mattermost_log_flags}"
+        printf 'harness_log_flags=%s\n' "${harness_log_flags}"
+        printf 'integration_root_writable=%s\n' "${integration_root_writable}"
+        printf 'go_cache_writable=%s\n' "${go_cache_writable}"
     } >"${safe_diagnostic_output_path}") || return 0
     chmod 0644 "${safe_diagnostic_output_path}" || true
 }
@@ -449,7 +496,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'result_kind=failure; result_assertion=NF-ADOPT-09; exit 130' HUP INT TERM
 
-for required in awk cat chmod cmp cp curl date dirname docker git go grep id jq mkdir mktemp openssl rm script sed sleep sort stat sudo tr wc; do
+for required in awk cat chmod cmp cp curl date dirname docker git go grep id jq mkdir mktemp openssl rm script sed sleep sort stat sudo tail tr wc; do
     command -v "${required}" >/dev/null 2>&1 || fail NF-ADOPT-01
 done
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || fail NF-ADOPT-01
