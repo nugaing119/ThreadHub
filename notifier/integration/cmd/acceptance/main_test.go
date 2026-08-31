@@ -82,7 +82,7 @@ func TestNewSignedRequestCoversTimestampNonceAndBody(t *testing.T) {
 	secret, _ := hex.DecodeString(strings.Repeat("12", 32))
 	event := protocol.Event{
 		EventID: "abcdefghijklmnopqrstuvwxyz", PostID: "abcdefghijklmnopqrstuvwxyz",
-		Permalink: "https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", OccurredAt: 1234,
+		Permalink: "https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", OccurredAt: 1234,
 		Recipients: []protocol.Recipient{{UserID: "bcdefghijklmnopqrstuvwxyza", Email: "recipient@integration.invalid"}},
 	}
 	request, body, err := newSignedRequest("http://127.0.0.1:8080", secret, event, 1787790000, "00112233445566778899aabbccddeeff")

@@ -21,7 +21,7 @@ func TestRenderCreatesPrivateGenericMultipartNotice(t *testing.T) {
 	for _, required := range []string{
 		"ThreadHub에 새 메시지가 등록되었습니다.",
 		"로그인하여 확인해 주세요.",
-		"https://threadhub.example.test/pl/abcdefghijklmnopqrstuvwxyz",
+		"https://threadhub.example.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz",
 		"Content-Type: multipart/alternative;",
 	} {
 		if !strings.Contains(data, required) {
@@ -131,5 +131,5 @@ func header(data []byte, name string) string {
 }
 
 func testInput() Input {
-	return Input{FromName: "ThreadHub 고객지원", FromAddress: "no-reply@example.test", ReplyTo: "feedback@example.test", ToAddress: "recipient@example.test", Domain: "threadhub.example.test", EventHash: "event-hash-original-post-id", RecipientHash: "recipient-hash-original-user-id", Permalink: "https://threadhub.example.test/pl/abcdefghijklmnopqrstuvwxyz", Date: time.Date(2026, 8, 27, 1, 2, 3, 0, time.UTC)}
+	return Input{FromName: "ThreadHub 고객지원", FromAddress: "no-reply@example.test", ReplyTo: "feedback@example.test", ToAddress: "recipient@example.test", Domain: "threadhub.example.test", EventHash: "event-hash-original-post-id", RecipientHash: "recipient-hash-original-user-id", Permalink: "https://threadhub.example.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", Date: time.Date(2026, 8, 27, 1, 2, 3, 0, time.UTC)}
 }

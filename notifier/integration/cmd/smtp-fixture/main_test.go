@@ -125,12 +125,12 @@ func TestSMTPRequiresSTARTTLSAndAuthAndInjectsOneTemporaryFailure(t *testing.T) 
 func TestInspectGenericMessageRejectsAdditionalContent(t *testing.T) {
 	t.Parallel()
 
-	valid := testNotice("https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", "")
+	valid := testNotice("https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", "")
 	if !inspectGenericMessage(valid, "threadhub.integration.test") {
 		t.Fatal("inspectGenericMessage() rejected the exact generic notice")
 	}
 
-	leaked := testNotice("https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", "private channel marker")
+	leaked := testNotice("https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", "private channel marker")
 	if inspectGenericMessage(leaked, "threadhub.integration.test") {
 		t.Fatal("inspectGenericMessage() accepted additional message content")
 	}
@@ -139,7 +139,7 @@ func TestInspectGenericMessageRejectsAdditionalContent(t *testing.T) {
 func TestInspectGenericMessageAcceptsMattermostIDsContainingDigits(t *testing.T) {
 	t.Parallel()
 
-	valid := testNotice("https://threadhub.integration.test/pl/abcd1234efgh5678ijkl9012mn", "")
+	valid := testNotice("https://threadhub.integration.test/_redirect/pl/abcd1234efgh5678ijkl9012mn", "")
 	if !inspectGenericMessage(valid, "threadhub.integration.test") {
 		t.Fatal("inspectGenericMessage() rejected a valid lowercase alphanumeric Mattermost ID")
 	}
@@ -157,7 +157,7 @@ func TestInspectGenericMessageRejectsInvalidMattermostIDs(t *testing.T) {
 		postID := postID
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			if inspectGenericMessage(testNotice("https://threadhub.integration.test/pl/"+postID, ""), "threadhub.integration.test") {
+			if inspectGenericMessage(testNotice("https://threadhub.integration.test/_redirect/pl/"+postID, ""), "threadhub.integration.test") {
 				t.Fatalf("inspectGenericMessage() accepted invalid post ID %q", postID)
 			}
 		})
@@ -169,7 +169,7 @@ func TestCaptureStoreSnapshotContainsHashesAndAggregatesOnly(t *testing.T) {
 
 	store := newCaptureStore([]byte("0123456789abcdef0123456789abcdef"), "threadhub.integration.test")
 	attemptAt := time.UnixMilli(1787790000123)
-	if generic, err := store.recordAt("recipient-one@integration.invalid", testNotice("https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", ""), attemptAt); err != nil || !generic {
+	if generic, err := store.recordAt("recipient-one@integration.invalid", testNotice("https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", ""), attemptAt); err != nil || !generic {
 		t.Fatal("recordAt() rejected a valid capture")
 	}
 	if got := store.snapshot().Captures[0].LastAttemptAtMS; got != attemptAt.UnixMilli() {
@@ -205,7 +205,7 @@ func TestCaptureStorePersistsOnlyAggregatesAcrossRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	recipient := "persisted-recipient@integration.invalid"
-	notice := testNotice("https://threadhub.integration.test/pl/abcd1234efgh5678ijkl9012mn", "")
+	notice := testNotice("https://threadhub.integration.test/_redirect/pl/abcd1234efgh5678ijkl9012mn", "")
 	if generic, err := store.record(recipient, notice); err != nil || !generic {
 		t.Fatalf("record() = %v, %v", generic, err)
 	}
@@ -412,7 +412,7 @@ func sendTestNotice(address, host string, roots *x509.CertPool) error {
 	if err != nil {
 		return err
 	}
-	if _, err := writer.Write(testNotice("https://threadhub.integration.test/pl/abcdefghijklmnopqrstuvwxyz", "")); err != nil {
+	if _, err := writer.Write(testNotice("https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", "")); err != nil {
 		return err
 	}
 	return writer.Close()

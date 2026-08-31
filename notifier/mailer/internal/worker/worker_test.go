@@ -92,7 +92,7 @@ func TestTemporaryFailureOnAttemptEightBecomesExhausted(t *testing.T) {
 	event := protocol.Event{
 		EventID:    "0123456789abcdef0123456789",
 		PostID:     "0123456789abcdef0123456789",
-		Permalink:  "https://threadhub.test/pl/0123456789abcdef0123456789",
+		Permalink:  "https://threadhub.test/_redirect/pl/0123456789abcdef0123456789",
 		OccurredAt: workerTestNow.Add(-time.Minute).UnixMilli(),
 		Recipients: []protocol.Recipient{{UserID: "abcdef0123456789abcdef0123", Email: "recipient@example.test"}},
 	}
@@ -485,7 +485,7 @@ func TestEmptyEmailNeverReachesSenderAndLogsContainOnlySafeAggregates(t *testing
 	d := delivery("", 1)
 	d.Key.EventHash = "sensitive-event-hash"
 	d.Key.RecipientHash = "sensitive-recipient-hash"
-	d.Permalink = "https://threadhub.test/pl/sensitive-post-id"
+	d.Permalink = "https://threadhub.test/_redirect/pl/sensitive-post-id"
 	queue := newFakeStore(d)
 	queue.onMark = cancel
 	sender := &sequenceSender{}
@@ -515,7 +515,7 @@ func delivery(email string, attempt int) storepkg.Delivery {
 	return storepkg.Delivery{
 		Key:          storepkg.DeliveryKey{EventHash: "event-hash", RecipientHash: "recipient-hash"},
 		Email:        email,
-		Permalink:    "https://threadhub.test/pl/0123456789abcdef0123456789",
+		Permalink:    "https://threadhub.test/_redirect/pl/0123456789abcdef0123456789",
 		AttemptCount: attempt,
 		AcceptedAt:   workerTestNow,
 		OccurredAt:   workerTestNow.Add(-time.Minute),
@@ -905,7 +905,7 @@ func runMaintenanceOnce(t *testing.T, queue *storepkg.SQLiteStore, now time.Time
 func retentionEvent(postID, userID, email string, acceptedAt time.Time) protocol.Event {
 	return protocol.Event{
 		EventID: postID, PostID: postID,
-		Permalink:  "https://threadhub.test/pl/" + postID,
+		Permalink:  "https://threadhub.test/_redirect/pl/" + postID,
 		OccurredAt: acceptedAt.Add(-time.Minute).UnixMilli(),
 		Recipients: []protocol.Recipient{{UserID: userID, Email: email}},
 	}

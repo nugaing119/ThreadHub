@@ -41,7 +41,7 @@ func (e Event) Validate(domain string) error {
 	}
 
 	u, err := url.Parse(e.Permalink)
-	if err != nil || u.Scheme != "https" || u.Host != domain || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery || u.EscapedPath() != "/pl/"+e.PostID {
+	if err != nil || u.Scheme != "https" || u.Host != domain || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery || u.EscapedPath() != "/_redirect/pl/"+e.PostID {
 		return ErrInvalidPermalink
 	}
 

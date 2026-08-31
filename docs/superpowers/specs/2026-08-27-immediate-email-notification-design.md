@@ -99,8 +99,10 @@ ThreadHub에 새 메시지가 등록되었습니다.
 `메시지 확인` 링크는 다음 형식을 사용한다.
 
 ```text
-https://{threadhub-domain}/pl/{post_id}
+https://{threadhub-domain}/_redirect/pl/{post_id}
 ```
+
+Mattermost v11.7.7의 팀 독립 permalink 리디렉션 경로를 사용한다. 루트의 `/pl/{post_id}`는 `pl`을 Team 이름으로 해석하므로 사용하지 않으며, 이메일에 Team 이름을 포함하지 않은 채 Mattermost가 게시물의 실제 Team과 채널을 확인해 이동하도록 한다.
 
 최초 적용 대상에서는 `threadhub-domain`이 `threadhub-mentor.stillwhy.com`이다. 다른 프로젝트는 자신의 `THREADHUB_DOMAIN`으로 링크를 생성한다.
 
@@ -207,7 +209,7 @@ Mailer는 Mattermost와 분리된 전용 Docker 컨테이너로 실행한다.
 {
   "event_id": "opaque-event-id",
   "post_id": "mattermost-post-id",
-  "permalink": "https://project-threadhub.example.com/pl/mattermost-post-id",
+  "permalink": "https://project-threadhub.example.com/_redirect/pl/mattermost-post-id",
   "occurred_at": 1787790000000,
   "recipients": [
     {

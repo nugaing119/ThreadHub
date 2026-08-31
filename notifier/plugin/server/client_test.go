@@ -62,7 +62,7 @@ func TestMailerClientSendsOneMinimalSignedRequest(t *testing.T) {
 		if err := json.Unmarshal(body, &event); err != nil {
 			t.Errorf("decode event: %v", err)
 		}
-		if event.EventID != testPostID || event.PostID != testPostID || event.Permalink != "https://threadhub.example.test/pl/"+testPostID || event.OccurredAt != 1787790000000 {
+		if event.EventID != testPostID || event.PostID != testPostID || event.Permalink != "https://threadhub.example.test/_redirect/pl/"+testPostID || event.OccurredAt != 1787790000000 {
 			t.Errorf("event = %#v, want exact outbox projection", event)
 		}
 		response.WriteHeader(http.StatusAccepted)

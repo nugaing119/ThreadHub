@@ -151,7 +151,7 @@ func TestCancelFailedCLILeavesNoFailedAggregateAndPreservesActiveWork(t *testing
 	}
 	makeEvent := func(id, userID, email string, now time.Time) protocol.Event {
 		return protocol.Event{
-			EventID: id, PostID: id, Permalink: "https://threadhub.example.test/pl/" + id,
+			EventID: id, PostID: id, Permalink: "https://threadhub.example.test/_redirect/pl/" + id,
 			OccurredAt: now.Add(-time.Minute).UnixMilli(),
 			Recipients: []protocol.Recipient{{UserID: userID, Email: email}},
 		}

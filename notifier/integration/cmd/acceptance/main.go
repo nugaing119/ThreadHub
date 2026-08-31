@@ -1388,7 +1388,7 @@ func (a *acceptance) expectedA() map[string]int {
 func (a *acceptance) syntheticEvent(sequence int, recipient mmUser) protocol.Event {
 	id := fmt.Sprintf("%026x", sequence)
 	return protocol.Event{
-		EventID: id, PostID: id, Permalink: "https://" + a.cfg.domain + "/pl/" + id,
+		EventID: id, PostID: id, Permalink: "https://" + a.cfg.domain + "/_redirect/pl/" + id,
 		OccurredAt: time.Now().UnixMilli(), Recipients: []protocol.Recipient{{UserID: recipient.ID, Email: recipient.Email}},
 	}
 }
