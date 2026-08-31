@@ -51,6 +51,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"down --volumes --remove-orphans",
 		"timeout --foreground --kill-after=10s 180s script",
 		"elapsed_seconds=%s",
+		"smtp_acceptance_failure=",
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-adoption runner contract is missing %q", required)

@@ -32,6 +32,7 @@ result_stage=bootstrap
 generated_bundle=false
 bundle_sha_public=""
 setup_status=""
+smtp_acceptance_failure=unavailable
 
 declare -a docker_command=()
 declare -a privileged_docker_command=()
@@ -456,6 +457,7 @@ write_safe_diagnostic() {
     local disabled_setup_phase=""
     local setup_exit=""
     local disabled_count_differences=""
+    local safe_smtp_acceptance_failure=""
     local integration_root_writable=""
     local go_cache_writable=""
 
@@ -479,6 +481,15 @@ write_safe_diagnostic() {
     disabled_setup_failure="$(safe_disabled_setup_failure)"
     disabled_setup_phase="$(safe_disabled_setup_phase)"
     disabled_count_differences="$(safe_disabled_count_differences)"
+    case "${smtp_acceptance_failure}" in
+        none | unavailable | temporary-[0-9] | temporary-[0-9][0-9] | temporary-[0-9][0-9][0-9] \
+            | permanent-[0-9] | permanent-[0-9][0-9] | permanent-[0-9][0-9][0-9] \
+            | timeout-[0-9] | timeout-[0-9][0-9] | timeout-[0-9][0-9][0-9] \
+            | protocol-[0-9] | protocol-[0-9][0-9] | protocol-[0-9][0-9][0-9])
+            safe_smtp_acceptance_failure="${smtp_acceptance_failure}"
+            ;;
+        *) safe_smtp_acceptance_failure=unavailable ;;
+    esac
     if [[ "${setup_status}" =~ ^[0-9]+$ && "${setup_status}" -le 255 ]]; then
         setup_exit="${setup_status}"
     else
@@ -503,6 +514,7 @@ write_safe_diagnostic() {
         printf 'disabled_setup_phase=%s\n' "${disabled_setup_phase}"
         printf 'disabled_setup_exit=%s\n' "${setup_exit}"
         printf 'disabled_count_differences=%s\n' "${disabled_count_differences}"
+        printf 'smtp_acceptance_failure=%s\n' "${safe_smtp_acceptance_failure}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
         printf 'go_cache_writable=%s\n' "${go_cache_writable}"
     } >"${safe_diagnostic_output_path}") || return 0
@@ -556,6 +568,33 @@ run_pty() {
         "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${adoption_env}" "$@"
     timeout --foreground --kill-after=10s 180s script -q -e -c "${command_string}" /dev/null \
         <"${input_file}" >/dev/null 2>&1
+}
+
+run_smtp_pty() {
+    local input_file="$1"
+    shift
+    local command_string=""
+    local transcript="${integration_root}/smtp-acceptance.transcript"
+    local safe_failure=""
+    local status=0
+
+    printf -v command_string '%q ' env \
+        "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${adoption_env}" "$@"
+    timeout --foreground --kill-after=10s 180s script -q -e -c "${command_string}" /dev/null \
+        <"${input_file}" >"${transcript}" 2>&1 || status=$?
+    if [[ "${status}" -eq 0 ]]; then
+        smtp_acceptance_failure=none
+    else
+        safe_failure="$(grep -Eo 'error_class=(temporary|permanent|timeout|protocol) smtp_code=[0-9]{1,3}' \
+            "${transcript}" | tail -n 1)" || safe_failure=""
+        if [[ "${safe_failure}" =~ ^error_class=(temporary|permanent|timeout|protocol)\ smtp_code=([0-9]{1,3})$ ]]; then
+            smtp_acceptance_failure="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}"
+        else
+            smtp_acceptance_failure=unavailable
+        fi
+    fi
+    rm -f -- "${transcript}"
+    return "${status}"
 }
 
 queue_is_idle() {
@@ -939,7 +978,7 @@ private "${docker_command[@]}" network connect \
 
 record_stage smtp-acceptance
 printf '%s\n' 'probe@integration.invalid' >"${integration_root}/smtp-recipient"
-run_pty "${integration_root}/smtp-recipient" "${repository_root}/deploy/scripts/existing-notifier-smtp-test.sh" || fail NF-ADOPT-04
+run_smtp_pty "${integration_root}/smtp-recipient" "${repository_root}/deploy/scripts/existing-notifier-smtp-test.sh" || fail NF-ADOPT-04
 rm -f -- "${integration_root}/smtp-recipient"
 public_channel="$(jq -r '.public_channel_id' "${integration_root}/acceptance-state.json")"
 private_channel="$(jq -r '.private_channel_id' "${integration_root}/acceptance-state.json")"
