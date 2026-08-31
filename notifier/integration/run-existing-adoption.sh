@@ -100,11 +100,95 @@ safe_service_state() {
     printf '%s,%s\n' "${state}" "${health}"
 }
 
+safe_http_probe() {
+    local endpoint="$1"
+    local http_code=""
+    local probe_status=0
+
+    http_code="$(curl --noproxy '*' --silent --max-time 2 --output /dev/null \
+        --write-out '%{http_code}' "${endpoint}" 2>/dev/null)" || probe_status=$?
+    if [[ "${probe_status}" -eq 0 && "${http_code}" =~ ^[0-9]{3}$ ]]; then
+        printf 'http-%s\n' "${http_code}"
+    elif [[ "${probe_status}" =~ ^[0-9]+$ && "${probe_status}" -le 255 ]]; then
+        printf 'curl-exit-%s\n' "${probe_status}"
+    else
+        printf '%s\n' unknown
+    fi
+}
+
+safe_container_http_probe() {
+    local service="$1"
+    local endpoint="$2"
+    local container_id=""
+    local http_code=""
+    local probe_status=0
+
+    container_id="$(compose_base ps --all --quiet "${service}" 2>/dev/null)" || container_id=""
+    if [[ ! "${container_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
+        printf '%s\n' container-missing
+        return 0
+    fi
+    http_code="$("${docker_command[@]}" exec "${container_id}" curl --silent --max-time 2 \
+        --output /dev/null --write-out '%{http_code}' "${endpoint}" 2>/dev/null)" || probe_status=$?
+    if [[ "${probe_status}" -eq 0 && "${http_code}" =~ ^[0-9]{3}$ ]]; then
+        printf 'http-%s\n' "${http_code}"
+    elif [[ "${probe_status}" =~ ^[0-9]+$ && "${probe_status}" -le 255 ]]; then
+        printf 'curl-exit-%s\n' "${probe_status}"
+    else
+        printf '%s\n' unknown
+    fi
+}
+
+safe_mattermost_restart_count() {
+    local container_id=""
+    local restart_count=""
+
+    container_id="$(compose_base ps --all --quiet mattermost 2>/dev/null)" || container_id=""
+    [[ "${container_id}" =~ ^[a-f0-9]{12,64}$ ]] || {
+        printf '%s\n' missing
+        return 0
+    }
+    restart_count="$("${docker_command[@]}" inspect --format '{{.RestartCount}}' \
+        "${container_id}" 2>/dev/null)" || restart_count=""
+    [[ "${restart_count}" =~ ^[0-9]+$ ]] && printf '%s\n' "${restart_count}" || printf '%s\n' unknown
+}
+
+safe_mattermost_log_flags() {
+    local container_id=""
+    local logs=""
+    local flags=""
+    local label=""
+    local pattern=""
+
+    container_id="$(compose_base ps --all --quiet mattermost 2>/dev/null)" || container_id=""
+    [[ "${container_id}" =~ ^[a-f0-9]{12,64}$ ]] || {
+        printf '%s\n' container-missing
+        return 0
+    }
+    logs="$("${docker_command[@]}" logs --tail 200 "${container_id}" 2>/dev/null)" || logs=""
+    while IFS='|' read -r label pattern; do
+        if grep -Eiq -- "${pattern}" <<<"${logs}"; then
+            flags="${flags:+${flags},}${label}"
+        fi
+    done <<'EOF'
+permission|permission denied|operation not permitted
+database|database|postgres|sqlstore|migration
+configuration|configuration|config.json|failed to load config
+listener|listen tcp|address already in use
+fatal|panic|fatal|failed to start|unable to start
+EOF
+    printf '%s\n' "${flags:-none}"
+}
+
 write_safe_diagnostic() {
     local evidence_parent=""
     local postgres_state=""
     local smtp_state=""
     local mattermost_state=""
+    local mattermost_host_probe=""
+    local mattermost_container_probe=""
+    local mattermost_restart_count=""
+    local mattermost_log_flags=""
 
     [[ -n "${safe_diagnostic_output_path}" && "${result_kind}" != success ]] || return 0
     evidence_parent="$(dirname -- "${safe_diagnostic_output_path}")"
@@ -115,11 +199,19 @@ write_safe_diagnostic() {
     postgres_state="$(safe_service_state postgres)"
     smtp_state="$(safe_service_state smtp-fixture)"
     mattermost_state="$(safe_service_state mattermost)"
+    mattermost_host_probe="$(safe_http_probe 'http://127.0.0.1:49153/api/v4/system/ping')"
+    mattermost_container_probe="$(safe_container_http_probe mattermost 'http://localhost:8065/api/v4/system/ping')"
+    mattermost_restart_count="$(safe_mattermost_restart_count)"
+    mattermost_log_flags="$(safe_mattermost_log_flags)"
     (set -o noclobber; {
         printf 'failure_stage=%s\n' "${result_stage}"
         printf 'postgres=%s\n' "${postgres_state}"
         printf 'smtp_fixture=%s\n' "${smtp_state}"
         printf 'mattermost=%s\n' "${mattermost_state}"
+        printf 'mattermost_host_probe=%s\n' "${mattermost_host_probe}"
+        printf 'mattermost_container_probe=%s\n' "${mattermost_container_probe}"
+        printf 'mattermost_restart_count=%s\n' "${mattermost_restart_count}"
+        printf 'mattermost_log_flags=%s\n' "${mattermost_log_flags}"
     } >"${safe_diagnostic_output_path}") || return 0
     chmod 0644 "${safe_diagnostic_output_path}" || true
 }
