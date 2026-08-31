@@ -125,7 +125,13 @@ run_preflight() {
     source "${PREFLIGHT}"
     require_ubuntu_amd64() { :; }
     init_docker() { DOCKER_COMMAND=(docker); }
-    init_sudo() { SUDO_COMMAND=(env); }
+    init_sudo() {
+        if declare -F fixture_init_sudo >/dev/null 2>&1; then
+            fixture_init_sudo
+        else
+            SUDO_COMMAND=(env)
+        fi
+    }
     existing_notifier_init_compose() { :; }
     existing_notifier_compose_base() { fake_compose "$@"; }
     if [[ "${fixture_installed_reviewed:-false}" == true ]]; then
@@ -342,6 +348,41 @@ test_reviewed_installed_plugin_is_accepted_only_for_resume() (
         && assert_private_output
 )
 
+test_uid_owned_bind_roots_are_inspected_with_privilege() (
+    prepare_fixture
+    # shellcheck disable=SC2329 # invoked by the EXIT trap below
+    cleanup_fixture() {
+        chmod 0700 "${fixture}/mattermost" 2>/dev/null || true
+        rm -rf "${fixture}"
+    }
+    trap cleanup_fixture EXIT
+    fixture_init_sudo() { SUDO_COMMAND=(fixture_privileged); }
+    # shellcheck disable=SC2329 # invoked through SUDO_COMMAND by the sourced preflight
+    fixture_privileged() {
+        local command_name="$1"
+        shift
+
+        if [[ "${command_name}" == test && "$#" -eq 2 ]]; then
+            case "$1|$2" in
+                "-d|${plugins_root}"|"-d|${data_root}"|"!|-L") return 0 ;;
+                "-e|${plugins_root}/com.threadhub.channel-email-notifier"|\
+                "-L|${plugins_root}/com.threadhub.channel-email-notifier"|\
+                "-e|${data_root}/plugins/com.threadhub.channel-email-notifier.tar.gz"|\
+                "-L|${data_root}/plugins/com.threadhub.channel-email-notifier.tar.gz") return 1 ;;
+            esac
+        fi
+        if [[ "${command_name}" == stat && "$#" -eq 3 && "$1" == -c \
+            && "$2" == %a && ( "$3" == "${plugins_root}" || "$3" == "${data_root}" ) ]]; then
+            printf '700\n'
+            return 0
+        fi
+        command "${command_name}" "$@"
+    }
+    chmod 000 "${fixture}/mattermost"
+    run_preflight > "${output}" 2>&1 || return 1
+    assert_private_output
+)
+
 run_test 'existing notifier preflight script exists' test_preflight_exists
 if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'supported preflight is read-only and PII-free' test_supported_model_is_read_only
@@ -359,6 +400,7 @@ if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'notifier environment and network collisions are rejected' test_notifier_environment_and_network_collisions_are_rejected
     run_test 'existing target plugin requires manual review' test_existing_target_plugin_is_rejected
     run_test 'reviewed installed plugin is accepted only for resume' test_reviewed_installed_plugin_is_accepted_only_for_resume
+    run_test 'UID-owned bind roots are inspected with privilege' test_uid_owned_bind_roots_are_inspected_with_privilege
 fi
 
 if ((failures > 0)); then

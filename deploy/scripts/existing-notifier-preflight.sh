@@ -19,9 +19,19 @@ existing_notifier_mode_is_not_writable_by_group_or_other() {
     local path="$1"
     local mode
 
-    mode="$(runtime_env_mode "${path}")" || return 1
+    mode="$(existing_notifier_privileged_mode "${path}")" || return 1
     [[ "${mode}" =~ ^[0-7]{3,4}$ ]] || return 1
     (( (8#${mode} & 0022) == 0 ))
+}
+
+existing_notifier_privileged_mode() {
+    local path="$1"
+
+    if "${SUDO_COMMAND[@]}" stat -c '%a' "${path}" >/dev/null 2>&1; then
+        "${SUDO_COMMAND[@]}" stat -c '%a' "${path}"
+    else
+        "${SUDO_COMMAND[@]}" stat -f '%Lp' "${path}"
+    fi
 }
 
 existing_notifier_assert_input_paths() {
@@ -40,17 +50,21 @@ existing_notifier_assert_input_paths() {
     data_root="$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)"
     smtp_ca_file="$(existing_notifier_value THN_SMTP_CA_FILE)"
 
-    [[ -d "${project_dir}" && ! -L "${project_dir}" ]] || return 1
+    "${SUDO_COMMAND[@]}" test -d "${project_dir}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${project_dir}" || return 1
     for path in "${compose_file}" "${compose_env_file}"; do
-        [[ -f "${path}" && ! -L "${path}" ]] || return 1
+        "${SUDO_COMMAND[@]}" test -f "${path}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${path}" || return 1
         existing_notifier_mode_is_not_writable_by_group_or_other "${path}" || return 1
     done
-    [[ "$(runtime_env_mode "${compose_env_file}")" == 600 ]] || return 1
+    [[ "$(existing_notifier_privileged_mode "${compose_env_file}")" == 600 ]] || return 1
     for path in "${plugins_root}" "${data_root}"; do
-        [[ -d "${path}" && ! -L "${path}" ]] || return 1
+        "${SUDO_COMMAND[@]}" test -d "${path}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${path}" || return 1
         existing_notifier_mode_is_not_writable_by_group_or_other "${path}" || return 1
     done
-    [[ -f "${smtp_ca_file}" && ! -L "${smtp_ca_file}" ]] || return 1
+    "${SUDO_COMMAND[@]}" test -f "${smtp_ca_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${smtp_ca_file}" || return 1
     existing_notifier_mode_is_not_writable_by_group_or_other "${smtp_ca_file}" || return 1
 
 }
