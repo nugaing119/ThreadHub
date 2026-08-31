@@ -303,7 +303,7 @@ jobs:
   notifier-existing-adoption:
     needs: notifier-integration
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
 
     steps:
       - name: Check out repository
@@ -324,6 +324,7 @@ jobs:
           INTEGRATION_RESULT_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/results.txt
           INTEGRATION_PUBLIC_EVIDENCE_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/public-evidence.txt
           INTEGRATION_SAFE_DIAGNOSTIC_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/safe-diagnostic.txt
+          INTEGRATION_PROGRESS_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/progress.txt
         run: |
           set -Eeuo pipefail
           install -d -m 0755 "${RUNNER_TEMP}/threadhub-existing-adoption-evidence"

@@ -15,6 +15,7 @@ scenario_file="${script_dir}/cmd/existing-acceptance/scenario-ids.txt"
 result_output_path="${INTEGRATION_RESULT_FILE:-}"
 public_evidence_output_path="${INTEGRATION_PUBLIC_EVIDENCE_FILE:-}"
 safe_diagnostic_output_path="${INTEGRATION_SAFE_DIAGNOSTIC_FILE:-}"
+progress_output_path="${INTEGRATION_PROGRESS_FILE:-}"
 
 integration_root=""
 runtime_parent=""
@@ -38,6 +39,24 @@ declare -a privileged_docker_command=()
 fail() {
     result_assertion="$1"
     exit 1
+}
+
+record_stage() {
+    local stage="$1"
+    local progress_parent=""
+    local progress_temporary=""
+
+    [[ "${stage}" =~ ^[a-z0-9-]+$ ]] || return 1
+    result_stage="${stage}"
+    [[ -n "${progress_output_path}" ]] || return 0
+    progress_parent="$(dirname -- "${progress_output_path}")"
+    progress_temporary="${progress_output_path}.tmp.$$"
+    [[ "${progress_output_path}" == /* && -d "${progress_parent}" \
+        && ! -L "${progress_output_path}" \
+        && ! -e "${progress_temporary}" && ! -L "${progress_temporary}" ]] || return 1
+    printf 'stage=%s\n' "${stage}" >"${progress_temporary}"
+    chmod 0644 "${progress_temporary}"
+    mv -f -- "${progress_temporary}" "${progress_output_path}"
 }
 
 version_value() {
@@ -813,43 +832,43 @@ THN_RATE_PER_MINUTE=60
 EOF
 chmod 0600 "${adoption_env}"
 
-result_stage=base-compose-validate
+record_stage base-compose-validate
 private compose_base config --quiet || fail NF-ADOPT-01
-result_stage=base-image-pull
+record_stage base-image-pull
 private compose_base pull --quiet postgres mattermost || fail NF-ADOPT-01
-result_stage=smtp-fixture-build
+record_stage smtp-fixture-build
 private "${docker_command[@]}" build --platform linux/amd64 \
     --build-arg "GO_BUILDER_IMAGE=${go_repository}:${go_tag}@${go_digest}" \
     --target smtp-fixture --tag "threadhub/notifier-smtp-fixture:${notifier_version}" \
     "${notifier_root}" || fail NF-ADOPT-01
 project_touched=true
-result_stage=base-dependencies-start
+record_stage base-dependencies-start
 private compose_base up -d --no-build --wait --wait-timeout 180 postgres smtp-fixture || fail NF-ADOPT-01
-result_stage=base-mattermost-start
+record_stage base-mattermost-start
 private compose_base up -d --no-build mattermost || fail NF-ADOPT-01
 private wait_http 'http://127.0.0.1:49153/api/v4/system/ping' 180 || fail NF-ADOPT-01
-result_stage=smtp-ca-permissions
+record_stage smtp-ca-permissions
 sudo chown root:root "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chmod 0644 "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chown root:root "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 sudo chmod 0755 "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 
-result_stage=acceptance-build
+record_stage acceptance-build
 private env GOCACHE="${integration_root}/go-cache" go -C "${notifier_root}" build \
     -o "${acceptance_binary}" ./integration/cmd/existing-acceptance || fail NF-ADOPT-01
-result_stage=admin-create
+record_stage admin-create
 private compose_base exec -T mattermost mmctl user create --local --suppress-warnings \
     --email admin@integration.invalid --username existing-admin --password "${admin_password}" \
     --system-admin --email-verified || fail NF-ADOPT-03
-result_stage=acceptance-bootstrap
+record_stage acceptance-bootstrap
 private acceptance bootstrap || fail NF-ADOPT-03
-result_stage=recipient-verify
+record_stage recipient-verify
 private compose_base exec -T mattermost mmctl user verify existing-recipient-a --local --suppress-warnings || fail NF-ADOPT-03
 private compose_base exec -T mattermost mmctl user verify existing-recipient-b --local --suppress-warnings || fail NF-ADOPT-03
-result_stage=baseline-counts
+record_stage baseline-counts
 db_counts "${integration_root}/counts-baseline" || fail NF-ADOPT-03
 
-result_stage=unsupported-fixture-prepare
+record_stage unsupported-fixture-prepare
 portable_hash "${compose_file}" >"${integration_root}/base-compose-before.sha256" || fail NF-ADOPT-01
 portable_hash "${integration_env}" >"${integration_root}/base-env-before.sha256" || fail NF-ADOPT-01
 cp "${integration_env}" "${integration_root}/unsupported.env" || fail NF-ADOPT-01
@@ -859,7 +878,7 @@ chmod 0600 "${integration_root}/unsupported.env" || fail NF-ADOPT-01
 sed "s|^THN_COMPOSE_ENV_FILE=.*$|THN_COMPOSE_ENV_FILE=${integration_root}/unsupported.env|" \
     "${adoption_env}" >"${integration_root}/unsupported-notifier.env" || fail NF-ADOPT-01
 chmod 0600 "${integration_root}/unsupported-notifier.env" || fail NF-ADOPT-01
-result_stage=unsupported-preflight
+record_stage unsupported-preflight
 set +e
 THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${integration_root}/unsupported-notifier.env" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" \
@@ -868,18 +887,18 @@ unsupported_status=$?
 set -e
 [[ "${unsupported_status}" -eq 20 && ! -e "${runtime_parent}/notifier" ]] || fail NF-ADOPT-02
 
-result_stage=supported-preflight
+record_stage supported-preflight
 printf '%s\n' '[HARNESS] supported-preflight-start' >>"${diagnostic_file}"
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" || fail NF-ADOPT-01
-result_stage=post-preflight-integrity
+record_stage post-preflight-integrity
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-01
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-01
-result_stage=post-preflight-counts
+record_stage post-preflight-counts
 db_counts "${integration_root}/counts-after-preflight" || fail NF-ADOPT-01
 cmp -s "${integration_root}/counts-baseline" "${integration_root}/counts-after-preflight" || fail NF-ADOPT-01
 
-result_stage=disabled-setup
+record_stage disabled-setup
 printf '%s\n' '[HARNESS] disabled-setup-start' >>"${diagnostic_file}"
 set +e
 generated_bundle=true
@@ -889,55 +908,72 @@ THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
 setup_status=$?
 set -e
 [[ "${setup_status}" -eq 20 ]] || fail NF-ADOPT-03
-result_stage=disabled-counts
+record_stage disabled-counts
 db_counts "${integration_root}/counts-disabled" || fail NF-ADOPT-03
 cmp -s "${integration_root}/counts-baseline" "${integration_root}/counts-disabled" || fail NF-ADOPT-03
-result_stage=disabled-baseline
+record_stage disabled-baseline
 private acceptance verify-baseline || fail NF-ADOPT-03
 
+record_stage smtp-network-connect
 smtp_container="$(compose_base ps -q smtp-fixture)"
 [[ "${smtp_container}" =~ ^[a-f0-9]{64}$ ]] || fail NF-ADOPT-04
 private "${docker_command[@]}" network connect \
     --alias smtp.email.ap-singapore-1.oci.oraclecloud.com \
     "${project_name}_threadhub-notifier-outbound" "${smtp_container}" || fail NF-ADOPT-04
 
+record_stage smtp-acceptance
 printf '%s\n' 'probe@integration.invalid' >"${integration_root}/smtp-recipient"
 run_pty "${integration_root}/smtp-recipient" "${repository_root}/deploy/scripts/existing-notifier-smtp-test.sh" || fail NF-ADOPT-04
 rm -f -- "${integration_root}/smtp-recipient"
 public_channel="$(jq -r '.public_channel_id' "${integration_root}/acceptance-state.json")"
 private_channel="$(jq -r '.private_channel_id' "${integration_root}/acceptance-state.json")"
 [[ "${public_channel}" =~ ^[a-z0-9]{26}$ && "${private_channel}" =~ ^[a-z0-9]{26}$ ]] || fail NF-ADOPT-04
+record_stage allowlist-activation
 printf '%s,%s\n' "${public_channel}" "${private_channel}" >"${integration_root}/allowlist-input"
 run_pty "${integration_root}/allowlist-input" \
     "${repository_root}/deploy/scripts/existing-notifier-control.sh" activate-allowlist || fail NF-ADOPT-04
 rm -f -- "${integration_root}/allowlist-input"
 
+record_stage acceptance-exercise
 private acceptance exercise || fail NF-ADOPT-05
+record_stage initial-queue-drain
 wait_queue_idle || fail NF-ADOPT-04
 bundle_sha_public="$(sudo awk -F= '$1 == "NOTIFIER_PLUGIN_BUNDLE_SHA256" { count++; value=$2 } END { if (count != 1 || value !~ /^[a-f0-9]{64}$/) exit 1; print value }' "${runtime_parent}/notifier/release/release.env")" || fail NF-ADOPT-04
 
+record_stage outage-snapshot
 private acceptance snapshot || fail NF-ADOPT-06
+record_stage smtp-outage
 private compose_base stop smtp-fixture || fail NF-ADOPT-06
 private acceptance outage-post || fail NF-ADOPT-06
+record_stage outage-queue-pending
 wait_queue_pending || fail NF-ADOPT-06
+record_stage mailer-restart
 private compose_combined restart threadhub-mailer || fail NF-ADOPT-07
+record_stage smtp-recovery
 private compose_base start smtp-fixture || fail NF-ADOPT-07
+record_stage outage-delivery
 private acceptance assert-outage || fail NF-ADOPT-07
+record_stage recovery-queue-drain
 wait_queue_idle || fail NF-ADOPT-07
 
+record_stage rollback-baseline
 db_counts "${integration_root}/counts-before-rollback" || fail NF-ADOPT-09
+record_stage rollback-drain
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-control.sh" drain || fail NF-ADOPT-09
 wait_queue_idle || fail NF-ADOPT-09
+record_stage rollback-disable
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-control.sh" disable || fail NF-ADOPT-09
 private compose_combined stop threadhub-mailer || fail NF-ADOPT-09
 sudo sha256sum "${runtime_parent}/notifier/mailer/queue.db" \
     | awk '{print $1}' >"${integration_root}/queue-before-rollback.sha256" || fail NF-ADOPT-09
 private compose_combined up -d --no-deps --wait --wait-timeout 120 threadhub-mailer || fail NF-ADOPT-09
+record_stage rollback-execute
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-rollback.sh" || fail NF-ADOPT-09
 
+record_stage rollback-verify
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-09
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-09
 db_counts "${integration_root}/counts-after-rollback" || fail NF-ADOPT-09
