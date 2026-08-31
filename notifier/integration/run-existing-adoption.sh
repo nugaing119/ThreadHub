@@ -515,14 +515,28 @@ private() {
 
 db_counts() {
     local output_file="$1"
+    # Mattermost can lazily create its built-in system-bot during background
+    # work once a system administrator exists. Validate that reserved identity
+    # separately so its timing cannot mask tenant-user drift.
+    db_system_bot_valid || return 1
     compose_base exec -T postgres psql -X -A -t -U threadhub -d threadhub \
-        -c "SELECT (SELECT count(*) FROM teams)||E'\\t'||(SELECT count(*) FROM channels)||E'\\t'||(SELECT count(*) FROM channelmembers)||E'\\t'||(SELECT count(*) FROM users)||E'\\t'||(SELECT count(*) FROM posts)||E'\\t'||(SELECT count(*) FROM fileinfo);" \
+        -c "SELECT (SELECT count(*) FROM teams)||E'\\t'||(SELECT count(*) FROM channels)||E'\\t'||(SELECT count(*) FROM channelmembers)||E'\\t'||(SELECT count(*) FROM users WHERE username <> 'system-bot')||E'\\t'||(SELECT count(*) FROM posts)||E'\\t'||(SELECT count(*) FROM fileinfo);" \
         >"${output_file}" 2>>"${diagnostic_file}"
     [[ "$(wc -l < "${output_file}" | tr -d '[:space:]')" == 1 ]]
     awk -F '\t' '
         NF != 6 { exit 1 }
         { for (field = 1; field <= NF; field++) if ($field !~ /^[0-9]+$/) exit 1 }
     ' "${output_file}"
+}
+
+db_system_bot_valid() {
+    local result=""
+
+    result="$(compose_base exec -T postgres psql -X -A -t -U threadhub -d threadhub \
+        -c "SELECT CASE WHEN (SELECT count(*) FROM users WHERE username = 'system-bot') = 0 THEN 'absent' WHEN (SELECT count(*) FROM users u JOIN bots b ON b.userid = u.id WHERE u.username = 'system-bot' AND u.roles = 'system_user' AND u.deleteat = 0) = 1 AND (SELECT count(*) FROM users WHERE username = 'system-bot') = 1 THEN 'valid' ELSE 'invalid' END;" \
+        2>>"${diagnostic_file}")" || return 1
+    result="$(tr -d '[:space:]' <<<"${result}")"
+    [[ "${result}" == absent || "${result}" == valid ]]
 }
 
 acceptance() {
@@ -908,6 +922,8 @@ THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
 setup_status=$?
 set -e
 [[ "${setup_status}" -eq 20 ]] || fail NF-ADOPT-03
+record_stage disabled-system-bot
+db_system_bot_valid || fail NF-ADOPT-03
 record_stage disabled-counts
 db_counts "${integration_root}/counts-disabled" || fail NF-ADOPT-03
 cmp -s "${integration_root}/counts-baseline" "${integration_root}/counts-disabled" || fail NF-ADOPT-03

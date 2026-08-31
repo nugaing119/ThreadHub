@@ -54,6 +54,15 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 			t.Fatalf("existing-adoption runner contract is missing %q", required)
 		}
 	}
+	for _, required := range []string{
+		`username <> 'system-bot'`,
+		"db_system_bot_valid",
+		"record_stage disabled-system-bot",
+	} {
+		if !strings.Contains(runner, required) {
+			t.Fatalf("existing-adoption runner does not isolate Mattermost's system bot: missing %q", required)
+		}
+	}
 	for _, forbidden := range []string{"source deploy/.env", "docker compose config\n", "rm -rf /srv"} {
 		if strings.Contains(runner, forbidden) {
 			t.Fatalf("existing-adoption runner contains forbidden contract %q", forbidden)
@@ -72,7 +81,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 	}
 	for _, required := range []string{
 		"notifier-existing-adoption:",
-		"timeout-minutes: 15",
+		"timeout-minutes: 25",
 		"run-existing-adoption.sh",
 	} {
 		if !strings.Contains(workflow, required) {
