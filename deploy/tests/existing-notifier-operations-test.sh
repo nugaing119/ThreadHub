@@ -318,6 +318,26 @@ test_noninteractive_smtp_prints_exact_handoff() (
         "${fixture}/output" >/dev/null
 )
 
+test_smtp_acceptance_executes_in_running_mailer() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    trace_file="${fixture}/compose.trace"
+    recipient='acceptance@threadhub.invalid'
+    fingerprint='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+
+    existing_notifier_compose_combined() {
+        printf '%s\n' "$*" > "${trace_file}"
+        IFS= read -r actual_recipient
+        [[ "${actual_recipient}" == "${recipient}" ]] || return 91
+        printf '{"config_fingerprint":"%s"}\n' "${fingerprint}"
+    }
+
+    actual="$(printf '%s\n' "${recipient}" | existing_notifier_run_smtp_acceptance)" || return 1
+    [[ "${actual}" == "{\"config_fingerprint\":\"${fingerprint}\"}" ]] || return 1
+    [[ "$(<"${trace_file}")" == \
+        'exec -T threadhub-mailer /threadhub-mailer smtp-test --recipient-stdin' ]]
+)
+
 test_operation_scripts_exist() {
     [[ -f "${CONTROL_SCRIPT}" && -f "${STATUS_SCRIPT}" \
         && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]]
@@ -345,6 +365,7 @@ if [[ -f "${CONTROL_SCRIPT}" && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]
     run_test 'rollback preserves queue and recreates only the base Mattermost service' test_rollback_preserves_queue_and_uses_base_compose
     run_test 'rollback failure restores the reviewed combined service disabled' test_rollback_failure_restores_combined_service_disabled
     run_test 'noninteractive SMTP test prints the exact secure handoff' test_noninteractive_smtp_prints_exact_handoff
+    run_test 'SMTP acceptance executes in the running Mailer container' test_smtp_acceptance_executes_in_running_mailer
 fi
 
 ((failures == 0))

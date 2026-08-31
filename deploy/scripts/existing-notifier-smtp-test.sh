@@ -8,6 +8,11 @@ if ! declare -F existing_notifier_setup_dispatch >/dev/null 2>&1; then
     source "${SCRIPT_DIR}/existing-notifier-setup.sh"
 fi
 
+existing_notifier_run_smtp_acceptance() {
+    existing_notifier_compose_combined exec -T threadhub-mailer \
+        /threadhub-mailer smtp-test --recipient-stdin
+}
+
 existing_notifier_smtp_test_entry() {
     local state_file
     local marker_file
@@ -30,9 +35,7 @@ existing_notifier_smtp_test_entry() {
     printf '\n' >&2
     validate_email recipient "${recipient}"
     if ! fingerprint="$(printf '%s\n' "${recipient}" \
-        | existing_notifier_compose_combined run --rm --no-deps -T \
-            --entrypoint /threadhub-mailer threadhub-mailer \
-            smtp-test --recipient-stdin \
+        | existing_notifier_run_smtp_acceptance \
         | jq -er '
             if type == "object" and keys == ["config_fingerprint"] and
                (.config_fingerprint | type == "string" and test("^[a-f0-9]{64}$"))
