@@ -385,6 +385,38 @@ safe_disabled_setup_phase() {
     esac
 }
 
+safe_acceptance_exercise_failure() {
+    local logs=""
+    local phase=""
+
+    [[ -n "${diagnostic_file}" && -f "${diagnostic_file}" ]] || {
+        printf '%s\n' unavailable
+        return 0
+    }
+    logs="$(awk '
+        $0 == "[HARNESS] acceptance-exercise-start" { capture = 1; next }
+        capture { print }
+    ' "${diagnostic_file}" 2>/dev/null)" || logs=""
+    phase="$(grep -Eo \
+        'existing adoption acceptance failed phase=[a-z-]+' \
+        <<<"${logs}" | tail -n 1)" || phase=""
+    phase="${phase##*=}"
+    case "${phase}" in
+        login | state | capture-baseline | public-root | private-root \
+            | public-thread | private-thread | excluded-root | direct-root \
+            | system-membership | delivery-delta | unavailable)
+            printf '%s\n' "${phase}"
+            ;;
+        *)
+            if [[ -n "${logs}" ]]; then
+                printf '%s\n' unclassified
+            else
+                printf '%s\n' unavailable
+            fi
+            ;;
+    esac
+}
+
 safe_writable_state() {
     local path="$1"
 
@@ -458,6 +490,7 @@ write_safe_diagnostic() {
     local disabled_setup_phase=""
     local setup_exit=""
     local disabled_count_differences=""
+    local acceptance_exercise_failure=""
     local safe_smtp_acceptance_failure=""
     local safe_smtp_acceptance_phase=""
     local integration_root_writable=""
@@ -483,6 +516,7 @@ write_safe_diagnostic() {
     disabled_setup_failure="$(safe_disabled_setup_failure)"
     disabled_setup_phase="$(safe_disabled_setup_phase)"
     disabled_count_differences="$(safe_disabled_count_differences)"
+    acceptance_exercise_failure="$(safe_acceptance_exercise_failure)"
     case "${smtp_acceptance_failure}" in
         none | unavailable | temporary-[0-9] | temporary-[0-9][0-9] | temporary-[0-9][0-9][0-9] \
             | permanent-[0-9] | permanent-[0-9][0-9] | permanent-[0-9][0-9][0-9] \
@@ -522,6 +556,7 @@ write_safe_diagnostic() {
         printf 'disabled_setup_phase=%s\n' "${disabled_setup_phase}"
         printf 'disabled_setup_exit=%s\n' "${setup_exit}"
         printf 'disabled_count_differences=%s\n' "${disabled_count_differences}"
+        printf 'acceptance_exercise_failure=%s\n' "${acceptance_exercise_failure}"
         printf 'smtp_acceptance_phase=%s\n' "${safe_smtp_acceptance_phase}"
         printf 'smtp_acceptance_failure=%s\n' "${safe_smtp_acceptance_failure}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
@@ -1007,6 +1042,7 @@ run_stdin "${integration_root}/allowlist-input" \
 rm -f -- "${integration_root}/allowlist-input"
 
 record_stage acceptance-exercise
+printf '%s\n' '[HARNESS] acceptance-exercise-start' >>"${diagnostic_file}"
 private acceptance exercise || fail NF-ADOPT-05
 record_stage initial-queue-drain
 wait_queue_idle || fail NF-ADOPT-04

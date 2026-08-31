@@ -28,6 +28,36 @@ var (
 	recipientHashPattern = regexp.MustCompile(`^[a-f0-9]{64}$`)
 )
 
+type acceptancePhaseError struct {
+	phase string
+	cause error
+}
+
+func (e *acceptancePhaseError) Error() string { return "existing adoption acceptance phase failed" }
+func (e *acceptancePhaseError) Unwrap() error { return e.cause }
+
+func phaseError(phase string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return &acceptancePhaseError{phase: phase, cause: err}
+}
+
+func safeFailurePhase(err error) string {
+	var phased *acceptancePhaseError
+	if !errors.As(err, &phased) {
+		return "unavailable"
+	}
+	switch phased.phase {
+	case "login", "state", "capture-baseline", "public-root", "private-root",
+		"public-thread", "private-thread", "excluded-root", "direct-root",
+		"system-membership", "delivery-delta":
+		return phased.phase
+	default:
+		return "unavailable"
+	}
+}
+
 type config struct {
 	statePath, snapshotPath, adminPassword, userPassword string
 	hashSecret                                           []byte
@@ -81,7 +111,7 @@ type client struct {
 
 func main() {
 	if err := run(context.Background(), os.Args[1:]); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "existing adoption acceptance failed")
+		_, _ = fmt.Fprintf(os.Stderr, "existing adoption acceptance failed phase=%s\n", safeFailurePhase(err))
 		os.Exit(1)
 	}
 }
@@ -318,46 +348,46 @@ func verifyBaseline(ctx context.Context, cfg config, c *client) error {
 
 func exercise(ctx context.Context, cfg config, c *client) error {
 	if err := login(ctx, cfg, c); err != nil {
-		return err
+		return phaseError("login", err)
 	}
 	current, err := readState(cfg.statePath)
 	if err != nil {
-		return err
+		return phaseError("state", err)
 	}
 	before, err := getCaptures(ctx, c)
 	if err != nil {
-		return err
+		return phaseError("capture-baseline", err)
 	}
 	publicRoot, err := createPost(ctx, c, current.PublicChannelID, "")
 	if err != nil {
-		return err
+		return phaseError("public-root", err)
 	}
 	privateRoot, err := createPost(ctx, c, current.PrivateChannelID, "")
 	if err != nil {
-		return err
+		return phaseError("private-root", err)
 	}
 	if _, err = createPost(ctx, c, current.PublicChannelID, publicRoot.ID); err != nil {
-		return err
+		return phaseError("public-thread", err)
 	}
 	if _, err = createPost(ctx, c, current.PrivateChannelID, privateRoot.ID); err != nil {
-		return err
+		return phaseError("private-thread", err)
 	}
 	if _, err = createPost(ctx, c, current.ExcludedChannelID, ""); err != nil {
-		return err
+		return phaseError("excluded-root", err)
 	}
 	if _, err = createPost(ctx, c, current.DirectChannelID, ""); err != nil {
-		return err
+		return phaseError("direct-root", err)
 	}
 	if _, err = c.request(ctx, http.MethodPost, "/channels/"+current.PublicChannelID+"/members", map[string]string{"user_id": current.SystemUserID}, nil, http.StatusCreated); err != nil {
-		return err
+		return phaseError("system-membership", err)
 	}
-	return waitDelta(ctx, c, cfg.hashSecret, before, map[string]int{
+	return phaseError("delivery-delta", waitDelta(ctx, c, cfg.hashSecret, before, map[string]int{
 		"recipient-a@integration.invalid": 4,
 		"recipient-b@integration.invalid": 2,
 		"non-member@integration.invalid":  0,
 		"system-user@integration.invalid": 0,
 		"admin@integration.invalid":       0,
-	}, 60*time.Second)
+	}, 60*time.Second))
 }
 
 func createPost(ctx context.Context, c *client, channelID, rootID string) (post, error) {

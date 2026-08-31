@@ -1,11 +1,34 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestAcceptanceFailurePhaseIsSafeAndBounded(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name string
+		err  error
+		want string
+	}{
+		{name: "known", err: phaseError("public-root", errors.New("private upstream detail")), want: "public-root"},
+		{name: "unknown phase", err: phaseError("private-value", errors.New("private upstream detail")), want: "unavailable"},
+		{name: "plain error", err: errors.New("private upstream detail"), want: "unavailable"},
+	} {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			if got := safeFailurePhase(test.err); got != test.want {
+				t.Fatalf("safeFailurePhase() = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
 
 func TestStateRoundTripContainsOnlySchemaAndMattermostIDs(t *testing.T) {
 	directory := t.TempDir()
