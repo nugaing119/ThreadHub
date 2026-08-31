@@ -633,7 +633,8 @@ sudo chown root:root "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 sudo chmod 0755 "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 
 result_stage=acceptance-build
-private env GOCACHE="${integration_root}/go-cache" go build -o "${acceptance_binary}" ./notifier/integration/cmd/existing-acceptance || fail NF-ADOPT-01
+private env GOCACHE="${integration_root}/go-cache" go -C "${notifier_root}" build \
+    -o "${acceptance_binary}" ./integration/cmd/existing-acceptance || fail NF-ADOPT-01
 result_stage=admin-create
 private compose_base exec -T mattermost mmctl user create --local --suppress-warnings \
     --email admin@integration.invalid --username existing-admin --password "${admin_password}" \
