@@ -13,6 +13,49 @@ existing_notifier_run_smtp_acceptance() {
         /threadhub-mailer smtp-test --recipient-stdin
 }
 
+existing_notifier_smtp_acceptance_fingerprint() {
+    local recipient="$1"
+    local temporary_dir
+    local response_file
+    local diagnostic_file
+    local safe_failure
+    local status=0
+
+    temporary_dir="$(mktemp -d)"
+    response_file="${temporary_dir}/response.json"
+    diagnostic_file="${temporary_dir}/diagnostic"
+    trap 'rm -rf -- "${temporary_dir}"' RETURN
+    chmod 0700 "${temporary_dir}"
+    : > "${response_file}"
+    : > "${diagnostic_file}"
+    chmod 0600 "${response_file}" "${diagnostic_file}"
+
+    printf '%s\n' "${recipient}" \
+        | existing_notifier_run_smtp_acceptance \
+            >"${response_file}" 2>"${diagnostic_file}" || status=$?
+    if [[ "${status}" -ne 0 ]]; then
+        safe_failure="$(grep -Eo \
+            'error_class=(temporary|permanent|timeout|protocol) smtp_code=[0-9]{1,3}' \
+            "${diagnostic_file}" | tail -n 1)" || safe_failure=""
+        if [[ ! "${safe_failure}" =~ ^error_class=(temporary|permanent|timeout|protocol)\ smtp_code=[0-9]{1,3}$ ]]; then
+            safe_failure='error_class=unavailable smtp_code=0'
+        fi
+        printf 'threadhub-notifier: smtp_acceptance_phase=mailer %s\n' \
+            "${safe_failure}" >&2
+        return "${status}"
+    fi
+
+    jq -er '
+        if type == "object" and keys == ["config_fingerprint"] and
+           (.config_fingerprint | type == "string" and test("^[a-f0-9]{64}$"))
+        then .config_fingerprint else error("invalid fingerprint") end
+    ' "${response_file}" 2>/dev/null || {
+        printf '%s\n' \
+            'threadhub-notifier: smtp_acceptance_phase=mailer error_class=unavailable smtp_code=0' >&2
+        return 1
+    }
+}
+
 existing_notifier_smtp_test_entry() {
     local state_file
     local marker_file
@@ -34,20 +77,19 @@ existing_notifier_smtp_test_entry() {
     read -r -s -p 'SMTP acceptance test recipient: ' recipient
     printf '\n' >&2
     validate_email recipient "${recipient}"
-    if ! fingerprint="$(printf '%s\n' "${recipient}" \
-        | existing_notifier_run_smtp_acceptance \
-        | jq -er '
-            if type == "object" and keys == ["config_fingerprint"] and
-               (.config_fingerprint | type == "string" and test("^[a-f0-9]{64}$"))
-            then .config_fingerprint else error("invalid fingerprint") end
-        ')"; then
+    if ! fingerprint="$(existing_notifier_smtp_acceptance_fingerprint "${recipient}")"; then
         recipient=""
         unset recipient
         die "OCI SMTP did not accept the generic existing notifier test message"
     fi
     recipient=""
     unset recipient
-    notifier_write_smtp_marker "${marker_file}" "${fingerprint}" "$(notifier_epoch_millis)"
+    if ! notifier_write_smtp_marker \
+        "${marker_file}" "${fingerprint}" "$(notifier_epoch_millis)"; then
+        printf '%s\n' \
+            'threadhub-notifier: smtp_acceptance_phase=marker error_class=unavailable smtp_code=0' >&2
+        return 1
+    fi
     log "OCI SMTP accepted the generic existing notifier test message"
     warn "Inbox arrival, links, SPF and DKIM still require manual verification"
 }

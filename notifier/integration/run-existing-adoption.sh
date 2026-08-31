@@ -33,6 +33,7 @@ generated_bundle=false
 bundle_sha_public=""
 setup_status=""
 smtp_acceptance_failure=unavailable
+smtp_acceptance_phase=unavailable
 
 declare -a docker_command=()
 declare -a privileged_docker_command=()
@@ -458,6 +459,7 @@ write_safe_diagnostic() {
     local setup_exit=""
     local disabled_count_differences=""
     local safe_smtp_acceptance_failure=""
+    local safe_smtp_acceptance_phase=""
     local integration_root_writable=""
     local go_cache_writable=""
 
@@ -490,6 +492,12 @@ write_safe_diagnostic() {
             ;;
         *) safe_smtp_acceptance_failure=unavailable ;;
     esac
+    case "${smtp_acceptance_phase}" in
+        mailer | marker | complete | unavailable)
+            safe_smtp_acceptance_phase="${smtp_acceptance_phase}"
+            ;;
+        *) safe_smtp_acceptance_phase=unavailable ;;
+    esac
     if [[ "${setup_status}" =~ ^[0-9]+$ && "${setup_status}" -le 255 ]]; then
         setup_exit="${setup_status}"
     else
@@ -514,6 +522,7 @@ write_safe_diagnostic() {
         printf 'disabled_setup_phase=%s\n' "${disabled_setup_phase}"
         printf 'disabled_setup_exit=%s\n' "${setup_exit}"
         printf 'disabled_count_differences=%s\n' "${disabled_count_differences}"
+        printf 'smtp_acceptance_phase=%s\n' "${safe_smtp_acceptance_phase}"
         printf 'smtp_acceptance_failure=%s\n' "${safe_smtp_acceptance_failure}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
         printf 'go_cache_writable=%s\n' "${go_cache_writable}"
@@ -575,6 +584,7 @@ run_smtp_pty() {
     shift
     local command_string=""
     local transcript="${integration_root}/smtp-acceptance.transcript"
+    local safe_phase=""
     local safe_failure=""
     local status=0
 
@@ -583,8 +593,16 @@ run_smtp_pty() {
     timeout --foreground --kill-after=10s 180s script -q -e -c "${command_string}" /dev/null \
         <"${input_file}" >"${transcript}" 2>&1 || status=$?
     if [[ "${status}" -eq 0 ]]; then
+        smtp_acceptance_phase=complete
         smtp_acceptance_failure=none
     else
+        safe_phase="$(grep -Eo 'smtp_acceptance_phase=(mailer|marker)' \
+            "${transcript}" | tail -n 1)" || safe_phase=""
+        if [[ "${safe_phase}" =~ ^smtp_acceptance_phase=(mailer|marker)$ ]]; then
+            smtp_acceptance_phase="${BASH_REMATCH[1]}"
+        else
+            smtp_acceptance_phase=unavailable
+        fi
         safe_failure="$(grep -Eo 'error_class=(temporary|permanent|timeout|protocol) smtp_code=[0-9]{1,3}' \
             "${transcript}" | tail -n 1)" || safe_failure=""
         if [[ "${safe_failure}" =~ ^error_class=(temporary|permanent|timeout|protocol)\ smtp_code=([0-9]{1,3})$ ]]; then

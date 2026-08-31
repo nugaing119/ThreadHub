@@ -338,6 +338,56 @@ test_smtp_acceptance_executes_in_running_mailer() (
         'exec -T threadhub-mailer /threadhub-mailer smtp-test --recipient-stdin' ]]
 )
 
+test_smtp_acceptance_reports_only_safe_mailer_failure() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    recipient='private-recipient@threadhub.invalid'
+
+    existing_notifier_run_smtp_acceptance() {
+        IFS= read -r actual_recipient
+        [[ "${actual_recipient}" == "${recipient}" ]] || return 91
+        printf '%s\n' 'private upstream diagnostic' >&2
+        printf '%s\n' 'threadhub-mailer: command failed error_class=temporary smtp_code=451' >&2
+        return 1
+    }
+
+    set +e
+    existing_notifier_smtp_acceptance_fingerprint "${recipient}" \
+        > "${fixture}/output" 2> "${fixture}/error"
+    result=$?
+    set -e
+    [[ "${result}" == 1 ]] || return 1
+    [[ ! -s "${fixture}/output" ]] || return 1
+    [[ "$(<"${fixture}/error")" == \
+        'threadhub-notifier: smtp_acceptance_phase=mailer error_class=temporary smtp_code=451' ]] \
+        || return 1
+    ! grep -F "${recipient}" "${fixture}/error" >/dev/null
+)
+
+test_smtp_acceptance_reports_unavailable_without_leaking_diagnostics() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    recipient='private-recipient@threadhub.invalid'
+
+    existing_notifier_run_smtp_acceptance() {
+        IFS= read -r actual_recipient
+        [[ "${actual_recipient}" == "${recipient}" ]] || return 91
+        printf '%s\n' 'private upstream diagnostic' >&2
+        return 1
+    }
+
+    set +e
+    existing_notifier_smtp_acceptance_fingerprint "${recipient}" \
+        > "${fixture}/output" 2> "${fixture}/error"
+    result=$?
+    set -e
+    [[ "${result}" == 1 ]] || return 1
+    [[ "$(<"${fixture}/error")" == \
+        'threadhub-notifier: smtp_acceptance_phase=mailer error_class=unavailable smtp_code=0' ]] \
+        || return 1
+    ! grep -F 'private upstream diagnostic' "${fixture}/error" >/dev/null
+)
+
 test_operation_scripts_exist() {
     [[ -f "${CONTROL_SCRIPT}" && -f "${STATUS_SCRIPT}" \
         && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]]
@@ -366,6 +416,8 @@ if [[ -f "${CONTROL_SCRIPT}" && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]
     run_test 'rollback failure restores the reviewed combined service disabled' test_rollback_failure_restores_combined_service_disabled
     run_test 'noninteractive SMTP test prints the exact secure handoff' test_noninteractive_smtp_prints_exact_handoff
     run_test 'SMTP acceptance executes in the running Mailer container' test_smtp_acceptance_executes_in_running_mailer
+    run_test 'SMTP acceptance reports only a safe Mailer failure class' test_smtp_acceptance_reports_only_safe_mailer_failure
+    run_test 'SMTP acceptance hides unavailable upstream diagnostics' test_smtp_acceptance_reports_unavailable_without_leaking_diagnostics
 fi
 
 ((failures == 0))
