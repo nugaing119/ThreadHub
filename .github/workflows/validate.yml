@@ -303,7 +303,7 @@ jobs:
   notifier-existing-adoption:
     needs: notifier-integration
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 45
 
     steps:
       - name: Check out repository

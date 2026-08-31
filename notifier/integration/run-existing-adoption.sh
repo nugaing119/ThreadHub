@@ -54,7 +54,7 @@ record_stage() {
     [[ "${progress_output_path}" == /* && -d "${progress_parent}" \
         && ! -L "${progress_output_path}" \
         && ! -e "${progress_temporary}" && ! -L "${progress_temporary}" ]] || return 1
-    printf 'stage=%s\n' "${stage}" >"${progress_temporary}"
+    printf 'stage=%s\nelapsed_seconds=%s\n' "${stage}" "${SECONDS}" >"${progress_temporary}"
     chmod 0644 "${progress_temporary}"
     mv -f -- "${progress_temporary}" "${progress_output_path}"
 }
@@ -554,7 +554,7 @@ run_pty() {
     local command_string=""
     printf -v command_string '%q ' env \
         "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${adoption_env}" "$@"
-    script -q -e -c "${command_string}" /dev/null \
+    timeout --foreground --kill-after=10s 180s script -q -e -c "${command_string}" /dev/null \
         <"${input_file}" >/dev/null 2>&1
 }
 
@@ -728,7 +728,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'result_kind=failure; result_assertion=NF-ADOPT-09; exit 130' HUP INT TERM
 
-for required in awk cat chmod cmp cp curl date dirname docker git go grep id jq mkdir mktemp openssl rm script sed sleep sort stat sudo tail tr wc; do
+for required in awk cat chmod cmp cp curl date dirname docker git go grep id jq mkdir mktemp openssl rm script sed sleep sort stat sudo tail timeout tr wc; do
     command -v "${required}" >/dev/null 2>&1 || fail NF-ADOPT-01
 done
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || fail NF-ADOPT-01

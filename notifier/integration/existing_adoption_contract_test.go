@@ -49,6 +49,8 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"base-env-before.sha256",
 		"queue-before-rollback.sha256",
 		"down --volumes --remove-orphans",
+		"timeout --foreground --kill-after=10s 180s script",
+		"elapsed_seconds=%s",
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-adoption runner contract is missing %q", required)
@@ -81,7 +83,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 	}
 	for _, required := range []string{
 		"notifier-existing-adoption:",
-		"timeout-minutes: 25",
+		"timeout-minutes: 45",
 		"run-existing-adoption.sh",
 	} {
 		if !strings.Contains(workflow, required) {
