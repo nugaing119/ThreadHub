@@ -13,11 +13,13 @@ existing_notifier_control_usage() {
 Usage: existing-notifier-control.sh status
        existing-notifier-control.sh drain
        existing-notifier-control.sh disable
-       existing-notifier-control.sh activate-allowlist
+       existing-notifier-control.sh activate-allowlist [--channel-ids-stdin]
        existing-notifier-control.sh activate-all-channels
 
-Channel IDs and the all-channel confirmation are accepted only through a real
-interactive terminal. Control changes never delete queued delivery data.
+Channel IDs are read from a hidden interactive prompt by default. The explicit
+--channel-ids-stdin option supports protected automation without placing IDs in
+argv. The all-channel confirmation still requires a real interactive terminal.
+Control changes never delete queued delivery data.
 EOF
 }
 
@@ -73,18 +75,27 @@ existing_notifier_control_activate() (
 existing_notifier_control_dispatch() (
     local state_file="$1"
     local command_name="${2:-}"
+    local input_mode=interactive
     local channel_ids
     local confirmation
 
-    [[ "$#" -eq 2 && -n "${command_name}" ]] || {
+    [[ "$#" -ge 2 && -n "${command_name}" ]] || {
         existing_notifier_control_usage >&2
         return 1
     }
     case "${command_name}" in
         status)
+            [[ "$#" -eq 2 ]] || {
+                existing_notifier_control_usage >&2
+                return 1
+            }
             notifier_print_control_status "${state_file}"
             ;;
         drain|disable)
+            [[ "$#" -eq 2 ]] || {
+                existing_notifier_control_usage >&2
+                return 1
+            }
             notifier_transition_control_state "${state_file}" "${command_name}" \
                 || die "Notifier ${command_name} transition failed"
             if [[ "${command_name}" == drain ]]; then
@@ -94,18 +105,35 @@ existing_notifier_control_dispatch() (
             fi
             ;;
         activate-allowlist)
-            [[ -t 0 ]] || {
+            case "$#:${3:-}" in
+                2:) ;;
+                3:--channel-ids-stdin) input_mode=stdin ;;
+                *)
+                    existing_notifier_control_usage >&2
+                    return 1
+                    ;;
+            esac
+            if [[ "${input_mode}" == interactive && ! -t 0 ]]; then
                 existing_notifier_control_action_required \
                     "Run ./deploy/scripts/existing-notifier-control.sh activate-allowlist in an interactive terminal"
                 return $?
-            }
-            read -r -s -p 'Comma-separated Mattermost channel IDs: ' channel_ids
-            printf '\n' >&2
+            fi
+            if [[ "${input_mode}" == stdin ]]; then
+                IFS= read -r channel_ids \
+                    || die "Notifier channel allowlist is required on stdin"
+            else
+                read -r -s -p 'Comma-separated Mattermost channel IDs: ' channel_ids
+                printf '\n' >&2
+            fi
             existing_notifier_control_activate "${state_file}" allowlist "${channel_ids}"
             channel_ids=""
             unset channel_ids
             ;;
         activate-all-channels)
+            [[ "$#" -eq 2 ]] || {
+                existing_notifier_control_usage >&2
+                return 1
+            }
             [[ -t 0 ]] || {
                 existing_notifier_control_action_required \
                     "Run ./deploy/scripts/existing-notifier-control.sh activate-all-channels in an interactive terminal"

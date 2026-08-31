@@ -87,6 +87,23 @@ test_all_channels_requires_tty_and_exact_confirmation() (
     jq -e '.enabled == false and .delivery_enabled == false' "${state_file}" >/dev/null
 )
 
+test_allowlist_channel_stdin_uses_the_same_activation_path() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    state_file="${fixture}/state.json"
+    channel_ids='aaaaaaaaaaaaaaaaaaaaaaaaaa,bbbbbbbbbbbbbbbbbbbbbbbbbb'
+
+    existing_notifier_control_activate() {
+        printf '%s\t%s\t%s\n' "$1" "$2" "$3" > "${fixture}/activation"
+    }
+
+    printf '%s\n' "${channel_ids}" \
+        | existing_notifier_control_dispatch \
+            "${state_file}" activate-allowlist --channel-ids-stdin
+    [[ "$(<"${fixture}/activation")" == \
+        "${state_file}"$'\t'allowlist$'\t'"${channel_ids}" ]]
+)
+
 test_drain_then_disable_preserves_queue_and_target() (
     prepare_operations_fixture
     trap 'rm -rf "${fixture}"' EXIT
@@ -436,6 +453,7 @@ if [[ -f "${CONTROL_SCRIPT}" && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]
     # shellcheck source=/dev/null
     source "${STATUS_SCRIPT}"
     run_test 'all-channels activation requires a real TTY confirmation' test_all_channels_requires_tty_and_exact_confirmation
+    run_test 'allowlist channel stdin uses the same activation path' test_allowlist_channel_stdin_uses_the_same_activation_path
     run_test 'drain then disable preserves queue and the configured target' test_drain_then_disable_preserves_queue_and_target
     run_test 'activation failure preserves the disabled control state' test_activation_failure_preserves_disabled_state
     run_test 'stale SMTP acceptance blocks activation before plugin checks' test_runtime_gate_rejects_stale_smtp_before_plugin_check
