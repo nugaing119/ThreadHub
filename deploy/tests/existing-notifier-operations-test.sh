@@ -318,6 +318,38 @@ test_noninteractive_smtp_prints_exact_handoff() (
         "${fixture}/output" >/dev/null
 )
 
+test_noninteractive_smtp_recipient_stdin_uses_the_same_acceptance_path() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    recipient='acceptance@threadhub.invalid'
+    fingerprint='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    marker_file="${fixture}/runtime/control/smtp-acceptance.json"
+    mkdir -p "${fixture}/runtime/control"
+    : > "${fixture}/runtime/control/state.json"
+
+    existing_notifier_setup_validate_config() { :; }
+    existing_notifier_init_compose() { :; }
+    existing_notifier_value() {
+        [[ "$1" == THN_DATA_ROOT ]] || return 91
+        printf '%s\n' "${fixture}/runtime"
+    }
+    existing_notifier_validate_control_path() { :; }
+    existing_notifier_smtp_acceptance_fingerprint() {
+        [[ "$1" == "${recipient}" ]] || return 92
+        printf '%s\n' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'
+    }
+    notifier_write_smtp_marker() {
+        [[ "$1" == "${marker_file}" && "$2" == "${fingerprint}" && "$3" =~ ^[0-9]+$ ]]
+    }
+    log() { :; }
+    warn() { :; }
+
+    printf '%s\n' "${recipient}" \
+        | existing_notifier_smtp_test_entry --recipient-stdin \
+            > "${fixture}/output" 2> "${fixture}/error"
+    [[ ! -s "${fixture}/output" && ! -s "${fixture}/error" ]]
+)
+
 test_smtp_acceptance_executes_in_running_mailer() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -415,6 +447,7 @@ if [[ -f "${CONTROL_SCRIPT}" && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]
     run_test 'rollback preserves queue and recreates only the base Mattermost service' test_rollback_preserves_queue_and_uses_base_compose
     run_test 'rollback failure restores the reviewed combined service disabled' test_rollback_failure_restores_combined_service_disabled
     run_test 'noninteractive SMTP test prints the exact secure handoff' test_noninteractive_smtp_prints_exact_handoff
+    run_test 'SMTP recipient stdin uses the same acceptance path' test_noninteractive_smtp_recipient_stdin_uses_the_same_acceptance_path
     run_test 'SMTP acceptance executes in the running Mailer container' test_smtp_acceptance_executes_in_running_mailer
     run_test 'SMTP acceptance reports only a safe Mailer failure class' test_smtp_acceptance_reports_only_safe_mailer_failure
     run_test 'SMTP acceptance hides unavailable upstream diagnostics' test_smtp_acceptance_reports_unavailable_without_leaking_diagnostics

@@ -61,9 +61,14 @@ existing_notifier_smtp_test_entry() {
     local marker_file
     local recipient
     local fingerprint
+    local recipient_input=interactive
 
-    [[ "$#" -eq 0 ]] || die "Usage: $0"
-    if [[ ! -t 0 ]]; then
+    case "$#:${1:-}" in
+        0:) ;;
+        1:--recipient-stdin) recipient_input=stdin ;;
+        *) die "Usage: $0 [--recipient-stdin]" ;;
+    esac
+    if [[ "${recipient_input}" == interactive && ! -t 0 ]]; then
         printf '[ACTION REQUIRED] Run ./deploy/scripts/existing-notifier-smtp-test.sh in an interactive terminal.\n' >&2
         printf 'Then rerun: ./deploy/scripts/existing-notifier-setup.sh --resume\n' >&2
         return 20
@@ -74,8 +79,12 @@ existing_notifier_smtp_test_entry() {
     marker_file="${state_file%/state.json}/smtp-acceptance.json"
     existing_notifier_validate_control_path "${state_file}"
 
-    read -r -s -p 'SMTP acceptance test recipient: ' recipient
-    printf '\n' >&2
+    if [[ "${recipient_input}" == stdin ]]; then
+        IFS= read -r recipient || die "A valid test recipient is required"
+    else
+        read -r -s -p 'SMTP acceptance test recipient: ' recipient
+        printf '\n' >&2
+    fi
     validate_email recipient "${recipient}"
     if ! fingerprint="$(existing_notifier_smtp_acceptance_fingerprint "${recipient}")"; then
         recipient=""

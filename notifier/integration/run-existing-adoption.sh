@@ -579,18 +579,17 @@ run_pty() {
         <"${input_file}" >/dev/null 2>&1
 }
 
-run_smtp_pty() {
+run_smtp_stdin() {
     local input_file="$1"
     shift
-    local command_string=""
     local transcript="${integration_root}/smtp-acceptance.transcript"
     local safe_phase=""
     local safe_failure=""
     local status=0
 
-    printf -v command_string '%q ' env \
-        "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${adoption_env}" "$@"
-    timeout --foreground --kill-after=10s 180s script -q -e -c "${command_string}" /dev/null \
+    timeout --foreground --kill-after=10s 180s env \
+        "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${adoption_env}" \
+        "$@" --recipient-stdin \
         <"${input_file}" >"${transcript}" 2>&1 || status=$?
     if [[ "${status}" -eq 0 ]]; then
         smtp_acceptance_phase=complete
@@ -996,7 +995,7 @@ private "${docker_command[@]}" network connect \
 
 record_stage smtp-acceptance
 printf '%s\n' 'probe@integration.invalid' >"${integration_root}/smtp-recipient"
-run_smtp_pty "${integration_root}/smtp-recipient" "${repository_root}/deploy/scripts/existing-notifier-smtp-test.sh" || fail NF-ADOPT-04
+run_smtp_stdin "${integration_root}/smtp-recipient" "${repository_root}/deploy/scripts/existing-notifier-smtp-test.sh" || fail NF-ADOPT-04
 rm -f -- "${integration_root}/smtp-recipient"
 public_channel="$(jq -r '.public_channel_id' "${integration_root}/acceptance-state.json")"
 private_channel="$(jq -r '.private_channel_id' "${integration_root}/acceptance-state.json")"

@@ -53,6 +53,8 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"elapsed_seconds=%s",
 		"smtp_acceptance_failure=",
 		"smtp_acceptance_phase=",
+		"run_smtp_stdin",
+		"--recipient-stdin",
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-adoption runner contract is missing %q", required)
