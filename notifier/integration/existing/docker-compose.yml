@@ -151,16 +151,6 @@ services:
     networks:
       - database
       - application
-    healthcheck:
-      test:
-        - CMD
-        - curl
-        - --fail
-        - http://localhost:8065/api/v4/system/ping
-      interval: 2s
-      timeout: 3s
-      retries: 90
-      start_period: 20s
     logging: *safe-logging
 
 networks:

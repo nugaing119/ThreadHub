@@ -153,9 +153,28 @@ safe_mattermost_restart_count() {
     [[ "${restart_count}" =~ ^[0-9]+$ ]] && printf '%s\n' "${restart_count}" || printf '%s\n' unknown
 }
 
+safe_mattermost_local_status() {
+    local container_id=""
+    local local_status=0
+
+    container_id="$(compose_base ps --all --quiet mattermost 2>/dev/null)" || container_id=""
+    [[ "${container_id}" =~ ^[a-f0-9]{12,64}$ ]] || {
+        printf '%s\n' container-missing
+        return 0
+    }
+    "${docker_command[@]}" exec "${container_id}" /mattermost/bin/mmctl \
+        system status --local >/dev/null 2>&1 || local_status=$?
+    if [[ "${local_status}" =~ ^[0-9]+$ && "${local_status}" -le 255 ]]; then
+        printf 'exit-%s\n' "${local_status}"
+    else
+        printf '%s\n' unknown
+    fi
+}
+
 safe_mattermost_log_flags() {
     local container_id=""
     local logs=""
+    local file_logs=""
     local flags=""
     local label=""
     local pattern=""
@@ -166,6 +185,12 @@ safe_mattermost_log_flags() {
         return 0
     }
     logs="$("${docker_command[@]}" logs --tail 200 "${container_id}" 2>/dev/null)" || logs=""
+    if [[ -n "${integration_root}" ]] \
+        && sudo test -f "${integration_root}/data/mattermost/logs/mattermost.log"; then
+        file_logs="$(sudo tail -n 200 "${integration_root}/data/mattermost/logs/mattermost.log" 2>/dev/null)" \
+            || file_logs=""
+        logs="${logs}"$'\n'"${file_logs}"
+    fi
     while IFS='|' read -r label pattern; do
         if grep -Eiq -- "${pattern}" <<<"${logs}"; then
             flags="${flags:+${flags},}${label}"
@@ -188,6 +213,7 @@ write_safe_diagnostic() {
     local mattermost_host_probe=""
     local mattermost_container_probe=""
     local mattermost_restart_count=""
+    local mattermost_local_status=""
     local mattermost_log_flags=""
 
     [[ -n "${safe_diagnostic_output_path}" && "${result_kind}" != success ]] || return 0
@@ -202,6 +228,7 @@ write_safe_diagnostic() {
     mattermost_host_probe="$(safe_http_probe 'http://127.0.0.1:49153/api/v4/system/ping')"
     mattermost_container_probe="$(safe_container_http_probe mattermost 'http://localhost:8065/api/v4/system/ping')"
     mattermost_restart_count="$(safe_mattermost_restart_count)"
+    mattermost_local_status="$(safe_mattermost_local_status)"
     mattermost_log_flags="$(safe_mattermost_log_flags)"
     (set -o noclobber; {
         printf 'failure_stage=%s\n' "${result_stage}"
@@ -211,6 +238,7 @@ write_safe_diagnostic() {
         printf 'mattermost_host_probe=%s\n' "${mattermost_host_probe}"
         printf 'mattermost_container_probe=%s\n' "${mattermost_container_probe}"
         printf 'mattermost_restart_count=%s\n' "${mattermost_restart_count}"
+        printf 'mattermost_local_status=%s\n' "${mattermost_local_status}"
         printf 'mattermost_log_flags=%s\n' "${mattermost_log_flags}"
     } >"${safe_diagnostic_output_path}") || return 0
     chmod 0644 "${safe_diagnostic_output_path}" || true
