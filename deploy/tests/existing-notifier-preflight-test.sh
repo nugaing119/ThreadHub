@@ -268,7 +268,7 @@ test_world_readable_existing_env_is_rejected() (
     assert_private_output
 )
 
-test_unsafe_smtp_ca_is_rejected_before_docker() (
+test_group_writable_smtp_ca_is_rejected_before_docker() (
     prepare_fixture
     trap 'rm -rf "${fixture}"' EXIT
     chmod 0664 "${smtp_ca_file}"
@@ -278,10 +278,12 @@ test_unsafe_smtp_ca_is_rejected_before_docker() (
     set -e
     assert_action_required_result "${result}" || return 1
     [[ ! -s "${calls}" ]] || return 1
-    assert_private_output || return 1
+    assert_private_output
+)
 
-    : > "${calls}"
-    chmod 0644 "${smtp_ca_file}"
+test_symlinked_smtp_ca_is_rejected_before_docker() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
     mv "${smtp_ca_file}" "${smtp_ca_file}.real"
     ln -s "${smtp_ca_file}.real" "${smtp_ca_file}"
     set +e
@@ -351,7 +353,8 @@ if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'symlinked base Compose is rejected before Docker' test_symlinked_compose_is_rejected_before_docker
     run_test 'invalid adoption configuration exits 20 before Docker' test_invalid_adoption_config_exits_twenty_before_docker
     run_test 'world-readable existing environment is rejected before Docker' test_world_readable_existing_env_is_rejected
-    run_test 'unsafe SMTP CA files are rejected before Docker' test_unsafe_smtp_ca_is_rejected_before_docker
+    run_test 'group-writable SMTP CA files are rejected before Docker' test_group_writable_smtp_ca_is_rejected_before_docker
+    run_test 'symlinked SMTP CA files are rejected before Docker' test_symlinked_smtp_ca_is_rejected_before_docker
     run_test 'missing Mattermost data bind is rejected' test_missing_data_bind_is_rejected
     run_test 'notifier environment and network collisions are rejected' test_notifier_environment_and_network_collisions_are_rejected
     run_test 'existing target plugin requires manual review' test_existing_target_plugin_is_rejected
