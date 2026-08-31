@@ -266,6 +266,7 @@ for script in \
     "${SCRIPT_DIR}/build-notifier.sh" \
     "${SCRIPT_DIR}/verify-notifier-artifacts.sh" \
     "${SCRIPT_DIR}/install-notifier-plugin.sh" \
+    "${SCRIPT_DIR}/existing-notifier-plugin.sh" \
     "${SCRIPT_DIR}/configure-notifier.sh" \
     "${SCRIPT_DIR}/notifier-control.sh" \
     "${SCRIPT_DIR}/notifier-smtp-test.sh" \
@@ -275,29 +276,36 @@ for script in \
 done
 require_file "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
 require_file "${SCRIPT_DIR}/notifier-plugin-files.sh"
+require_file "${SCRIPT_DIR}/notifier-plugin-install-lib.sh"
+require_file "${SCRIPT_DIR}/notifier-artifact-build-lib.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh" ]] \
     || die "Notifier artifact security fixture test must be executable"
 # Match the literal build-script expression; expansion is not intended.
 # shellcheck disable=SC2016
 grep -F -- '--build-arg "GO_BUILDER_IMAGE=${builder_image}"' \
-    "${SCRIPT_DIR}/build-notifier.sh" >/dev/null \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
     || die "Notifier builds must consume the pinned builder digest"
-grep -F 'NOTIFIER_PLUGIN_BUNDLE_SHA256=' "${SCRIPT_DIR}/build-notifier.sh" >/dev/null \
+grep -F 'NOTIFIER_PLUGIN_BUNDLE_SHA256=' \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
     || die "Notifier release identity must record the bundle SHA-256"
-grep -F 'NOTIFIER_SOURCE_COMMIT=' "${SCRIPT_DIR}/build-notifier.sh" >/dev/null \
+grep -F 'NOTIFIER_SOURCE_COMMIT=' \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
     || die "Notifier release identity must record the clean source commit"
 # Match a forbidden literal source expression; expansion is not intended.
 # shellcheck disable=SC2016
-if grep -F 'source "${release_file}"' "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null; then
+if grep -F 'source "${release_file}"' \
+    "${SCRIPT_DIR}/notifier-plugin-install-lib.sh" >/dev/null; then
     die "Notifier release identity must never be sourced as shell code"
 fi
 for archive_option in --no-same-owner --no-same-permissions; do
     grep -F -- "${archive_option}" "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null \
+        || grep -F -- "${archive_option}" \
+            "${SCRIPT_DIR}/notifier-plugin-install-lib.sh" >/dev/null \
         || die "Notifier plugin extraction is missing ${archive_option}"
 done
 grep -F 'mmctl plugin list --local --suppress-warnings --json' \
-    "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null \
+    "${SCRIPT_DIR}/notifier-plugin-install-lib.sh" >/dev/null \
     || die "Notifier plugin activation must use stable JSON mmctl output"
 # The single-quoted values are literal installer expressions, not shell code.
 # shellcheck disable=SC2016
@@ -306,7 +314,7 @@ for paired_install_contract in \
     'bundle_target="${filestore_plugins_root}/${plugin_id}.tar.gz"' \
     'notifier_plugin_transaction'; do
     grep -F "${paired_install_contract}" \
-        "${SCRIPT_DIR}/install-notifier-plugin.sh" >/dev/null \
+        "${SCRIPT_DIR}/notifier-plugin-install-lib.sh" >/dev/null \
         || die "Notifier plugin installation must publish the reviewed runtime and filestore pair"
 done
 grep -F 'compose pull postgres mattermost' "${SCRIPT_DIR}/deploy.sh" >/dev/null \
@@ -348,6 +356,7 @@ require_file "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
@@ -360,12 +369,15 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
     || die "Existing notifier preflight test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh" ]] \
     || die "Existing notifier overlay test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh" ]] \
+    || die "Existing notifier plugin test must be executable"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
 log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv

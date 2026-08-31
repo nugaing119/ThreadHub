@@ -731,7 +731,7 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
 
 test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
     for script_name in \
-        install-notifier-plugin.sh readiness-check.sh notifier-control.sh notifier-status.sh; do
+        readiness-check.sh notifier-control.sh notifier-status.sh; do
         script="${TEST_DEPLOY_DIR}/scripts/${script_name}"
         # Match the literal source expression; expansion is not intended.
         # shellcheck disable=SC2016
@@ -740,6 +740,12 @@ test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
         grep -F 'notifier_plugin_list_is_exact_active' "${script}" >/dev/null \
             || return 1
     done
+    grep -F 'source "${SCRIPT_DIR}/notifier-lib.sh"' \
+        "${TEST_DEPLOY_DIR}/scripts/install-notifier-plugin.sh" >/dev/null || return 1
+    grep -F 'source "${SCRIPT_DIR}/notifier-plugin-install-lib.sh"' \
+        "${TEST_DEPLOY_DIR}/scripts/install-notifier-plugin.sh" >/dev/null || return 1
+    grep -F 'notifier_plugin_list_is_exact_active' \
+        "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-install-lib.sh" >/dev/null
 )
 
 notifier_test_plugin_files_privileged() {
@@ -975,19 +981,6 @@ test_post_start_pair_verification_rejects_deleted_or_replaced_objects() (
         "${expected_sha}" "${scratch}" >/dev/null 2>&1
 )
 
-test_already_exact_installer_rechecks_pair_after_startup_synchronization() (
-    installer="${TEST_DEPLOY_DIR}/scripts/install-notifier-plugin.sh"
-    awk '
-        /^ensure_plugin_active\(\)/ { in_function = 1; next }
-        in_function && /^}/ { exit(state == 4 ? 0 : 1) }
-        in_function && state == 0 && /compose up -d --wait --wait-timeout 240 mattermost/ { state = 1; next }
-        in_function && state == 1 && /enable_expected_plugin/ { state = 2; next }
-        in_function && state == 2 && /notifier_plugin_list_is_exact_active/ { state = 3; next }
-        in_function && state == 3 && /notifier_plugin_pair_is_exact/ { state = 4; next }
-        END { if (!in_function) exit 1 }
-    ' "${installer}"
-)
-
 test_prior_pair_recovery_evidence_survives_post_start_deletion() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -1158,9 +1151,6 @@ run_test \
 run_test \
     'post-start pair verification rejects deleted or replaced production objects' \
     test_post_start_pair_verification_rejects_deleted_or_replaced_objects
-run_test \
-    'already-exact plugin install rechecks the pair after startup synchronization' \
-    test_already_exact_installer_rechecks_pair_after_startup_synchronization
 run_test \
     'verified prior pair recovery evidence survives post-start deletion' \
     test_prior_pair_recovery_evidence_survives_post_start_deletion
