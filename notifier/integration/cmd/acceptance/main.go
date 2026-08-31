@@ -36,6 +36,11 @@ var requiredScenarioIDs = mustResultList(requiredScenarioData)
 
 var allowedFailureAssertions = mustResultList(failureAssertionData)
 
+// Real Mattermost image restarts can spend more than 90 seconds restoring the
+// plugin runtime on a shared CI runner. Match the harness's initial startup
+// allowance so a slow, healthy restart is not classified as a reliability bug.
+const integrationRestartTimeout = 180 * time.Second
+
 func mustResultList(raw string) []string {
 	if raw == "" || !strings.HasSuffix(raw, "\n") || strings.Contains(raw, "\r") {
 		panic("invalid integration result allowlist")
@@ -793,7 +798,7 @@ func (a *acceptance) enableAndRestart(ctx context.Context, activatedAt int64) er
 	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil {
 		return err
 	}
-	return a.waitServices(ctx, 90*time.Second)
+	return a.waitServices(ctx, integrationRestartTimeout)
 }
 
 func writeControl(path string, state controlState) error {
@@ -1320,7 +1325,7 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil {
 		return "NF-REL-05-control-disable-restart"
 	}
-	if err := a.waitServices(ctx, 90*time.Second); err != nil {
+	if err := a.waitServices(ctx, integrationRestartTimeout); err != nil {
 		return "NF-REL-05-control-disable-wait"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
@@ -1360,7 +1365,7 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 	if _, err := a.compose.run(ctx, "restart", "mattermost"); err != nil {
 		return "NF-REL-05-activation-cutoff"
 	}
-	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", 90*time.Second); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, 90*time.Second) != nil {
+	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", integrationRestartTimeout); err != nil || a.verifyPluginActive(ctx) != nil || a.waitPluginRuntime(ctx, integrationRestartTimeout) != nil {
 		return "NF-REL-05-activation-cutoff"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {
