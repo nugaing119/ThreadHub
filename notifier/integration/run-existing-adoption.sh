@@ -376,6 +376,50 @@ safe_writable_state() {
     fi
 }
 
+safe_disabled_count_differences() {
+    local baseline_file="${integration_root}/counts-baseline"
+    local disabled_file="${integration_root}/counts-disabled"
+
+    [[ -f "${baseline_file}" && -f "${disabled_file}" ]] || {
+        printf '%s\n' unavailable
+        return 0
+    }
+    awk -F '\t' '
+        NR == 1 {
+            if (NF != 6) exit 2
+            for (field = 1; field <= 6; field++) {
+                if ($field !~ /^[0-9]+$/) exit 2
+                baseline[field] = $field
+            }
+            next
+        }
+        NR == 2 {
+            if (NF != 6) exit 2
+            for (field = 1; field <= 6; field++) {
+                if ($field !~ /^[0-9]+$/) exit 2
+                current[field] = $field
+            }
+            next
+        }
+        END {
+            if (NR != 2) exit 2
+            labels[1] = "teams"
+            labels[2] = "channels"
+            labels[3] = "channelmembers"
+            labels[4] = "users"
+            labels[5] = "posts"
+            labels[6] = "fileinfo"
+            output = ""
+            for (field = 1; field <= 6; field++) {
+                if (current[field] == baseline[field]) continue
+                direction = current[field] > baseline[field] ? "increased" : "decreased"
+                output = output (output == "" ? "" : ",") labels[field] "-" direction
+            }
+            print output == "" ? "none" : output
+        }
+    ' "${baseline_file}" "${disabled_file}" 2>/dev/null || printf '%s\n' unavailable
+}
+
 write_safe_diagnostic() {
     local evidence_parent=""
     local postgres_state=""
@@ -392,6 +436,7 @@ write_safe_diagnostic() {
     local disabled_setup_failure=""
     local disabled_setup_phase=""
     local setup_exit=""
+    local disabled_count_differences=""
     local integration_root_writable=""
     local go_cache_writable=""
 
@@ -414,6 +459,7 @@ write_safe_diagnostic() {
     input_path_failures="$(safe_input_path_failures)"
     disabled_setup_failure="$(safe_disabled_setup_failure)"
     disabled_setup_phase="$(safe_disabled_setup_phase)"
+    disabled_count_differences="$(safe_disabled_count_differences)"
     if [[ "${setup_status}" =~ ^[0-9]+$ && "${setup_status}" -le 255 ]]; then
         setup_exit="${setup_status}"
     else
@@ -437,6 +483,7 @@ write_safe_diagnostic() {
         printf 'disabled_setup_failure=%s\n' "${disabled_setup_failure}"
         printf 'disabled_setup_phase=%s\n' "${disabled_setup_phase}"
         printf 'disabled_setup_exit=%s\n' "${setup_exit}"
+        printf 'disabled_count_differences=%s\n' "${disabled_count_differences}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"
         printf 'go_cache_writable=%s\n' "${go_cache_writable}"
     } >"${safe_diagnostic_output_path}") || return 0
