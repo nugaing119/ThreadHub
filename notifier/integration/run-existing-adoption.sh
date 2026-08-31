@@ -253,6 +253,7 @@ safe_supported_preflight_failure() {
         *'Mattermost Team Edition 11.7.7 is required'*) classification=live-version ;;
         *'Mattermost Site URL must match THN_DOMAIN over HTTPS'*) classification=site-url ;;
         *'Existing ThreadHub notifier plugin state requires manual review'*) classification=plugin-state ;;
+        *'[OK] Mattermost Site URL and notifier collision checks passed'*) classification=none ;;
         *)
             if [[ -n "${logs}" ]]; then
                 classification=unclassified
@@ -276,19 +277,19 @@ safe_input_path_failures() {
         label="$1"
         path="$2"
         kind="$3"
-        if [[ -L "${path}" ]]; then
+        if sudo test -L "${path}"; then
             safe_add_input_failure "${label}-symlink"
             return
         fi
-        if [[ "${kind}" == file && ! -f "${path}" ]]; then
+        if [[ "${kind}" == file ]] && ! sudo test -f "${path}"; then
             safe_add_input_failure "${label}-not-file"
             return
         fi
-        if [[ "${kind}" == directory && ! -d "${path}" ]]; then
+        if [[ "${kind}" == directory ]] && ! sudo test -d "${path}"; then
             safe_add_input_failure "${label}-not-directory"
             return
         fi
-        mode="$(stat -c '%a' "${path}" 2>/dev/null)" || {
+        mode="$(sudo stat -c '%a' "${path}" 2>/dev/null)" || {
             safe_add_input_failure "${label}-mode-unavailable"
             return
         }
@@ -297,12 +298,12 @@ safe_input_path_failures() {
         fi
     }
 
-    if [[ ! -d "${script_dir}/existing" || -L "${script_dir}/existing" ]]; then
+    if ! sudo test -d "${script_dir}/existing" || sudo test -L "${script_dir}/existing"; then
         safe_add_input_failure project-dir
     fi
     safe_check_input_path compose-file "${compose_file}" file
     safe_check_input_path compose-env "${integration_env}" file
-    [[ "$(stat -c '%a' "${integration_env}" 2>/dev/null)" == 600 ]] \
+    [[ "$(sudo stat -c '%a' "${integration_env}" 2>/dev/null)" == 600 ]] \
         || safe_add_input_failure compose-env-not-0600
     safe_check_input_path plugins-root "${integration_root}/data/mattermost/plugins" directory
     safe_check_input_path data-root "${integration_root}/data/mattermost/data" directory
@@ -755,11 +756,14 @@ result_stage=supported-preflight
 printf '%s\n' '[HARNESS] supported-preflight-start' >>"${diagnostic_file}"
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" || fail NF-ADOPT-01
+result_stage=post-preflight-integrity
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-01
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-01
+result_stage=post-preflight-counts
 db_counts "${integration_root}/counts-after-preflight" || fail NF-ADOPT-01
 cmp -s "${integration_root}/counts-baseline" "${integration_root}/counts-after-preflight" || fail NF-ADOPT-01
 
+result_stage=disabled-setup
 set +e
 generated_bundle=true
 THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
@@ -768,8 +772,10 @@ THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
 setup_status=$?
 set -e
 [[ "${setup_status}" -eq 20 ]] || fail NF-ADOPT-03
+result_stage=disabled-counts
 db_counts "${integration_root}/counts-disabled" || fail NF-ADOPT-03
 cmp -s "${integration_root}/counts-baseline" "${integration_root}/counts-disabled" || fail NF-ADOPT-03
+result_stage=disabled-baseline
 private acceptance verify-baseline || fail NF-ADOPT-03
 
 smtp_container="$(compose_base ps -q smtp-fixture)"
