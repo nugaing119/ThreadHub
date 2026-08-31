@@ -19,6 +19,7 @@
 | notifier unit/race·installer security | `cd notifier && make test` 및 `validate.sh` |
 | notifier artifact·history secret gate | pinned Gitleaks 8.30.1과 `verify-notifier-artifacts.sh` |
 | notifier real-image integration | `cd notifier && make integration` (로컬/CI Docker 환경) |
+| 기존 Mattermost notifier 채택 real-image integration | `./notifier/integration/run-existing-adoption.sh` (Linux Docker CI 환경) |
 
 ## notifier 시험 ID와 실행 경계
 

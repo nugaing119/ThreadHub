@@ -1,0 +1,194 @@
+# 기존 Mattermost에 ThreadHub 이메일 notifier 적용
+
+이 문서는 이미 운영 중인 Mattermost에 공개·비공개 채널 새 글과 스레드 답글의
+일반 안내 이메일을 추가하는 절차입니다. 새 ThreadHub 설치 절차가 아닙니다. 신규
+VM은 [빠른 설치 가이드](./quick-install.md)를 사용합니다.
+
+notifier는 Mattermost 메시지 본문, 채널명, Team명과 작성자명을 이메일에 포함하지
+않습니다. 수신자는 게시 시점의 채널 멤버 중 작성자·비활성 사용자·봇을 제외한
+이메일 확인 사용자입니다. DM, 그룹 DM, 시스템 글, 수정·삭제와 Webhook·봇 작성
+글은 발송 대상이 아닙니다.
+
+## 지원 범위
+
+| 항목 | 지원 기준 |
+| --- | --- |
+| 운영체제 | Ubuntu 24.04 AMD64 |
+| Mattermost | Mattermost Team Edition 11.7.7 정확한 이미지 |
+| 배포 | single-node Compose, 실행 중 Mattermost 컨테이너 정확히 1개 |
+| 데이터 | `/mattermost/plugins`와 `/mattermost/data`가 쓰기 가능한 명시적 bind mount |
+| Site URL | `https://` 도메인과 채택 설정의 도메인이 일치 |
+| 기존 notifier | 같은 서비스·network·환경변수·plugin ID가 없어야 함 |
+| SMTP | STARTTLS 587, 별도 프로젝트 SMTP Credential과 Approved Sender 권장 |
+
+다중 Mattermost replica, named plugin/data volume, 다른 Mattermost 버전, 이미 설치된
+동일 plugin, 충돌하는 notifier service/network 또는 안전성을 입증할 수 없는 Compose는
+자동 채택 대상이 아닙니다. preflight가 exit code 20을 반환하면 중지하고 원인을
+검토합니다. 지원 기준을 우회해 계속하지 않습니다.
+
+## 변경·비변경 경계
+
+`existing-notifier-preflight.sh`는 base Compose, base environment, 컨테이너와 데이터를
+변경하지 않습니다. SHA와 데이터 개수를 비교하는 real-image 시험으로 이 경계를
+검증합니다.
+
+setup은 다음 항목만 추가합니다.
+
+- 보호된 별도 설정 `deploy/existing-notifier.env`
+- 기본 `/srv/threadhub-notifier` 아래 control, Mailer queue, release와 rollback 증거
+- 별도 `compose.override.yml`
+- 검토된 notifier plugin runtime·filestore pair
+- 내부 plugin↔Mailer network와 SMTP 전용 outbound network
+
+setup과 rollback은 base Compose file과 base environment file을 덮어쓰거나 수정하지
+않습니다. 기존 Team·채널·사용자·게시물·파일 행은 유지합니다. plugin 전용 KV와
+rollback 격리 증거는 별도 운영 데이터로 남을 수 있습니다.
+
+plugin pair 설치와 rollback 중 Mattermost 컨테이너가 한 번 재생성되므로 사용자는
+보통 30–60초 동안 연결이 끊겼다가 다시 연결될 수 있습니다. PostgreSQL과 SMTP
+fixture가 아니라 Mattermost 서비스만 필요한 단계에서 재생성하며, 작업 전 사용자에게
+짧은 재연결 시간을 공지합니다. 무중단 변경이나 SLA를 보장하지 않습니다.
+
+## 준비와 보호값
+
+먼저 저장소가 깨끗한 검토 commit인지 확인하고 정적 검증을 실행합니다.
+
+```bash
+./deploy/scripts/validate.sh
+```
+
+다음 값을 확인해야 합니다.
+
+- 기존 Compose project directory, Compose file과 mode `0600` environment file
+- Mattermost service name
+- `/mattermost/plugins`, `/mattermost/data`에 연결된 실제 host bind mount 경로
+- HTTPS 도메인
+- notifier 전용 root 경로
+- SMTP server, username, password, Approved Sender, Reply-To와 CA bundle
+
+SMTP password와 HMAC은 채팅, 명령행 인수, 로그 또는 Git에 넣지 않습니다. 설정은
+대화형 숨김 입력으로 만들고 mode `0600`을 유지합니다. OCI IAM user, group, policy,
+SMTP Credential, Approved Sender, DNS와 공인 IP를 만들거나 바꾸려면 대상 compartment와
+region을 밝히고 별도 명시 승인을 받습니다.
+
+## 적용 순서
+
+안전 gate의 고정 순서는 `existing-notifier-preflight.sh` → `disabled` →
+`existing-notifier-setup.sh` → `SMTP acceptance` → `allowlist` →
+`manual acceptance` → `explicit all_channels approval`입니다.
+
+1. 다음 read-only 검사부터 실행합니다.
+
+   ```bash
+   THREADHUB_EXISTING_NOTIFIER_ENV_FILE=deploy/existing-notifier.env \
+     ./deploy/scripts/existing-notifier-preflight.sh
+   ```
+
+   설정이 아직 없으면 아래 명령을 실제 터미널에서 실행합니다. SMTP password는 hidden
+   prompt로만 입력합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-setup.sh --configure-only
+   ```
+
+2. preflight가 통과한 뒤 notifier를 disabled 상태로 설치합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-setup.sh --resume --non-interactive
+   ```
+
+   이 단계는 발송을 켜지 않습니다. 정상적인 첫 실행은 구성요소를 disabled 상태로
+   설치한 뒤 SMTP acceptance가 필요하다는 `[ACTION REQUIRED]`와 exit code 20으로
+   멈춥니다.
+
+3. 실제 터미널에서 일회성 SMTP acceptance를 수행합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-smtp-test.sh
+   ```
+
+   수신 주소는 숨김 입력입니다. 자동 시험은 SMTP 서버의 최종 접수와 현재 설정
+   fingerprint만 확인합니다. 받은편지함 도착, 링크, SPF와 DKIM은 별도 수동 인수
+   항목입니다.
+
+4. 공개·비공개 시험 채널 ID만 넣어 allowlist 파일럿을 활성화합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-control.sh activate-allowlist
+   ```
+
+   public/private root and thread 글을 각각 작성해 대상 멤버만 일반 안내 이메일을 받고,
+   비allowlist 채널·DM·시스템 글·작성자·비멤버가 제외되는지 확인합니다.
+
+5. 다음 상태와 manual acceptance 결과를 함께 기록합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-status.sh
+   ./deploy/scripts/existing-notifier-control.sh status
+   ```
+
+6. 전체 채널 전환은 파일럿 완료와 운영 책임자의 별도 명시 승인이 있어야 합니다.
+   이것이 explicit all_channels approval입니다. 승인 후 실제 터미널에서만 실행하고
+   정확한 확인 문구를 입력합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-control.sh activate-all-channels
+   ```
+
+## 수동 인수시험
+
+- allowlist 공개 채널 루트 글과 스레드 답글
+- allowlist 비공개 채널 루트 글과 스레드 답글
+- 게시 작성자 제외
+- 현재 채널 비멤버, 비활성 사용자와 봇 제외
+- 비allowlist 채널, DM, 그룹 DM과 시스템 글 제외
+- 이메일에 본문·채널·Team·작성자 정보가 없음
+- 링크가 `https://<domain>/_redirect/pl/<post-id>`이며 권한 있는 사용자만 원문 접근
+- SMTP 중단 중 Mattermost 글 작성 성공과 복구 후 queue 처리
+- 받은편지함 도착, SPF/DKIM, 모바일·웹 링크
+
+자동 `NF-ADOPT-01`~`NF-ADOPT-10`은 설치·rollback 경계를 검증하지만 실제 OCI inbox,
+조직별 수신정책과 사용자의 링크 권한을 대체하지 않습니다.
+
+## 상태·중지와 rollback
+
+평상시 상태는 다음 명령으로 확인합니다.
+
+```bash
+./deploy/scripts/existing-notifier-status.sh
+```
+
+변경이나 rollback 전에는 새 수집을 drain하고 `pending=0`, `sending=0`을 확인합니다.
+실패 건은 운영 판단에 따라 재시도하거나 명시적으로 취소한 뒤 `failed=0`을 확인하고
+disable합니다.
+
+```bash
+./deploy/scripts/existing-notifier-control.sh drain
+./deploy/scripts/existing-notifier-control.sh disable
+./deploy/scripts/existing-notifier-rollback.sh
+```
+
+failed delivery가 있으면 rollback은 자동으로 선택하지 않고 멈춥니다. 필요한 경우에만
+`--retry-failed` 또는 `--cancel-failed`를 명시합니다. rollback은 base Compose와 base
+environment를 다시 사용해 Mattermost를 재생성하고 검토된 plugin pair를 운영 경로에서
+격리합니다. Mailer의 queue data와 격리된 plugin 증거는 삭제하지 않습니다. rollback
+후 기존 Team·채널·사용자·게시물·파일과 기준 글을 다시 확인합니다.
+
+rollback 중 실패하면 스크립트는 reviewed combined service를 disabled 상태로 복구하려고
+시도합니다. 자동 복구도 실패하면 Mattermost와 notifier 상태를 임의로 수정하지 말고
+운영 책임자에게 전달합니다.
+
+## 운영 종료 조건
+
+다음 중 하나면 고객 채널 전체 활성화나 작업 완료를 선언하지 않습니다.
+
+- preflight 또는 setup의 exit code 20 원인이 미해결
+- SMTP acceptance marker가 없거나 현재 credential fingerprint와 불일치
+- plugin이 정확한 reviewed version으로 Running이 아님
+- queue에 pending, sending 또는 미처리 failed가 남음
+- public/private root and thread 수신 경계가 수동 검증되지 않음
+- inbox/link/SPF/DKIM이 확인되지 않음
+- base Compose·환경파일 hash 또는 기존 데이터 검증이 달라짐
+
+상세 일상 점검과 queue 처리 순서는 [운영 점검표](./operations-checklist.md), 기능·보안
+시험 ID는 [시험계획](./test-plan.md)을 사용합니다.

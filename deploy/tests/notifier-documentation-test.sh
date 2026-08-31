@@ -33,6 +33,7 @@ reset_fixture() {
     rm -rf "${fixture_root}"
     mkdir -p "${fixture_root}/deploy"
     cp "${REPOSITORY_ROOT}/README.md" "${fixture_root}/README.md"
+    cp "${REPOSITORY_ROOT}/AGENTS.md" "${fixture_root}/AGENTS.md"
     cp "${REPOSITORY_ROOT}/SECURITY.md" "${fixture_root}/SECURITY.md"
     cp "${DEPLOY_DIR}/README.md" "${fixture_root}/deploy/README.md"
     cp -R "${DEPLOY_DIR}/docs" "${fixture_root}/deploy/docs"
@@ -42,6 +43,50 @@ reset_fixture
 validate_notifier_documentation_contracts "${fixture_root}" \
     || fail 'real notifier documentation does not satisfy the production contract helper'
 
+rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
+assert_contract_failure 'missing existing Mattermost adoption guide was accepted'
+
+reset_fixture
+perl -0pi -e 's/`existing-notifier-setup\.sh` → `SMTP acceptance` → `allowlist`/`existing-notifier-setup.sh` → `allowlist` → `SMTP acceptance`/' \
+    "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
+assert_contract_failure 'allowlist activation before SMTP acceptance was accepted'
+
+reset_fixture
+sed -i.bak 's/fresh installation only/fresh-and-adoption-mixed/g' \
+    "${fixture_root}/deploy/docs/quick-install.md"
+rm -f "${fixture_root}/deploy/docs/quick-install.md.bak"
+assert_contract_failure 'fresh and existing adoption path separation was removed'
+
+reset_fixture
+sed -i.bak 's/30–60초/impact-window-missing/g' \
+    "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
+rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md.bak"
+assert_contract_failure 'missing existing adoption impact window was accepted'
+
+reset_fixture
+sed -i.bak 's/explicit all_channels approval/all-channel-approval-missing/g' \
+    "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
+rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md.bak"
+assert_contract_failure 'missing explicit all-channel approval was accepted'
+
+reset_fixture
+sed -i.bak 's/queue data/queue-preservation-missing/g' \
+    "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
+rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md.bak"
+assert_contract_failure 'missing rollback queue preservation was accepted'
+
+reset_fixture
+sed -i.bak 's/do not modify the base Compose file/base-mutation-rule-missing/g' \
+    "${fixture_root}/AGENTS.md"
+rm -f "${fixture_root}/AGENTS.md.bak"
+assert_contract_failure 'missing agent base Compose protection was accepted'
+
+reset_fixture
+sed -i.bak 's/NF-ADOPT-10/NF-ADOPT-missing/' "${fixture_root}/deploy/docs/test-plan.md"
+rm -f "${fixture_root}/deploy/docs/test-plan.md.bak"
+assert_contract_failure 'missing adoption NF classification was accepted'
+
+reset_fixture
 sed -i.bak 's/threadhub-mailer retry-failed/retry-placeholder/g' \
     "${fixture_root}/deploy/docs/operations-checklist.md"
 rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"

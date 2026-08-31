@@ -36,6 +36,7 @@ deploy/
 │   └── validate.sh
 └── docs/
     ├── quick-install.md
+    ├── existing-mattermost-notifier.md
     ├── oci-provisioning.md
     ├── oci-email-delivery.md
     ├── setup.md
@@ -110,6 +111,11 @@ notifier artifact build, 설정, plugin 설치, SMTP 접수시험, 제어와 상
 `./deploy/scripts/notifier-control.sh`, `./deploy/scripts/notifier-status.sh`를 사용합니다.
 순서와 수동 인수 항목은 [빠른 설치 가이드](./docs/quick-install.md), 일상 운영은
 [운영 점검표](./docs/operations-checklist.md), 종료는 [프로젝트 종료 절차](./docs/project-close.md)를 따릅니다.
+
+위 절차는 새 ThreadHub 인스턴스용입니다. 이미 운영 중인 지원 대상 Mattermost에
+notifier만 추가할 때는 base Compose와 기존 환경파일을 변경하지 않고
+[기존 Mattermost notifier 적용 가이드](./docs/existing-mattermost-notifier.md)의
+preflight·disabled 설치·수동 인수·rollback gate를 따릅니다.
 
 기존 운영 VM에 저장소의 NGINX 템플릿 변경만 반영할 때는 다음 명령을
 사용합니다. 기존 설정을 임시 백업하고 `nginx -t`를 통과한 경우에만

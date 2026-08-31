@@ -31,6 +31,11 @@
 
 ## 즉시 채널 이메일 알림 운영
 
+기존 Mattermost에 별도 override로 채택한 notifier는
+[기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)의 전용
+`existing-notifier-status.sh`, `existing-notifier-control.sh`와 rollback 절차를
+우선 사용합니다. 아래 기본 명령은 신규 ThreadHub 통합 배포 경로입니다.
+
 ```bash
 ./deploy/scripts/notifier-status.sh
 ./deploy/scripts/notifier-control.sh status
