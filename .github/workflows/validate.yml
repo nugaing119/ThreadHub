@@ -323,6 +323,7 @@ jobs:
           FRESH_INTEGRATION_VERIFIED: "true"
           INTEGRATION_RESULT_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/results.txt
           INTEGRATION_PUBLIC_EVIDENCE_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/public-evidence.txt
+          INTEGRATION_SAFE_DIAGNOSTIC_FILE: ${{ runner.temp }}/threadhub-existing-adoption-evidence/safe-diagnostic.txt
         run: |
           set -Eeuo pipefail
           install -d -m 0755 "${RUNNER_TEMP}/threadhub-existing-adoption-evidence"

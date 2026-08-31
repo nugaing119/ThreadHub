@@ -14,6 +14,7 @@ versions_file="${repository_root}/deploy/versions.env"
 scenario_file="${script_dir}/cmd/existing-acceptance/scenario-ids.txt"
 result_output_path="${INTEGRATION_RESULT_FILE:-}"
 public_evidence_output_path="${INTEGRATION_PUBLIC_EVIDENCE_FILE:-}"
+safe_diagnostic_output_path="${INTEGRATION_SAFE_DIAGNOSTIC_FILE:-}"
 
 integration_root=""
 runtime_parent=""
@@ -26,6 +27,7 @@ project_touched=false
 runtime_touched=false
 result_kind=failure
 result_assertion=NF-ADOPT-01
+result_stage=bootstrap
 generated_bundle=false
 bundle_sha_public=""
 
@@ -66,6 +68,60 @@ compose_combined() {
         -f "${compose_file}" \
         --env-file "${adoption_env}" \
         -f "${runtime_parent}/notifier/compose.override.yml" "$@"
+}
+
+safe_service_state() {
+    local service="$1"
+    local container_id=""
+    local state="unknown"
+    local health="unknown"
+
+    container_id="$(compose_base ps --all --quiet "${service}" 2>/dev/null)" || container_id=""
+    if [[ "${container_id}" =~ ^[a-f0-9]{12,64}$ ]]; then
+        read -r state health < <("${docker_command[@]}" inspect \
+            --format '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+            "${container_id}" 2>/dev/null) || {
+            state=unknown
+            health=unknown
+        }
+    else
+        state=missing
+        health=none
+    fi
+
+    case "${state}" in
+        created | running | paused | restarting | removing | exited | dead | missing) ;;
+        *) state=unknown ;;
+    esac
+    case "${health}" in
+        starting | healthy | unhealthy | none) ;;
+        *) health=unknown ;;
+    esac
+    printf '%s,%s\n' "${state}" "${health}"
+}
+
+write_safe_diagnostic() {
+    local evidence_parent=""
+    local postgres_state=""
+    local smtp_state=""
+    local mattermost_state=""
+
+    [[ -n "${safe_diagnostic_output_path}" && "${result_kind}" != success ]] || return 0
+    evidence_parent="$(dirname -- "${safe_diagnostic_output_path}")"
+    [[ "${safe_diagnostic_output_path}" == /* && -d "${evidence_parent}" \
+        && ! -e "${safe_diagnostic_output_path}" && ! -L "${safe_diagnostic_output_path}" \
+        && "${result_stage}" =~ ^[a-z0-9-]+$ ]] || return 0
+
+    postgres_state="$(safe_service_state postgres)"
+    smtp_state="$(safe_service_state smtp-fixture)"
+    mattermost_state="$(safe_service_state mattermost)"
+    (set -o noclobber; {
+        printf 'failure_stage=%s\n' "${result_stage}"
+        printf 'postgres=%s\n' "${postgres_state}"
+        printf 'smtp_fixture=%s\n' "${smtp_state}"
+        printf 'mattermost=%s\n' "${mattermost_state}"
+    } >"${safe_diagnostic_output_path}") || return 0
+    chmod 0644 "${safe_diagnostic_output_path}" || true
 }
 
 private() {
@@ -144,6 +200,8 @@ cleanup() {
 
     trap - EXIT HUP INT TERM
     set +e
+
+    write_safe_diagnostic
 
     if [[ "${result_kind}" == success && -f "${scenario_file}" ]]; then
         safe_output="$(<"${scenario_file}")"
@@ -371,19 +429,24 @@ THN_RATE_PER_MINUTE=60
 EOF
 chmod 0600 "${adoption_env}"
 
+result_stage=base-compose-validate
 private compose_base config --quiet || fail NF-ADOPT-01
+result_stage=base-image-pull
 private compose_base pull --quiet postgres mattermost || fail NF-ADOPT-01
+result_stage=smtp-fixture-build
 private "${docker_command[@]}" build --platform linux/amd64 \
     --build-arg "GO_BUILDER_IMAGE=${go_repository}:${go_tag}@${go_digest}" \
     --target smtp-fixture --tag "threadhub/notifier-smtp-fixture:${notifier_version}" \
     "${notifier_root}" || fail NF-ADOPT-01
 project_touched=true
+result_stage=base-compose-start
 private compose_base up -d --no-build --wait --wait-timeout 180 postgres smtp-fixture mattermost || fail NF-ADOPT-01
 sudo chown root:root "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chmod 0644 "${integration_root}/data/smtp-ca/ca.crt" || fail NF-ADOPT-01
 sudo chown root:root "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 sudo chmod 0755 "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 
+result_stage=acceptance-build
 private env GOCACHE="${integration_root}/go-cache" go build -o "${acceptance_binary}" ./notifier/integration/cmd/existing-acceptance || fail NF-ADOPT-01
 private compose_base exec -T mattermost mmctl user create --local --suppress-warnings \
     --email admin@integration.invalid --username existing-admin --password "${admin_password}" \
