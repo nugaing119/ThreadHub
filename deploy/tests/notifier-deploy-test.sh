@@ -1033,18 +1033,38 @@ test_deploy_validates_notifier_layout_top_down() (
 )
 
 test_deploy_creates_and_validates_filestore_plugin_directory() (
+    # shellcheck disable=SC2031 # each test function executes in its own subshell
+    deploy_script="${DEPLOY_DIR}/scripts/deploy.sh"
     # Match literal deployment expressions; expansion is not intended.
     # shellcheck disable=SC2016,SC2031
     grep -F '"${mattermost_root}/data/plugins"' \
-        "${DEPLOY_DIR}/scripts/deploy.sh" >/dev/null || return 1
-    # shellcheck disable=SC2031 # each test function executes in its own subshell
-    awk '
-        index($0, "${mattermost_root}/data/plugins") { created = NR }
-        created && index($0, "chown -R 2000:2000 \"${mattermost_root}\"") { owned = NR }
-        owned && index($0, "chmod -R u=rwX,g=rX,o= \"${mattermost_root}\"") { secured = NR }
-        secured && index($0, "validate_notifier_host_path \"${data_root}\"") { validated = NR }
-        END { exit(created && owned > created && secured > owned && validated > secured ? 0 : 1) }
-    ' "${DEPLOY_DIR}/scripts/deploy.sh"
+        "${deploy_script}" >/dev/null || return 1
+
+    # Existing production plugin files are transaction inputs. A repeated
+    # deploy must not normalize their metadata before the installer captures
+    # and verifies the prior runtime/filestore pair.
+    # shellcheck disable=SC2016
+    if grep -F 'chown -R 2000:2000 "${mattermost_root}"' \
+        "${deploy_script}" >/dev/null \
+        || grep -F 'chmod -R u=rwX,g=rX,o= "${mattermost_root}"' \
+            "${deploy_script}" >/dev/null; then
+        return 1
+    fi
+
+    # shellcheck disable=SC2016
+    for required in \
+        'mattermost_mutable_paths=(' \
+        '"${mattermost_root}/config"' \
+        '"${mattermost_root}/data"' \
+        '"${mattermost_root}/logs"' \
+        '"${mattermost_root}/client/plugins"' \
+        '"${mattermost_root}/bleve-indexes"' \
+        'chown 2000:2000 "${mattermost_root}" "${mattermost_root}/plugins"' \
+        'chmod 0750 "${mattermost_root}" "${mattermost_root}/plugins"' \
+        'chown -R 2000:2000 "${mattermost_mutable_paths[@]}"' \
+        'chmod -R u=rwX,g=rX,o= "${mattermost_mutable_paths[@]}"'; do
+        grep -F "${required}" "${deploy_script}" >/dev/null || return 1
+    done
 )
 
 test_validation_requires_shared_paired_plugin_install_contract() (

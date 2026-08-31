@@ -401,6 +401,14 @@ func TestWaitPluginRuntimeDoesNotTreatPingOrConfiguredActiveAsReady(t *testing.T
 	}
 }
 
+func TestIntegrationRestartTimeoutAllowsSlowRealImageRecovery(t *testing.T) {
+	t.Parallel()
+
+	if integrationRestartTimeout < 180*time.Second {
+		t.Fatalf("integration restart timeout = %s, want at least 180s", integrationRestartTimeout)
+	}
+}
+
 func TestReporterEmitsOnlyAllowlistedSuccessIDs(t *testing.T) {
 	t.Parallel()
 
