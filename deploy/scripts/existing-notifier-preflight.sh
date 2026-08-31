@@ -7,6 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${SCRIPT_DIR}/existing-notifier-common.sh"
 # shellcheck source=notifier-lib.sh
 source "${SCRIPT_DIR}/notifier-lib.sh"
+# shellcheck source=notifier-plugin-files.sh
+source "${SCRIPT_DIR}/notifier-plugin-files.sh"
 
 existing_notifier_action_required() {
     printf '[ACTION REQUIRED] %s\n' "$1" >&2
@@ -47,10 +49,12 @@ existing_notifier_assert_input_paths() {
         existing_notifier_mode_is_not_writable_by_group_or_other "${path}" || return 1
     done
 
-    [[ ! -e "${plugins_root}/com.threadhub.channel-email-notifier"
-        && ! -L "${plugins_root}/com.threadhub.channel-email-notifier" ]] || return 1
-    [[ ! -e "${data_root}/plugins/com.threadhub.channel-email-notifier.tar.gz"
-        && ! -L "${data_root}/plugins/com.threadhub.channel-email-notifier.tar.gz" ]] || return 1
+}
+
+existing_notifier_target_objects_presence() {
+    notifier_plugin_pair_presence \
+        "$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)/com.threadhub.channel-email-notifier" \
+        "$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)/plugins/com.threadhub.channel-email-notifier.tar.gz"
 }
 
 existing_notifier_assert_model() {
@@ -138,13 +142,94 @@ existing_notifier_target_plugin_is_absent() {
         || return 1
     state="$(notifier_plugin_list_target_state \
         "${output_file}" com.threadhub.channel-email-notifier)" || return 1
-    [[ "${state}" == $'missing\t-' ]]
+    [[ "${state}" == $'missing\t-' \
+        && "$(existing_notifier_target_objects_presence)" == absent ]]
+}
+
+existing_notifier_installed_target_plugin_is_reviewed() {
+    local service="$1"
+    local scratch_root="$2"
+    local plugin_id=com.threadhub.channel-email-notifier
+    local target_root
+    local bundle_target
+    local release_file
+    local release_copy
+    local plugin_list_file
+    local capture_dir
+    local metadata
+    local installed_version
+    local installed_sha
+    local metadata_extra
+    local release_version
+    local release_plugin_id
+    local release_sha
+    local release_source_commit
+    local bundle_relative
+    local bundle_path
+
+    target_root="$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)/${plugin_id}"
+    bundle_target="$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)/plugins/${plugin_id}.tar.gz"
+    release_file="$(existing_notifier_value THN_DATA_ROOT)/release/release.env"
+    release_copy="${scratch_root}/release.env"
+    plugin_list_file="${scratch_root}/installed-plugins.json"
+    capture_dir="${scratch_root}/installed-pair"
+
+    [[ "$(existing_notifier_target_objects_presence)" == present ]] || return 1
+    "${SUDO_COMMAND[@]}" test -f "${release_file}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${release_file}" || return 1
+    "${SUDO_COMMAND[@]}" cat "${release_file}" > "${release_copy}" || return 1
+    chmod 0600 "${release_copy}"
+    [[ "$(wc -l < "${release_copy}" | tr -d '[:space:]')" == 7 ]] || return 1
+    while IFS='=' read -r key value; do
+        case "${key}" in
+            NOTIFIER_VERSION|NOTIFIER_PLUGIN_ID|NOTIFIER_PLUGIN_BUNDLE|NOTIFIER_PLUGIN_BUNDLE_SHA256|NOTIFIER_MAILER_IMAGE|NOTIFIER_MAILER_IMAGE_ID|NOTIFIER_SOURCE_COMMIT) ;;
+            *) return 1 ;;
+        esac
+        [[ -n "${value}" ]] || return 1
+    done < "${release_copy}"
+    release_value() {
+        awk -F= -v key="$1" '
+            $1 == key { count++; value = substr($0, index($0, "=") + 1) }
+            END { if (count != 1 || value == "") exit 1; print value }
+        ' "${release_copy}"
+    }
+    release_version="$(release_value NOTIFIER_VERSION)" || return 1
+    release_plugin_id="$(release_value NOTIFIER_PLUGIN_ID)" || return 1
+    release_sha="$(release_value NOTIFIER_PLUGIN_BUNDLE_SHA256)" || return 1
+    release_source_commit="$(release_value NOTIFIER_SOURCE_COMMIT)" || return 1
+    bundle_relative="$(release_value NOTIFIER_PLUGIN_BUNDLE)" || return 1
+    [[ "${release_version}" == "$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" \
+        && "${release_plugin_id}" == "${plugin_id}" \
+        && "${release_sha}" =~ ^[a-f0-9]{64}$ \
+        && "${release_source_commit}" == "$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}')" \
+        && "${bundle_relative}" == "notifier/dist/${plugin_id}-${release_version}.tar.gz" ]] \
+        || return 1
+    bundle_path="${REPOSITORY_ROOT}/${bundle_relative}"
+    [[ -f "${bundle_path}" && ! -L "${bundle_path}" \
+        && "$(sha256_file "${bundle_path}")" == "${release_sha}" ]] || return 1
+
+    metadata="$(notifier_plugin_capture_pair \
+        "${target_root}" "${bundle_target}" "${plugin_id}" \
+        "${capture_dir}" "${scratch_root}")" || return 1
+    metadata_extra=""
+    IFS=$'\t' read -r installed_version installed_sha metadata_extra <<< "${metadata}"
+    [[ "${installed_version}" == "${release_version}" \
+        && "${installed_sha}" == "${release_sha}" \
+        && -z "${metadata_extra}" ]] || return 1
+    existing_notifier_compose_base exec -T "${service}" \
+        mmctl plugin list --local --suppress-warnings --json > "${plugin_list_file}" \
+        || return 1
+    notifier_plugin_list_is_exact_active \
+        "${plugin_list_file}" "${plugin_id}" "${release_version}"
 }
 
 existing_notifier_preflight_dispatch() (
     local temporary_dir
     local model_file
     local service
+    local target_mode="${1:-initial}"
+
+    [[ "${target_mode}" == initial || "${target_mode}" == installed ]] || return 2
 
     temporary_dir="$(mktemp -d)"
     trap 'rm -rf -- "${temporary_dir}"' EXIT
@@ -158,6 +243,7 @@ existing_notifier_preflight_dispatch() (
     fi
     require_ubuntu_amd64
     require_command jq
+    init_sudo
     if ! existing_notifier_assert_input_paths; then
         existing_notifier_action_required "Existing Compose inputs or Mattermost bind roots are unsafe"
         return $?
@@ -191,9 +277,19 @@ existing_notifier_preflight_dispatch() (
         existing_notifier_action_required "Mattermost Site URL must match THN_DOMAIN over HTTPS"
         return $?
     fi
-    if ! existing_notifier_target_plugin_is_absent "${service}" "${temporary_dir}/plugins.json"; then
-        existing_notifier_action_required "Existing ThreadHub notifier plugin state requires manual review"
-        return $?
+    if [[ "${target_mode}" == initial ]]; then
+        if ! existing_notifier_target_plugin_is_absent "${service}" "${temporary_dir}/plugins.json"; then
+            existing_notifier_action_required "Existing ThreadHub notifier plugin state requires manual review"
+            return $?
+        fi
+    else
+        require_command git
+        if ! existing_notifier_installed_target_plugin_is_reviewed \
+            "${service}" "${temporary_dir}"; then
+            existing_notifier_action_required "Installed ThreadHub notifier pair is not the reviewed release"
+            return $?
+        fi
+        printf '[OK] Reviewed installed notifier pair is safe to resume\n'
     fi
 
     printf '[OK] Existing Compose inputs are read-only and structurally supported\n'
@@ -202,8 +298,13 @@ existing_notifier_preflight_dispatch() (
 )
 
 existing_notifier_preflight_entry() {
-    [[ "$#" -eq 0 ]] || die "Usage: $0"
-    existing_notifier_preflight_dispatch
+    local mode=initial
+    if [[ "${1:-}" == --resume ]]; then
+        mode=installed
+        shift
+    fi
+    [[ "$#" -eq 0 ]] || die "Usage: $0 [--resume]"
+    existing_notifier_preflight_dispatch "${mode}"
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

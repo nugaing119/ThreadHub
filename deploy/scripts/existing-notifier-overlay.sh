@@ -4,12 +4,41 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=existing-notifier-common.sh
-source "${SCRIPT_DIR}/existing-notifier-common.sh"
+declare -F existing_notifier_validate_config >/dev/null \
+    || source "${SCRIPT_DIR}/existing-notifier-common.sh"
 
 existing_notifier_overlay_action_required() {
     printf '[ACTION REQUIRED] %s\n' "$1" >&2
     return 20
 }
+
+if ! declare -F existing_notifier_publish_override >/dev/null; then
+    existing_notifier_publish_override() {
+        runtime_env_publish_no_clobber "$1" "$2"
+    }
+fi
+
+if ! declare -F existing_notifier_override_parent_is_safe >/dev/null; then
+    existing_notifier_override_parent_is_safe() {
+        [[ -d "$1" && ! -L "$1" ]]
+    }
+fi
+
+if ! declare -F existing_notifier_override_exists >/dev/null; then
+    existing_notifier_override_exists() {
+        [[ -e "$1" || -L "$1" ]]
+    }
+fi
+
+if ! declare -F existing_notifier_override_is_exact >/dev/null; then
+    existing_notifier_override_is_exact() {
+        local destination="$1"
+        local expected_hash="$2"
+        [[ -f "${destination}" && ! -L "${destination}" \
+            && "$(runtime_env_mode "${destination}")" == 600 \
+            && "$(sha256_file "${destination}")" == "${expected_hash}" ]]
+    }
+fi
 
 existing_notifier_render_override() {
     local output_file="$1"
@@ -169,7 +198,7 @@ existing_notifier_write_override() (
         return $?
     fi
     destination_dir="$(dirname "${destination}")"
-    if [[ ! -d "${destination_dir}" || -L "${destination_dir}" ]]; then
+    if ! existing_notifier_override_parent_is_safe "${destination_dir}"; then
         existing_notifier_overlay_action_required "Notifier runtime directory is missing or unsafe"
         return $?
     fi
@@ -207,10 +236,9 @@ existing_notifier_write_override() (
         return $?
     fi
 
-    if [[ -e "${destination}" || -L "${destination}" ]]; then
-        if [[ -f "${destination}" && ! -L "${destination}"
-            && "$(runtime_env_mode "${destination}")" == 600
-            && "$(sha256_file "${destination}")" == "$(sha256_file "${candidate}")" ]]; then
+    candidate_hash="$(sha256_file "${candidate}")"
+    if existing_notifier_override_exists "${destination}"; then
+        if existing_notifier_override_is_exact "${destination}" "${candidate_hash}"; then
             log "Reusing the exact existing notifier override"
             return 0
         fi
@@ -218,14 +246,11 @@ existing_notifier_write_override() (
         return $?
     fi
 
-    candidate_hash="$(sha256_file "${candidate}")"
-    if ! runtime_env_publish_no_clobber "${candidate}" "${destination}"; then
+    if ! existing_notifier_publish_override "${candidate}" "${destination}"; then
         existing_notifier_overlay_action_required "Notifier override publication lost a no-clobber race"
         return $?
     fi
-    [[ -f "${destination}" && ! -L "${destination}"
-        && "$(runtime_env_mode "${destination}")" == 600
-        && "$(sha256_file "${destination}")" == "${candidate_hash}" ]] \
+    existing_notifier_override_is_exact "${destination}" "${candidate_hash}" \
         || die "Published notifier override identity is invalid"
     log "Published the protected existing Mattermost notifier override"
 )

@@ -33,6 +33,60 @@ notifier_require_clean_source_commit() {
     printf '%s\n' "${source_commit}"
 }
 
+notifier_artifact_release_is_current() (
+    set -Eeuo pipefail
+
+    [[ "$#" -eq 1 ]] || return 2
+    release_dir="$1"
+    release_file="${release_dir}/release.env"
+    temporary_dir="$(mktemp -d)"
+    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    notifier_validate_artifact_release_dir "${release_dir}" || return 1
+    "${SUDO_COMMAND[@]}" test -f "${release_file}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${release_file}" || return 1
+    identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${release_file}")" || return 1
+    [[ "${identity}" == 0:0:640 ]] || return 1
+    "${SUDO_COMMAND[@]}" cat "${release_file}" > "${temporary_dir}/release.env" \
+        || return 1
+    chmod 0600 "${temporary_dir}/release.env"
+    [[ "$(wc -l < "${temporary_dir}/release.env" | tr -d '[:space:]')" == 7 ]] \
+        || return 1
+    while IFS='=' read -r key value; do
+        case "${key}" in
+            NOTIFIER_VERSION|NOTIFIER_PLUGIN_ID|NOTIFIER_PLUGIN_BUNDLE|NOTIFIER_PLUGIN_BUNDLE_SHA256|NOTIFIER_MAILER_IMAGE|NOTIFIER_MAILER_IMAGE_ID|NOTIFIER_SOURCE_COMMIT) ;;
+            *) return 1 ;;
+        esac
+        [[ -n "${value}" ]] || return 1
+    done < "${temporary_dir}/release.env"
+    current_release_value() {
+        awk -F= -v key="$1" '
+            $1 == key { count++; value = substr($0, index($0, "=") + 1) }
+            END { if (count != 1 || value == "") exit 1; print value }
+        ' "${temporary_dir}/release.env"
+    }
+
+    notifier_version="$(current_release_value NOTIFIER_VERSION)" || return 1
+    plugin_id="$(current_release_value NOTIFIER_PLUGIN_ID)" || return 1
+    bundle_relative="$(current_release_value NOTIFIER_PLUGIN_BUNDLE)" || return 1
+    bundle_sha="$(current_release_value NOTIFIER_PLUGIN_BUNDLE_SHA256)" || return 1
+    mailer_image="$(current_release_value NOTIFIER_MAILER_IMAGE)" || return 1
+    mailer_image_id="$(current_release_value NOTIFIER_MAILER_IMAGE_ID)" || return 1
+    source_commit="$(current_release_value NOTIFIER_SOURCE_COMMIT)" || return 1
+    [[ "${notifier_version}" == "$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" \
+        && "${plugin_id}" == "$(env_value NOTIFIER_PLUGIN_ID "${VERSIONS_FILE}")" \
+        && "${bundle_relative}" == "notifier/dist/${plugin_id}-${notifier_version}.tar.gz" \
+        && "${bundle_sha}" =~ ^[a-f0-9]{64}$ \
+        && "${mailer_image}" == "threadhub/notifier-mailer:${notifier_version}" \
+        && "${mailer_image_id}" =~ ^sha256:[a-f0-9]{64}$ \
+        && "${source_commit}" == "$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}')" ]] \
+        || return 1
+    bundle_path="${REPOSITORY_ROOT}/${bundle_relative}"
+    [[ -f "${bundle_path}" && ! -L "${bundle_path}" \
+        && "$(sha256_file "${bundle_path}")" == "${bundle_sha}" ]] || return 1
+    [[ "$("${DOCKER_COMMAND[@]}" image inspect --format '{{.Id}}' "${mailer_image}")" \
+        == "${mailer_image_id}" ]]
+)
+
 notifier_build_artifacts() (
     set -Eeuo pipefail
 

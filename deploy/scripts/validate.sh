@@ -267,6 +267,7 @@ for script in \
     "${SCRIPT_DIR}/verify-notifier-artifacts.sh" \
     "${SCRIPT_DIR}/install-notifier-plugin.sh" \
     "${SCRIPT_DIR}/existing-notifier-plugin.sh" \
+    "${SCRIPT_DIR}/existing-notifier-setup.sh" \
     "${SCRIPT_DIR}/configure-notifier.sh" \
     "${SCRIPT_DIR}/notifier-control.sh" \
     "${SCRIPT_DIR}/notifier-smtp-test.sh" \
@@ -357,6 +358,7 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
@@ -371,6 +373,8 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
     || die "Existing notifier overlay test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh" ]] \
     || die "Existing notifier plugin test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh" ]] \
+    || die "Existing notifier setup test must be executable"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
@@ -378,6 +382,7 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh"
 log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv

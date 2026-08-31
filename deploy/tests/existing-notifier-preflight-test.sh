@@ -121,9 +121,13 @@ run_preflight() {
     source "${PREFLIGHT}"
     require_ubuntu_amd64() { :; }
     init_docker() { DOCKER_COMMAND=(docker); }
+    init_sudo() { SUDO_COMMAND=(env); }
     existing_notifier_init_compose() { :; }
     existing_notifier_compose_base() { fake_compose "$@"; }
-    existing_notifier_preflight_entry
+    if [[ "${fixture_installed_reviewed:-false}" == true ]]; then
+        existing_notifier_installed_target_plugin_is_reviewed() { return 0; }
+    fi
+    existing_notifier_preflight_entry "$@"
 }
 
 assert_private_output() {
@@ -295,6 +299,18 @@ test_existing_target_plugin_is_rejected() (
     assert_action_required_result "${result}" && assert_private_output
 )
 
+test_reviewed_installed_plugin_is_accepted_only_for_resume() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    mkdir -p "${plugins_root}/com.threadhub.channel-email-notifier" "${data_root}/plugins"
+    printf 'reviewed\n' > "${data_root}/plugins/com.threadhub.channel-email-notifier.tar.gz"
+    fixture_plugin_json='{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+    fixture_installed_reviewed=true
+    run_preflight --resume > "${output}" 2>&1 || return 1
+    grep -F '[OK] Reviewed installed notifier pair is safe to resume' "${output}" >/dev/null \
+        && assert_private_output
+)
+
 run_test 'existing notifier preflight script exists' test_preflight_exists
 if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'supported preflight is read-only and PII-free' test_supported_model_is_read_only
@@ -309,6 +325,7 @@ if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'missing Mattermost data bind is rejected' test_missing_data_bind_is_rejected
     run_test 'notifier environment and network collisions are rejected' test_notifier_environment_and_network_collisions_are_rejected
     run_test 'existing target plugin requires manual review' test_existing_target_plugin_is_rejected
+    run_test 'reviewed installed plugin is accepted only for resume' test_reviewed_installed_plugin_is_accepted_only_for_resume
 fi
 
 if ((failures > 0)); then

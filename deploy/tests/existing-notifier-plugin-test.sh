@@ -29,6 +29,7 @@ fixture_privileged() {
         path="$3"
         case "${path}" in
             "${notifier_root}"|"${release_dir}"|"${release_dir}/plugin-backups") uid=0; gid=0 ;;
+            "${release_dir}/release.env") uid=0; gid=0 ;;
             "${notifier_root}/control") uid=0; gid=3000 ;;
         esac
         printf '%s:%s:%s\n' "${uid}" "${gid}" "$(portable_mode "${path}")"
@@ -316,6 +317,14 @@ test_artifact_release_directory_validation_is_external_and_fail_closed() (
     ! notifier_validate_artifact_release_dir "${release_dir}" >/dev/null 2>&1
 )
 
+test_current_artifact_release_requires_exact_bundle_and_image() (
+    prepare_fixture
+    trap cleanup_fixture EXIT
+    notifier_artifact_release_is_current "${release_dir}" || return 1
+    printf 'tampered\n' >> "${repository_bundle}"
+    ! notifier_artifact_release_is_current "${release_dir}" >/dev/null 2>&1
+)
+
 REAL_CAT="$(command -v cat)"
 plugin_id=com.threadhub.channel-email-notifier
 
@@ -335,6 +344,7 @@ if [[ -f "${INSTALL_LIBRARY}" ]]; then
         # shellcheck source=/dev/null
         source "${ARTIFACT_LIBRARY}"
         run_test 'artifact release validation supports an external root and fails closed' test_artifact_release_directory_validation_is_external_and_fail_closed
+        run_test 'current artifact release requires the exact bundle and image' test_current_artifact_release_requires_exact_bundle_and_image
     fi
     run_test 'external layout installs exact pair and only the selected service' test_external_layout_installs_exact_pair_and_only_selected_service
     run_test 'failed activation restores the verified previous pair' test_failed_activation_restores_previous_pair
