@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Tests intentionally replace setup hooks that are dispatched dynamically.
+# shellcheck disable=SC2034,SC2329
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

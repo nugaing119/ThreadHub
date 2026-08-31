@@ -173,6 +173,8 @@ validate_notifier_documentation_contracts() {
         '## 적용 순서' 'existing adoption safety sequence' \
         'existing-notifier-preflight.sh' 'disabled' 'existing-notifier-setup.sh' \
         'SMTP acceptance' 'allowlist' 'manual acceptance' 'explicit all_channels approval' || return 1
+    # Backticks below are required literal Markdown delimiters.
+    # shellcheck disable=SC2016
     notifier_docs_require_terms "${deploy_dir}/docs/existing-mattermost-notifier.md" \
         'existing adoption support and impact boundary' \
         'Mattermost Team Edition 11.7.7' 'Ubuntu 24.04 AMD64' 'single-node Compose' \

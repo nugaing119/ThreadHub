@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Trap callbacks and transaction hooks are invoked indirectly by name.
+# shellcheck disable=SC2329
+
 # Shared high-level notifier plugin installation. Callers source common.sh,
 # notifier-lib.sh, notifier-plugin-files.sh, and notifier-plugin-transaction.sh
 # before this library.
@@ -51,9 +54,10 @@ notifier_install_reviewed_pair() (
         notifier_install_clean_absolute_path "${path}" \
             || die "Notifier installation path is not a clean absolute path"
     done
-    [[ "${compose_function}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
-        && declare -F "${compose_function}" >/dev/null \
-        || die "Notifier Compose function is invalid"
+    if [[ ! "${compose_function}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+        || ! declare -F "${compose_function}" >/dev/null; then
+        die "Notifier Compose function is invalid"
+    fi
     [[ "${mattermost_service}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
         || die "Notifier Mattermost service is invalid"
     notifier_install_directory_identity_is "${release_dir}" 0:0:750 \

@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Compose fixture functions are invoked indirectly through sourced installer helpers.
+# shellcheck disable=SC2329
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

@@ -75,14 +75,13 @@ existing_notifier_rollback_require_quiescent_queue() (
         existing_notifier_compose_combined exec -T threadhub-mailer \
             /threadhub-mailer status --json > "${status_file}" \
             || die "Existing notifier Mailer status is unavailable after failed-delivery disposition"
-        notifier_mailer_status_is_valid "${status_file}" \
-            && jq -e '.pending == 0 and .sending == 0 and .failed == 0' \
-                "${status_file}" >/dev/null \
-            || {
-                existing_notifier_rollback_action_required \
-                    "Failed-delivery disposition is incomplete; drain the queue and retry rollback"
-                return $?
-            }
+        if ! notifier_mailer_status_is_valid "${status_file}" \
+            || ! jq -e '.pending == 0 and .sending == 0 and .failed == 0' \
+                "${status_file}" >/dev/null; then
+            existing_notifier_rollback_action_required \
+                "Failed-delivery disposition is incomplete; drain the queue and retry rollback"
+            return $?
+        fi
     fi
 )
 
@@ -141,9 +140,10 @@ existing_notifier_rollback_restore_pair() (
         && "${sha}" =~ ^[a-f0-9]{64}$ && -z "${extra}" ]] \
         || die "Installed notifier pair capture returned invalid metadata"
     for path in "${removed_root}" "${removed_bundle}"; do
-        "${SUDO_COMMAND[@]}" test ! -e "${path}" \
-            && "${SUDO_COMMAND[@]}" test ! -L "${path}" \
-            || die "Rollback quarantine already exists; no plugin object was moved"
+        if "${SUDO_COMMAND[@]}" test -e "${path}" \
+            || "${SUDO_COMMAND[@]}" test -L "${path}"; then
+            die "Rollback quarantine already exists; no plugin object was moved"
+        fi
     done
     existing_notifier_compose_combined exec -T "${service}" \
         mmctl plugin disable "${plugin_id}" --local --suppress-warnings >/dev/null \
@@ -176,11 +176,12 @@ existing_notifier_rollback_verify_base() (
     temporary_dir="$(mktemp -d)"
     trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
     service="$(existing_notifier_value THN_MATTERMOST_SERVICE)"
-    existing_notifier_single_container_id "${service}" "${temporary_dir}/container-id" \
-        && existing_notifier_live_version_is_supported "${service}" "${temporary_dir}/version" \
-        && existing_notifier_live_site_url_matches "${service}" "${temporary_dir}/site-url" \
-        && existing_notifier_target_plugin_is_absent "${service}" "${temporary_dir}/plugins.json" \
-        || die "Base Mattermost verification failed after rollback"
+    if ! existing_notifier_single_container_id "${service}" "${temporary_dir}/container-id" \
+        || ! existing_notifier_live_version_is_supported "${service}" "${temporary_dir}/version" \
+        || ! existing_notifier_live_site_url_matches "${service}" "${temporary_dir}/site-url" \
+        || ! existing_notifier_target_plugin_is_absent "${service}" "${temporary_dir}/plugins.json"; then
+        die "Base Mattermost verification failed after rollback"
+    fi
     log "Existing notifier was rolled back; queue and quarantined plugin evidence were preserved"
 )
 

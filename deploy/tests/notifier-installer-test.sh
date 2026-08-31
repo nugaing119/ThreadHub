@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Compose fixtures are dispatched indirectly and grep patterns are literal shell source.
+# shellcheck disable=SC2016,SC2329
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

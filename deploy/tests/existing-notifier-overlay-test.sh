@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Fixture paths are initialized by helpers inside test subshells; placeholders are literal.
+# shellcheck disable=SC2016,SC2031
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

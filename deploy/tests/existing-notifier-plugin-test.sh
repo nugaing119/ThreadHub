@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Sourced plugin helpers consume these fixture command arrays dynamically.
+# shellcheck disable=SC2034
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

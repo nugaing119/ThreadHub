@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# The cleanup callback is invoked indirectly by trap.
+# shellcheck disable=SC2329
+
 # Shared reviewed notifier artifact builder. Callers initialize Docker and
 # sudo, then pass an already provisioned release directory.
 

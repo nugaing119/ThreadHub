@@ -92,9 +92,10 @@ existing_notifier_setup_prepare_runtime() {
 
     notifier_root="$(existing_notifier_value THN_DATA_ROOT)"
     parent_root="$(dirname "${notifier_root}")"
-    "${SUDO_COMMAND[@]}" test -d "${parent_root}" \
-        && "${SUDO_COMMAND[@]}" test ! -L "${parent_root}" \
-        || die "Notifier runtime parent is missing or unsafe"
+    if ! "${SUDO_COMMAND[@]}" test -d "${parent_root}" \
+        || "${SUDO_COMMAND[@]}" test -L "${parent_root}"; then
+        die "Notifier runtime parent is missing or unsafe"
+    fi
     identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${parent_root}")" \
         || die "Notifier runtime parent identity is unavailable"
     IFS=: read -r parent_uid parent_gid parent_mode <<< "${identity}"
@@ -123,9 +124,10 @@ existing_notifier_setup_prepare_runtime() {
                         || die "Existing notifier managed directory is unsafe"
                     ;;
                 "${notifier_root}/compose.override.yml")
-                    "${SUDO_COMMAND[@]}" test -f "${existing_entry}" \
-                        && "${SUDO_COMMAND[@]}" test ! -L "${existing_entry}" \
-                        || die "Existing notifier override is unsafe"
+                    if ! "${SUDO_COMMAND[@]}" test -f "${existing_entry}" \
+                        || "${SUDO_COMMAND[@]}" test -L "${existing_entry}"; then
+                        die "Existing notifier override is unsafe"
+                    fi
                     identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${existing_entry}")" \
                         || die "Existing notifier override identity is unavailable"
                     [[ "${identity}" == 0:0:600 ]] \
@@ -144,12 +146,13 @@ existing_notifier_setup_prepare_runtime() {
         "${notifier_root}/control"
     "${SUDO_COMMAND[@]}" install -d -o 65532 -g 65532 -m 0700 \
         "${notifier_root}/mailer"
-    existing_notifier_setup_directory_is "${notifier_root}" 0:0:750 \
-        && existing_notifier_setup_directory_is "${notifier_root}/release" 0:0:750 \
-        && existing_notifier_setup_directory_is "${notifier_root}/rollback" 0:0:750 \
-        && existing_notifier_setup_directory_is "${notifier_root}/control" 0:3000:750 \
-        && existing_notifier_setup_directory_is "${notifier_root}/mailer" 65532:65532:700 \
-        || die "Notifier runtime directory identity is invalid"
+    if ! existing_notifier_setup_directory_is "${notifier_root}" 0:0:750 \
+        || ! existing_notifier_setup_directory_is "${notifier_root}/release" 0:0:750 \
+        || ! existing_notifier_setup_directory_is "${notifier_root}/rollback" 0:0:750 \
+        || ! existing_notifier_setup_directory_is "${notifier_root}/control" 0:3000:750 \
+        || ! existing_notifier_setup_directory_is "${notifier_root}/mailer" 65532:65532:700; then
+        die "Notifier runtime directory identity is invalid"
+    fi
 }
 
 existing_notifier_setup_write_disabled_control() {
@@ -167,6 +170,8 @@ existing_notifier_setup_rollback_capture_is_valid() {
     "${SUDO_COMMAND[@]}" test ! -L "${capture_file}" || return 1
     identity="$("${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${capture_file}")" || return 1
     [[ "${identity}" == 0:0:600 ]] || return 1
+    # The jq program intentionally uses jq variables inside a single-quoted filter.
+    # shellcheck disable=SC2016
     "${SUDO_COMMAND[@]}" jq -e \
         --arg service "$(existing_notifier_value THN_MATTERMOST_SERVICE)" \
         --arg plugins_root "$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)" \
@@ -220,9 +225,10 @@ existing_notifier_setup_record_rollback_capture() (
         }
     ' > "${temporary_file}"
     chmod 0600 "${temporary_file}"
-    "${SUDO_COMMAND[@]}" test ! -e "${staged_file}" \
-        && "${SUDO_COMMAND[@]}" test ! -L "${staged_file}" \
-        || die "Refusing existing rollback capture staging path"
+    if "${SUDO_COMMAND[@]}" test -e "${staged_file}" \
+        || "${SUDO_COMMAND[@]}" test -L "${staged_file}"; then
+        die "Refusing existing rollback capture staging path"
+    fi
     "${SUDO_COMMAND[@]}" install -o root -g root -m 0600 \
         "${temporary_file}" "${staged_file}" \
         || die "Rollback capture could not be staged"
@@ -466,6 +472,10 @@ existing_notifier_setup_write_env_value() {
 }
 
 existing_notifier_setup_configure_interactively() (
+    local project_dir compose_file compose_env service selected_plugins_root data_root
+    local notifier_root domain smtp_server smtp_ca_file smtp_username smtp_password
+    local smtp_from smtp_reply feedback rate hmac temporary_env
+
     [[ -t 0 ]] || {
         existing_notifier_setup_action_required \
             "A terminal is required; run ./deploy/scripts/existing-notifier-setup.sh --configure-only"
@@ -477,7 +487,7 @@ existing_notifier_setup_configure_interactively() (
     existing_notifier_setup_prompt_value compose_file 'Existing Compose file'
     existing_notifier_setup_prompt_value compose_env 'Existing Compose environment file'
     existing_notifier_setup_prompt_value service 'Mattermost service name' mattermost
-    existing_notifier_setup_prompt_value plugins_root 'Mattermost plugins host root'
+    existing_notifier_setup_prompt_value selected_plugins_root 'Mattermost plugins host root'
     existing_notifier_setup_prompt_value data_root 'Mattermost data host root'
     existing_notifier_setup_prompt_value notifier_root 'Notifier data root' /srv/threadhub-notifier
     existing_notifier_setup_prompt_value domain 'Mattermost HTTPS domain'
@@ -498,7 +508,7 @@ existing_notifier_setup_configure_interactively() (
         existing_notifier_setup_write_env_value THN_COMPOSE_FILE "${compose_file}"
         existing_notifier_setup_write_env_value THN_COMPOSE_ENV_FILE "${compose_env}"
         existing_notifier_setup_write_env_value THN_MATTERMOST_SERVICE "${service}"
-        existing_notifier_setup_write_env_value THN_MATTERMOST_PLUGINS_ROOT "${plugins_root}"
+        existing_notifier_setup_write_env_value THN_MATTERMOST_PLUGINS_ROOT "${selected_plugins_root}"
         existing_notifier_setup_write_env_value THN_MATTERMOST_DATA_ROOT "${data_root}"
         existing_notifier_setup_write_env_value THN_DATA_ROOT "${notifier_root}"
         existing_notifier_setup_write_env_value THN_DOMAIN "${domain}"
@@ -514,10 +524,7 @@ existing_notifier_setup_configure_interactively() (
         existing_notifier_setup_write_env_value THN_RATE_PER_MINUTE "${rate}"
     } > "${temporary_env}"
     chmod 0600 "${temporary_env}"
-    previous_env_file="${EXISTING_NOTIFIER_ENV_FILE}"
-    EXISTING_NOTIFIER_ENV_FILE="${temporary_env}"
-    existing_notifier_validate_config
-    EXISTING_NOTIFIER_ENV_FILE="${previous_env_file}"
+    EXISTING_NOTIFIER_ENV_FILE="${temporary_env}" existing_notifier_validate_config
     if ! runtime_env_publish_no_clobber "${temporary_env}" "${EXISTING_NOTIFIER_ENV_FILE}"; then
         existing_notifier_setup_action_required \
             "Existing notifier configuration appeared and was not overwritten"

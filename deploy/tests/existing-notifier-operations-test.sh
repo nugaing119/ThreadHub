@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Tests intentionally replace sourced functions and isolate fixture state in subshells.
+# shellcheck disable=SC2030,SC2031,SC2034,SC2329
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
