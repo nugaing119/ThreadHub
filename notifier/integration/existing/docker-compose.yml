@@ -151,6 +151,7 @@ services:
     networks:
       - database
       - application
+      - outbound
     logging: *safe-logging
 
 networks:
@@ -160,3 +161,4 @@ networks:
     internal: true
   smtp-base:
     internal: true
+  outbound: {}
