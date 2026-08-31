@@ -11,6 +11,9 @@
 .env
 .env.*
 !.env.example
+deploy/existing-notifier.env
+deploy/existing-notifier.env.*
+!deploy/existing-notifier.env.example
 *.secret
 *.secrets
 secrets/

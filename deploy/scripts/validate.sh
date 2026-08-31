@@ -339,18 +339,23 @@ fi
 log "Notifier build, release and manual plugin installation invariants are valid"
 
 require_file "${SCRIPT_DIR}/notifier-lib.sh"
+require_file "${SCRIPT_DIR}/existing-notifier-common.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
     || die "Notifier installer security regression test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-documentation-test.sh" ]] \
     || die "Notifier documentation contract test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh" ]] \
+    || die "Existing notifier configuration test must be executable"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv
