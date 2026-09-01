@@ -42,7 +42,7 @@ exec 3>&1
 emit_result() {
     local result="$1"
 
-    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-postgres|deploy-mattermost|deploy-mailer|deploy-plugin|deploy-health|seed|backup|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
+    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-postgres|deploy-mattermost|deploy-mailer|deploy-plugin|deploy-health|seed|backup|backup-preflight|backup-snapshot|backup-service-recovery|backup-manifest|backup-upload|backup-remote-verify|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
         || result=preflight
     printf 'BK-INTEGRATION-%s\n' "${result}" >&3
 }
@@ -194,6 +194,26 @@ classify_deploy_failure() {
     else
         printf '%s\n' deploy
     fi
+}
+
+classify_backup_failure() {
+    local status_file="${BACKUP_STATE_ROOT}/status/latest.json" failure_class
+
+    if ! require_private_file "${status_file}"; then
+        printf '%s\n' backup
+        return
+    fi
+    failure_class="$(jq -er '
+        select(.status == "failed") |
+        .failure_class |
+        select(. == "preflight" or . == "snapshot" or . == "service_recovery" or
+               . == "manifest" or . == "upload" or . == "remote_verify")
+    ' "${status_file}" 2>/dev/null || true)"
+    if [[ -z "${failure_class}" ]]; then
+        printf '%s\n' backup
+        return
+    fi
+    printf 'backup-%s\n' "${failure_class//_/-}"
 }
 
 collect_privacy_evidence() {
@@ -540,7 +560,10 @@ main() {
     source_projection="$(database_projection_sha)"
 
     CURRENT_FAILURE=backup
-    run_backup
+    if ! run_backup; then
+        CURRENT_FAILURE="$(classify_backup_failure)"
+        return 1
+    fi
     status_file="${BACKUP_STATE_ROOT}/status/latest-success.json"
     require_private_file "${status_file}"
     backup_id="$(jq -er '.backup_id | select(type == "string")' "${status_file}")"
