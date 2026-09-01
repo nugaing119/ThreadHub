@@ -207,12 +207,13 @@ test_target_claim_is_atomic_and_no_clobber() (
         command ln "$1" "$2"
     }
 
-    restore_claim_target
+    restore_claim_target || return 1
     [[ -f "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" \
-        && ! -L "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]]
-    ! restore_claim_target
-    restore_release_claim
-    [[ ! -e "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]]
+        && ! -L "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]] || return 1
+    [[ "$(portable_mode "${RESTORE_TARGET_ROOT}")" == 750 ]] || return 1
+    ! restore_claim_target || return 1
+    restore_release_claim || return 1
+    [[ ! -e "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]] || return 1
 )
 
 test_failures_stop_before_the_next_mutation_boundary() (

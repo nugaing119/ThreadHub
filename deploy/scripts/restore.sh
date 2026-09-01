@@ -190,6 +190,10 @@ restore_claim_target() {
     backup_require_regular_mode_owner "${claim}" 600 "${uid}" "${gid}" || return 20
     entries="$(find -P "${RESTORE_TARGET_ROOT}" -mindepth 1 -maxdepth 1 -print)" || return 20
     [[ "${entries}" == "${claim}" ]] || return 20
+    chown "${uid}:${gid}" "${RESTORE_TARGET_ROOT}" || return 20
+    chmod 0750 "${RESTORE_TARGET_ROOT}" || return 20
+    backup_require_directory_mode_owner "${RESTORE_TARGET_ROOT}" 750 "${uid}" "${gid}" \
+        || return 20
     RESTORE_TARGET_CLAIM="${claim}"
 }
 
