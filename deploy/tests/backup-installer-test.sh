@@ -30,6 +30,10 @@ run_test() {
 
 event() { printf '%s\n' "$1" >> "${BACKUP_INSTALLER_TEST_EVENTS}"; }
 
+portable_mode() {
+    if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi
+}
+
 load_installer_fixture() {
     local fixture="$1"
 
@@ -156,8 +160,7 @@ test_configurator_creates_reuses_and_refuses_unsafe_state() (
     printf '%s\n' namespace1 project-backups admin@threadhub.invalid \
         | configure_backup_entry >"${fixture}/stdout" 2>"${fixture}/stderr"
     backup_validate_config
-    [[ "$(stat -f '%Lp' "${BACKUP_ENV_FILE}" 2>/dev/null \
-        || stat -c '%a' "${BACKUP_ENV_FILE}")" == 600 ]]
+    [[ "$(portable_mode "${BACKUP_ENV_FILE}")" == 600 ]]
     before="$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')"
     configure_backup_entry >>"${fixture}/stdout" 2>>"${fixture}/stderr"
     [[ "${before}" == "$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')" ]]
