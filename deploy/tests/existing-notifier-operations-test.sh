@@ -135,6 +135,20 @@ test_activation_failure_preserves_disabled_state() (
     [[ "${result}" == 20 && "${before}" == "$(portable_hash "${state_file}")" ]]
 )
 
+test_activation_waits_for_control_reload_before_success() (
+    prepare_operations_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    existing_notifier_control_assert_runtime() {
+        printf '%s\n' '{"pending":0,"sending":0,"sent":0,"failed":0,"oldest_pending_seconds":0,"last_success_at":0,"last_error_class":"","last_smtp_code":0}'
+    }
+    notifier_activate_state() { printf '%s\n' activate >> "${calls}"; }
+    notifier_wait_for_control_reload() { printf '%s\n' wait >> "${calls}"; }
+    log() { printf '%s\n' log >> "${calls}"; }
+
+    existing_notifier_control_activate "${state_file}" all_channels '' > "${output}" 2>&1
+    [[ "$(<"${calls}")" == $'activate\nwait\nlog' ]]
+)
+
 test_runtime_gate_rejects_stale_smtp_before_plugin_check() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -456,6 +470,7 @@ if [[ -f "${CONTROL_SCRIPT}" && -f "${SMTP_SCRIPT}" && -f "${ROLLBACK_SCRIPT}" ]
     run_test 'allowlist channel stdin uses the same activation path' test_allowlist_channel_stdin_uses_the_same_activation_path
     run_test 'drain then disable preserves queue and the configured target' test_drain_then_disable_preserves_queue_and_target
     run_test 'activation failure preserves the disabled control state' test_activation_failure_preserves_disabled_state
+    run_test 'activation waits for plugin control reload before success' test_activation_waits_for_control_reload_before_success
     run_test 'stale SMTP acceptance blocks activation before plugin checks' test_runtime_gate_rejects_stale_smtp_before_plugin_check
     run_test 'plugin mismatch blocks activation after SMTP and Mailer checks' test_runtime_gate_rejects_plugin_mismatch
     run_test 'rollback rejects an incomplete pre-adoption capture' test_rollback_rejects_incomplete_capture

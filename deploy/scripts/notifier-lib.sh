@@ -282,6 +282,12 @@ notifier_activate_state() {
         "${state_file}" true true "${mode}" "${channel_ids}" "${activated_at}"
 }
 
+notifier_wait_for_control_reload() {
+    # The plugin polls the shared control file once per second. Wait for two
+    # complete polling opportunities before reporting activation as ready.
+    sleep 2
+}
+
 notifier_transition_control_state() {
     local state_file="$1"
     local transition="$2"

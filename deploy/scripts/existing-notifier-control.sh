@@ -67,6 +67,7 @@ existing_notifier_control_activate() (
     existing_notifier_control_assert_runtime > "${status_file}" || return $?
     notifier_activate_state "${state_file}" "${mode}" "${channel_ids}" "${status_file}" \
         || die "Activation requires zero pending and sending deliveries"
+    notifier_wait_for_control_reload
     rm -f -- "${status_file}"
     trap - EXIT HUP INT TERM
     log "Existing notifier delivery is active in ${mode} mode"
