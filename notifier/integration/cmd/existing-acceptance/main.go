@@ -176,10 +176,13 @@ func run(ctx context.Context, args []string) error {
 		if err != nil {
 			return err
 		}
+		// A Mailer restart can preserve a delivery that has already advanced to
+		// the two-minute retry backoff. Verify eventual recovery beyond that
+		// policy boundary instead of imposing the normal-delivery timeout.
 		return waitDelta(ctx, c, cfg.hashSecret, before, map[string]int{
 			"recipient-a@integration.invalid": 1,
 			"recipient-b@integration.invalid": 1,
-		}, 60*time.Second)
+		}, 3*time.Minute)
 	default:
 		return errors.New("invalid command")
 	}
