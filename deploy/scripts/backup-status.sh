@@ -14,6 +14,7 @@ backup_status_main() {
     local current latest_success now latest_success_at healthy=true
 
     [[ "${format}" == human || "${format}" == --json ]] || return 20
+    backup_validate_config || return 20
     current="$(backup_read_status "${BACKUP_STATUS_FILE}")" || return 1
     latest_success="$(backup_read_status "${BACKUP_LATEST_SUCCESS_FILE}")" || return 1
     now="$(date +%s)"

@@ -6,7 +6,7 @@
 
 **Architecture:** Root-owned host scripts stop only the two application writers, create one checksummed logical backup set, restart and verify service before upload, then use OCI CLI Instance Principal authentication for exact-bucket storage. Restore downloads and validates the set before touching an empty `/srv/threadhub`, rebuilds the pinned notifier, restores PostgreSQL and attachments, and starts with the old notifier queue quarantined and delivery disabled.
 
-**Tech Stack:** Bash 5, Docker Engine 29.x, Docker Compose Plugin, Mattermost Team Edition 11.7.7, PostgreSQL 18.4 (`pg_dump`/`pg_restore`), jq, GNU tar + zstd, OCI CLI 3.91.0, systemd, Go 1.25.14 for the Mailer admin-alert command, GitHub Actions on Ubuntu 24.04 AMD64.
+**Tech Stack:** Bash 5, Docker Engine 29.x, Docker Compose Plugin, Mattermost Team Edition 11.7.7, PostgreSQL 18.4 (`pg_dump`/`pg_restore`), jq, GNU tar + zstd, OCI CLI 3.90.3, systemd, Go 1.25.14 for the Mailer admin-alert command, GitHub Actions on Ubuntu 24.04 AMD64.
 
 **Spec:** `docs/superpowers/specs/2026-09-01-threadhub-backup-recovery-design.md`
 
@@ -925,8 +925,8 @@ git commit -m "feat: add fail-closed ThreadHub restore"
 Add exact values to `deploy/versions.env`:
 
 ```dotenv
-OCI_CLI_VERSION=3.91.0
-OCI_CLI_ARCHIVE_SHA256=0c4959d5eb39d860836cb6ea6349e7a5a062e05f2df3dec91605be041d0eace8
+OCI_CLI_VERSION=3.90.3
+OCI_CLI_ARCHIVE_SHA256=098a9470ad4f097d505b8dbab6ec7e7d4397d2d5db2ed19ef402ca39cdfdd35d
 ```
 
 ```bash
@@ -964,7 +964,7 @@ printf 'Backup failure recipient: '; read -r alert_email
 
 - [ ] **Step 4: Install OCI CLI from the pinned archive and zstd**
 
-Download `https://github.com/oracle/oci-cli/releases/download/v${OCI_CLI_VERSION}/oci-cli-${OCI_CLI_VERSION}.zip` to a root-only temporary directory, verify the exact SHA-256, and run its installer into `/opt/threadhub/oci-cli-${OCI_CLI_VERSION}` with executable link `/usr/local/bin/oci`. Reuse an exact installed version; refuse to overwrite a different `/usr/local/bin/oci`. Install Ubuntu `zstd`, `python3`, `python3-venv`, and `unzip` through apt.
+Download `https://github.com/oracle/oci-cli/releases/download/v${OCI_CLI_VERSION}/oci-cli-${OCI_CLI_VERSION}.zip` to a root-only temporary directory, verify the exact SHA-256, require the single exact `oci_cli-${OCI_CLI_VERSION}-py3-none-any.whl` member, and install that wheel into a dedicated venv at `/opt/threadhub/oci-cli-${OCI_CLI_VERSION}` with executable link `/usr/local/bin/oci`. Reuse an exact installed version; refuse to overwrite a different `/usr/local/bin/oci`. Install Ubuntu `zstd`, `python3`, `python3-venv`, and `unzip` through apt.
 
 - [ ] **Step 5: Add hardened units with a rendered exact repository path**
 

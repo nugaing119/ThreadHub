@@ -1,0 +1,304 @@
+#!/usr/bin/env bash
+
+# Installer phase functions are replaced by deterministic test hooks.
+# Negative assertions intentionally use `! command` inside isolated tests.
+# shellcheck disable=SC2016,SC2034,SC2235,SC2251,SC2329
+
+set -Eeuo pipefail
+
+TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+DEPLOY_DIR="$(cd "${TEST_DIR}/.." && pwd)"
+INSTALLER="${DEPLOY_DIR}/scripts/install-backup.sh"
+CONFIGURATOR="${DEPLOY_DIR}/scripts/configure-backup.sh"
+VERSIONS="${DEPLOY_DIR}/versions.env"
+SERVICE_TEMPLATE="${DEPLOY_DIR}/systemd/threadhub-backup.service.template"
+TIMER_TEMPLATE="${DEPLOY_DIR}/systemd/threadhub-backup.timer"
+failures=0
+
+fail() { printf 'not ok - %s\n' "$1" >&2; failures=$((failures + 1)); }
+pass() { printf 'ok - %s\n' "$1"; }
+
+run_test() {
+    local name="$1" function_name="$2" status
+
+    set +e
+    ( set -Eeuo pipefail; "${function_name}" )
+    status=$?
+    set -e
+    if ((status == 0)); then pass "${name}"; else fail "${name}"; fi
+}
+
+event() { printf '%s\n' "$1" >> "${BACKUP_INSTALLER_TEST_EVENTS}"; }
+
+load_installer_fixture() {
+    local fixture="$1"
+
+    [[ -f "${INSTALLER}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${INSTALLER}"
+    BACKUP_INSTALLER_TEST_EVENTS="${fixture}/events"
+    BACKUP_INSTALLER_TEST_TTY=false
+    BACKUP_INSTALLER_TEST_STATUS_MATCH=true
+    : > "${BACKUP_INSTALLER_TEST_EVENTS}"
+
+    backup_installer_preflight() { event preflight; }
+    backup_installer_install_dependencies() { event dependencies; }
+    backup_installer_install_oci_cli() { event oci-cli; }
+    backup_installer_register_units() { event register-units; }
+    backup_installer_has_tty() { [[ "${BACKUP_INSTALLER_TEST_TTY}" == true ]]; }
+    backup_installer_validate_activation() {
+        event validate-activation
+        [[ "${BACKUP_INSTALLER_TEST_STATUS_MATCH}" == true ]]
+    }
+    backup_installer_enable_timer() { event enable-timer; }
+}
+
+test_versions_pin_an_upstream_archive() (
+    [[ "$(awk -F= '$1 == "OCI_CLI_VERSION" { print $2 }' "${VERSIONS}")" == 3.90.3 ]]
+    [[ "$(awk -F= '$1 == "OCI_CLI_ARCHIVE_SHA256" { print $2 }' "${VERSIONS}")" \
+        == 098a9470ad4f097d505b8dbab6ec7e7d4397d2d5db2ed19ef402ca39cdfdd35d ]]
+)
+
+test_register_installs_but_does_not_enable_timer() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_installer_fixture "${fixture}"
+
+    install_backup_entry --register >"${fixture}/stdout" 2>"${fixture}/stderr"
+    [[ "$(<"${BACKUP_INSTALLER_TEST_EVENTS}")" \
+        == $'preflight\ndependencies\noci-cli\nregister-units' ]]
+    ! grep -F enable-timer "${BACKUP_INSTALLER_TEST_EVENTS}" >/dev/null
+    grep -F '[OK] Backup systemd units are installed; the timer was not enabled.' \
+        "${fixture}/stdout" >/dev/null
+)
+
+test_enable_requires_tty_and_verified_success() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_installer_fixture "${fixture}"
+
+    ! install_backup_entry --enable-after-acceptance \
+        20260901T030000Z-0123456789abcdef0123456789abcdef \
+        >"${fixture}/stdout" 2>"${fixture}/stderr"
+    grep -F '[ACTION REQUIRED] Run ./deploy/scripts/install-backup.sh --enable-after-acceptance BACKUP_ID in an interactive terminal.' \
+        "${fixture}/stderr" >/dev/null
+    [[ ! -s "${BACKUP_INSTALLER_TEST_EVENTS}" ]]
+
+    BACKUP_INSTALLER_TEST_TTY=true
+    BACKUP_INSTALLER_TEST_STATUS_MATCH=false
+    ! install_backup_entry --enable-after-acceptance \
+        20260901T030000Z-0123456789abcdef0123456789abcdef \
+        </dev/null >>"${fixture}/stdout" 2>>"${fixture}/stderr"
+    grep -Fx validate-activation "${BACKUP_INSTALLER_TEST_EVENTS}" >/dev/null
+    ! grep -Fx enable-timer "${BACKUP_INSTALLER_TEST_EVENTS}" >/dev/null
+)
+
+test_enable_requires_exact_confirmation() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_installer_fixture "${fixture}"
+    BACKUP_INSTALLER_TEST_TTY=true
+
+    ! printf 'yes\n' | install_backup_entry --enable-after-acceptance \
+        20260901T030000Z-0123456789abcdef0123456789abcdef \
+        >"${fixture}/stdout" 2>"${fixture}/stderr"
+    ! grep -Fx enable-timer "${BACKUP_INSTALLER_TEST_EVENTS}" >/dev/null
+
+    : > "${BACKUP_INSTALLER_TEST_EVENTS}"
+    printf 'ENABLE BACKUP TIMER\n' | install_backup_entry --enable-after-acceptance \
+        20260901T030000Z-0123456789abcdef0123456789abcdef \
+        >>"${fixture}/stdout" 2>>"${fixture}/stderr"
+    [[ "$(<"${BACKUP_INSTALLER_TEST_EVENTS}")" \
+        == $'validate-activation\nenable-timer' ]]
+)
+
+test_units_are_hardened_and_disabled_by_registration_contract() (
+    [[ -f "${SERVICE_TEMPLATE}" && -f "${TIMER_TEMPLATE}" ]]
+    for setting in \
+        'Type=oneshot' 'UMask=0077' 'NoNewPrivileges=true' 'PrivateTmp=true' \
+        'ProtectSystem=full' 'ProtectHome=read-only' 'RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6'; do
+        grep -Fx "${setting}" "${SERVICE_TEMPLATE}" >/dev/null
+    done
+    grep -Fx 'ExecStart=__REPOSITORY_ROOT__/deploy/scripts/backup.sh' \
+        "${SERVICE_TEMPLATE}" >/dev/null
+    grep -Fx 'OnCalendar=*-*-* 03:00:00 Asia/Seoul' "${TIMER_TEMPLATE}" >/dev/null
+    ! grep -Eq 'WantedBy=.*service|OnBootSec|RandomizedDelaySec' "${SERVICE_TEMPLATE}" "${TIMER_TEMPLATE}"
+)
+
+test_installer_and_configurator_are_no_clobber_and_value_safe() (
+    [[ -f "${INSTALLER}" && -f "${CONFIGURATOR}" ]]
+    grep -F 'oci-cli-${oci_cli_version}.zip' "${INSTALLER}" >/dev/null
+    grep -F 'oci_cli-${oci_cli_version}-py3-none-any.whl' "${INSTALLER}" >/dev/null
+    grep -F 'OCI_CLI_ARCHIVE_SHA256' "${INSTALLER}" >/dev/null
+    grep -F 'ln -T --' "${CONFIGURATOR}" >/dev/null
+    ! grep -Eq 'mv -f|install .*backup\.env|systemctl (start|enable) threadhub-backup' \
+        "${CONFIGURATOR}"
+)
+
+test_configurator_creates_reuses_and_refuses_unsafe_state() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    [[ -f "${CONFIGURATOR}" ]]
+    # shellcheck source=/dev/null
+    source "${CONFIGURATOR}"
+    BACKUP_ENV_FILE="${fixture}/etc/threadhub/backup.env"
+    backup_expected_uid() { id -u; }
+    backup_expected_gid() { id -g; }
+    backup_configuration_is_privileged() { :; }
+    backup_configuration_platform_is_supported() { :; }
+    backup_configuration_path_is_supported() { :; }
+    backup_configuration_has_tty() { :; }
+    backup_configuration_publish_no_clobber() {
+        [[ ! -e "$2" && ! -L "$2" ]] || return 1
+        ln "$1" "$2"
+    }
+
+    printf '%s\n' namespace1 project-backups admin@threadhub.invalid \
+        | configure_backup_entry >"${fixture}/stdout" 2>"${fixture}/stderr"
+    backup_validate_config
+    [[ "$(stat -f '%Lp' "${BACKUP_ENV_FILE}" 2>/dev/null \
+        || stat -c '%a' "${BACKUP_ENV_FILE}")" == 600 ]]
+    before="$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')"
+    configure_backup_entry >>"${fixture}/stdout" 2>>"${fixture}/stderr"
+    [[ "${before}" == "$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')" ]]
+
+    chmod 0644 "${BACKUP_ENV_FILE}"
+    ! printf '%s\n' replacement replacement admin@threadhub.invalid \
+        | configure_backup_entry >>"${fixture}/stdout" 2>>"${fixture}/stderr"
+    [[ "$(awk -F= '$1 == "BACKUP_BUCKET" { print $2 }' "${BACKUP_ENV_FILE}")" \
+        == project-backups ]]
+    ! grep -Eq 'namespace1|project-backups|admin@threadhub' \
+        "${fixture}/stdout" "${fixture}/stderr"
+)
+
+test_unit_publication_is_idempotent_and_never_overwrites_differences() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    [[ -f "${INSTALLER}" ]]
+    # shellcheck source=/dev/null
+    source "${INSTALLER}"
+    BACKUP_SYSTEMD_DIR="${fixture}/systemd"
+    mkdir -m 0700 "${BACKUP_SYSTEMD_DIR}"
+    backup_installer_expected_uid() { id -u; }
+    backup_installer_expected_gid() { id -g; }
+    backup_installer_link_no_clobber() {
+        [[ ! -e "$2" && ! -L "$2" ]] || return 1
+        ln "$1" "$2"
+    }
+    printf '%s\n' '[Unit]' 'Description=fixture' > "${fixture}/source"
+    chmod 0644 "${fixture}/source"
+
+    backup_installer_publish_unit "${fixture}/source" threadhub-backup.service
+    before="$(openssl dgst -sha256 \
+        "${BACKUP_SYSTEMD_DIR}/threadhub-backup.service" | awk '{print $NF}')"
+    backup_installer_publish_unit "${fixture}/source" threadhub-backup.service
+    printf '%s\n' 'changed' >> "${fixture}/source"
+    ! backup_installer_publish_unit "${fixture}/source" threadhub-backup.service
+    [[ "${before}" == "$(openssl dgst -sha256 \
+        "${BACKUP_SYSTEMD_DIR}/threadhub-backup.service" | awk '{print $NF}')" ]]
+    [[ -z "$(find "${BACKUP_SYSTEMD_DIR}" -name '*.tmp.*' -print -quit)" ]]
+)
+
+test_oci_installer_verifies_archive_and_exact_wheel_before_linking() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    [[ -f "${INSTALLER}" ]]
+    real_python="$(command -v python3)"
+    mkdir -p "${fixture}/bin" "${fixture}/link" "${fixture}/archive/oci-cli"
+    printf 'fixture-wheel\n' > "${fixture}/archive/oci-cli/oci_cli-3.90.3-py3-none-any.whl"
+    "${real_python}" - "${fixture}/oci.zip" "${fixture}/archive" <<'PY'
+import os
+import sys
+import zipfile
+
+target, source = sys.argv[1:]
+with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED) as bundle:
+    member = "oci-cli/oci_cli-3.90.3-py3-none-any.whl"
+    bundle.write(os.path.join(source, member), member)
+PY
+    archive_sha="$(openssl dgst -sha256 "${fixture}/oci.zip" | awk '{print $NF}')"
+    printf '%s\n' \
+        'OCI_CLI_VERSION=3.90.3' \
+        "OCI_CLI_ARCHIVE_SHA256=${archive_sha}" > "${fixture}/versions.env"
+    cat > "${fixture}/bin/curl" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+destination=''
+while (($# > 0)); do
+    if [[ "$1" == --output ]]; then destination="$2"; shift 2; else shift; fi
+done
+[[ -n "${destination}" ]]
+cp "${OCI_INSTALLER_TEST_ARCHIVE}" "${destination}"
+EOF
+    cat > "${fixture}/bin/python3" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+if [[ "$1" == -m && "$2" == venv ]]; then
+    mkdir -p "$3/bin"
+    cp "$0" "$3/bin/python3"
+    exit 0
+fi
+if [[ "$1" == -m && "$2" == pip ]]; then
+    executable="$(dirname "$0")/oci"
+    printf '%s\n' '#!/usr/bin/env bash' \
+        '[[ "${1:-}" == --version ]] || exit 2' \
+        'printf "%s\\n" "${OCI_INSTALLER_TEST_VERSION}"' > "${executable}"
+    chmod 0755 "${executable}"
+    exit 0
+fi
+exit 2
+EOF
+    chmod 0755 "${fixture}/bin/curl" "${fixture}/bin/python3"
+
+    # shellcheck source=/dev/null
+    source "${INSTALLER}"
+    VERSIONS_FILE="${fixture}/versions.env"
+    BACKUP_OCI_INSTALL_BASE="${fixture}/opt"
+    BACKUP_OCI_LINK="${fixture}/link/oci"
+    backup_installer_expected_uid() { id -u; }
+    backup_installer_expected_gid() { id -g; }
+    backup_installer_symlink_no_clobber() {
+        [[ ! -e "$2" && ! -L "$2" ]] || return 1
+        ln -s "$1" "$2"
+    }
+    backup_installer_resolve_path() { realpath "$1"; }
+    OCI_INSTALLER_TEST_ARCHIVE="${fixture}/oci.zip"
+    OCI_INSTALLER_TEST_VERSION=3.90.3
+    export OCI_INSTALLER_TEST_ARCHIVE OCI_INSTALLER_TEST_VERSION
+
+    PATH="${fixture}/bin:${PATH}" backup_installer_install_oci_cli
+    [[ -L "${BACKUP_OCI_LINK}" ]]
+    [[ "$("${BACKUP_OCI_LINK}" --version)" == 3.90.3 ]]
+
+    rm "${BACKUP_OCI_LINK}"
+    rm -rf "${BACKUP_OCI_INSTALL_BASE}"
+    sed 's/^OCI_CLI_ARCHIVE_SHA256=.*/OCI_CLI_ARCHIVE_SHA256=ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff/' \
+        "${fixture}/versions.env" > "${fixture}/wrong.env"
+    VERSIONS_FILE="${fixture}/wrong.env"
+    ! PATH="${fixture}/bin:${PATH}" backup_installer_install_oci_cli
+    [[ ! -e "${BACKUP_OCI_LINK}" && ! -L "${BACKUP_OCI_LINK}" ]]
+)
+
+test_wizard_registers_and_status_separates_backup_readiness() (
+    grep -F 'install-backup.sh" --register' "${DEPLOY_DIR}/scripts/setup-wizard.sh" >/dev/null
+    grep -F 'ok "Backup systemd units are installed and disabled pending acceptance"' \
+        "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
+    grep -F '[MANUAL] Configure the exact project bucket and complete backup/restore acceptance before enabling the timer.' \
+        "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
+)
+
+run_test 'versions pin the verified upstream OCI CLI archive' test_versions_pin_an_upstream_archive
+run_test 'registration installs without enabling the timer' test_register_installs_but_does_not_enable_timer
+run_test 'activation requires a TTY and verified latest success' test_enable_requires_tty_and_verified_success
+run_test 'activation requires exact interactive confirmation' test_enable_requires_exact_confirmation
+run_test 'backup units are hardened and registration-safe' test_units_are_hardened_and_disabled_by_registration_contract
+run_test 'installer and configurator preserve no-clobber contracts' test_installer_and_configurator_are_no_clobber_and_value_safe
+run_test 'configurator creates, reuses and refuses unsafe state' test_configurator_creates_reuses_and_refuses_unsafe_state
+run_test 'unit publication is idempotent and no-clobber' test_unit_publication_is_idempotent_and_never_overwrites_differences
+run_test 'OCI installer verifies the archive and exact wheel' test_oci_installer_verifies_archive_and_exact_wheel_before_linking
+run_test 'wizard and status keep backup readiness separate' test_wizard_registers_and_status_separates_backup_readiness
+
+if ((failures > 0)); then
+    printf '%d backup installer test(s) failed\n' "${failures}" >&2
+    exit 1
+fi

@@ -35,7 +35,9 @@ for variable in \
     DOCKER_CE_VERSION \
     DOCKER_CLI_VERSION \
     CONTAINERD_VERSION \
-    DOCKER_COMPOSE_PLUGIN_VERSION; do
+    DOCKER_COMPOSE_PLUGIN_VERSION \
+    OCI_CLI_VERSION \
+    OCI_CLI_ARCHIVE_SHA256; do
     env_value "${variable}" "${VERSIONS_FILE}" >/dev/null
 done
 
@@ -70,6 +72,12 @@ fi
     || die "GO_BUILDER_IMAGE_INDEX_DIGEST is invalid"
 [[ "${notifier_created_by_history_pin}" =~ ^[a-f0-9]{64}$ ]] \
     || die "NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256 is invalid"
+oci_cli_version="$(env_value OCI_CLI_VERSION "${VERSIONS_FILE}")"
+oci_cli_archive_sha="$(env_value OCI_CLI_ARCHIVE_SHA256 "${VERSIONS_FILE}")"
+[[ "${oci_cli_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "OCI_CLI_VERSION is invalid"
+[[ "${oci_cli_archive_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || die "OCI_CLI_ARCHIVE_SHA256 is invalid"
 
 validation_tmp_dir="$(mktemp -d)"
 cleanup() {
@@ -529,6 +537,27 @@ grep -F './deploy/scripts/setup-wizard.sh' "${REPOSITORY_ROOT}/README.md" >/dev/
 grep -F 'exit code `20`' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
     || die "Quick-install guide must document action-required exit behavior"
 log "Guided installation entry point and OCI setup guides are present"
+
+for script in \
+    "${SCRIPT_DIR}/configure-backup.sh" \
+    "${SCRIPT_DIR}/install-backup.sh" \
+    "${SCRIPT_DIR}/backup.sh" \
+    "${SCRIPT_DIR}/backup-status.sh" \
+    "${SCRIPT_DIR}/restore.sh"; do
+    require_file "${script}"
+    [[ -x "${script}" ]] || die "Backup operation script must be executable: ${script}"
+done
+for artifact in \
+    "${DEPLOY_DIR}/backup.env.example" \
+    "${DEPLOY_DIR}/systemd/threadhub-backup.service.template" \
+    "${DEPLOY_DIR}/systemd/threadhub-backup.timer" \
+    "${DEPLOY_DIR}/tests/backup-installer-test.sh"; do
+    require_file "${artifact}"
+done
+[[ -x "${DEPLOY_DIR}/tests/backup-installer-test.sh" ]] \
+    || die "Backup installer contract test must be executable"
+"${DEPLOY_DIR}/tests/backup-installer-test.sh"
+log "Pinned backup dependencies and disabled scheduling contracts are valid"
 
 # The notifier’s operational and isolation guarantees are intentionally
 # documented in the public runbooks. Keep these assertions tolerant of normal

@@ -321,4 +321,5 @@ if [[ "${target_notifier_enabled}" == true ]]; then
 fi
 "${SCRIPT_DIR}/notifier-control.sh" activate --from-env
 "${SCRIPT_DIR}/readiness-check.sh"
+"${SUDO_COMMAND[@]}" "${SCRIPT_DIR}/install-backup.sh" --register
 "${SCRIPT_DIR}/install-status.sh"
