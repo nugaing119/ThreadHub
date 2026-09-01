@@ -42,7 +42,7 @@ exec 3>&1
 emit_result() {
     local result="$1"
 
-    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-postgres|deploy-mattermost|deploy-mailer|deploy-plugin|deploy-health|seed|backup|backup-preflight|backup-snapshot|backup-service-recovery|backup-manifest|backup-upload|backup-remote-verify|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
+    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-postgres|deploy-mattermost|deploy-mailer|deploy-plugin|deploy-health|seed|backup|backup-preflight|backup-snapshot|backup-service-recovery|backup-manifest|backup-upload|backup-remote-verify|remote-verify|source-root-unchanged|restore|restore-preflight|restore-download-manifest|restore-download-artifacts|restore-extract|restore-prepare-target|restore-build-notifier|restore-start-postgres|restore-database-empty|restore-database|restore-publish|restore-deploy|restore-disabled-readiness|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
         || result=preflight
     printf 'BK-INTEGRATION-%s\n' "${result}" >&3
 }
@@ -112,6 +112,23 @@ mark_root() {
         && ! -L "${target}/${INTEGRATION_SENTINEL}" ]] || return 1
     printf '%s\n' "${SENTINEL_VALUE}" > "${target}/${INTEGRATION_SENTINEL}"
     chmod 0600 "${target}/${INTEGRATION_SENTINEL}"
+}
+
+mark_restore_target_if_created() {
+    if [[ ! -e "${TARGET_ROOT}" && ! -L "${TARGET_ROOT}" ]]; then
+        return 0
+    fi
+    [[ -d "${SOURCE_ROOT}" && ! -L "${SOURCE_ROOT}" \
+        && -f "${SOURCE_ROOT}/${INTEGRATION_SENTINEL}" \
+        && ! -L "${SOURCE_ROOT}/${INTEGRATION_SENTINEL}" \
+        && "$(<"${SOURCE_ROOT}/${INTEGRATION_SENTINEL}")" == "${SENTINEL_VALUE}" \
+        && -d "${TARGET_ROOT}" && ! -L "${TARGET_ROOT}" ]] || return 1
+    if [[ -f "${TARGET_ROOT}/${INTEGRATION_SENTINEL}" \
+        && ! -L "${TARGET_ROOT}/${INTEGRATION_SENTINEL}" ]]; then
+        [[ "$(<"${TARGET_ROOT}/${INTEGRATION_SENTINEL}")" == "${SENTINEL_VALUE}" ]]
+        return
+    fi
+    mark_root "${TARGET_ROOT}"
 }
 
 cleanup() {
@@ -214,6 +231,54 @@ classify_backup_failure() {
         return
     fi
     printf 'backup-%s\n' "${failure_class//_/-}"
+}
+
+classify_restore_failure() {
+    local backup_id="$1" run_root download_dir
+
+    if [[ ! "${backup_id}" =~ ^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{32}$ ]]; then
+        printf '%s\n' restore
+        return
+    fi
+    run_root="${BACKUP_STATE_ROOT}/restore/${backup_id}"
+    download_dir="${run_root}/download/${backup_id}"
+    if [[ ! -d "${run_root}" || -L "${run_root}" ]]; then
+        printf '%s\n' restore-preflight
+    elif [[ ! -f "${download_dir}/manifest.sha256" || -L "${download_dir}/manifest.sha256" \
+        || ! -f "${download_dir}/manifest.json" || -L "${download_dir}/manifest.json" ]]; then
+        printf '%s\n' restore-download-manifest
+    elif [[ ! -f "${download_dir}/database.dump" || -L "${download_dir}/database.dump" \
+        || ! -f "${download_dir}/mattermost-data.tar.zst" || -L "${download_dir}/mattermost-data.tar.zst" \
+        || ! -f "${download_dir}/notifier-queue.tar.zst" || -L "${download_dir}/notifier-queue.tar.zst" ]]; then
+        printf '%s\n' restore-download-artifacts
+    elif [[ ! -d "${run_root}/mattermost-data" || -L "${run_root}/mattermost-data" \
+        || ! -d "${run_root}/notifier-queue" || -L "${run_root}/notifier-queue" ]]; then
+        printf '%s\n' restore-extract
+    elif [[ ! -d "${TARGET_ROOT}" || -L "${TARGET_ROOT}" \
+        || ! -f "${TARGET_ROOT}/notifier/control/state.json" \
+        || -L "${TARGET_ROOT}/notifier/control/state.json" ]]; then
+        printf '%s\n' restore-prepare-target
+    elif [[ ! -f "${run_root}/build-notifier.diagnostic" \
+        || -L "${run_root}/build-notifier.diagnostic" \
+        || ! -f "${run_root}/start-postgres.diagnostic" \
+        || -L "${run_root}/start-postgres.diagnostic" ]]; then
+        printf '%s\n' restore-build-notifier
+    elif [[ ! -f "${run_root}/database-relation-count" \
+        || -L "${run_root}/database-relation-count" ]]; then
+        printf '%s\n' restore-start-postgres
+    elif [[ ! -f "${run_root}/database-restore.diagnostic" \
+        || -L "${run_root}/database-restore.diagnostic" ]]; then
+        printf '%s\n' restore-database-empty
+    elif [[ ! -f "${run_root}/mattermost-publish.diagnostic" \
+        || -L "${run_root}/mattermost-publish.diagnostic" ]]; then
+        printf '%s\n' restore-database
+    elif [[ ! -f "${run_root}/deploy.diagnostic" || -L "${run_root}/deploy.diagnostic" ]]; then
+        printf '%s\n' restore-publish
+    elif [[ ! -f "${run_root}/mailer-status.json" || -L "${run_root}/mailer-status.json" ]]; then
+        printf '%s\n' restore-deploy
+    else
+        printf '%s\n' restore-disabled-readiness
+    fi
 }
 
 collect_privacy_evidence() {
@@ -590,9 +655,13 @@ main() {
 
     CURRENT_FAILURE=restore
     restore_started="$(date +%s)"
-    run_restore "${backup_id}"
+    if ! run_restore "${backup_id}"; then
+        CURRENT_FAILURE="$(classify_restore_failure "${backup_id}")"
+        mark_restore_target_if_created || true
+        return 1
+    fi
     restore_completed="$(date +%s)"
-    mark_root "${TARGET_ROOT}"
+    mark_restore_target_if_created
     if ((restore_completed - restore_started > 14400)); then
         CURRENT_FAILURE=restore-rto-at-most-14400
         return 1

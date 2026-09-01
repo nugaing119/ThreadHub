@@ -62,9 +62,18 @@ test_harness_is_ephemeral_and_guards_cleanup() {
         backup-manifest backup-upload backup-remote-verify; do
         grep -F "${backup_result}" "${HARNESS}" >/dev/null
     done
+    for restore_result in restore-preflight restore-download-manifest \
+        restore-download-artifacts restore-extract restore-prepare-target \
+        restore-build-notifier restore-start-postgres restore-database-empty \
+        restore-database restore-publish restore-deploy restore-disabled-readiness; do
+        grep -F "${restore_result}" "${HARNESS}" >/dev/null
+    done
     grep -F 'integration_compose ps -q' "${HARNESS}" >/dev/null
     grep -F "docker inspect --format '{{.State.Status}}'" "${HARNESS}" >/dev/null
     grep -F 'CURRENT_FAILURE="$(classify_backup_failure)"' "${HARNESS}" >/dev/null
+    grep -F 'CURRENT_FAILURE="$(classify_restore_failure "${backup_id}")"' \
+        "${HARNESS}" >/dev/null
+    grep -F 'mark_restore_target_if_created' "${HARNESS}" >/dev/null
     target_mark_line="$(grep -nF 'mark_root "${TARGET_ROOT}"' "${HARNESS}" | head -n 1 | cut -d: -f1)"
     deploy_line="$(grep -nF '"${DEPLOY_DIR}/scripts/deploy.sh"' "${HARNESS}" | head -n 1 | cut -d: -f1)"
     [[ -n "${target_mark_line}" && -n "${deploy_line}" && "${target_mark_line}" -lt "${deploy_line}" ]]
