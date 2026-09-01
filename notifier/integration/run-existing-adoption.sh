@@ -701,7 +701,8 @@ queue_has_pending() {
     local status_file="${integration_root}/mailer-pending.json"
     compose_combined exec -T threadhub-mailer /threadhub-mailer status --json \
         >"${status_file}" 2>>"${diagnostic_file}" || return 1
-    jq -e '.pending > 0 or .sending > 0' "${status_file}" >/dev/null 2>&1
+    jq -e '.pending > 0 and .sending == 0 and .failed == 0' \
+        "${status_file}" >/dev/null 2>&1
 }
 
 wait_queue_pending() {
