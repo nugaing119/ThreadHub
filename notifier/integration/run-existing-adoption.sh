@@ -513,11 +513,14 @@ safe_mailer_queue_state() {
     summary="$(jq -er '
         if (.pending | type == "number" and . >= 0 and floor == .) and
            (.sending | type == "number" and . >= 0 and floor == .) and
-           (.failed | type == "number" and . >= 0 and floor == .)
-        then "pending-\(.pending),sending-\(.sending),failed-\(.failed)"
+           (.failed | type == "number" and . >= 0 and floor == .) and
+           (.last_error_class | type == "string" and
+               (. == "" or . == "temporary" or . == "permanent" or . == "timeout" or . == "protocol")) and
+           (.last_smtp_code | type == "number" and . >= 0 and . <= 999 and floor == .)
+        then "pending-\(.pending),sending-\(.sending),failed-\(.failed),error_class-\(if .last_error_class == "" then "none" else .last_error_class end),smtp_code-\(.last_smtp_code)"
         else error("invalid status") end
     ' <<<"${raw}" 2>/dev/null)" || summary=""
-    if [[ "${summary}" =~ ^pending-[0-9]+,sending-[0-9]+,failed-[0-9]+$ ]]; then
+    if [[ "${summary}" =~ ^pending-[0-9]+,sending-[0-9]+,failed-[0-9]+,error_class-(none|temporary|permanent|timeout|protocol),smtp_code-[0-9]{1,3}$ ]]; then
         printf '%s\n' "${summary}"
     else
         printf '%s\n' unavailable

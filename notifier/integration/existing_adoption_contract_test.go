@@ -60,6 +60,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"acceptance_exercise_reason=",
 		"mailer_queue_state=",
 		"safe_mailer_queue_state",
+		"error_class-",
 		"under-delivery | over-delivery | mixed-count",
 		"[HARNESS] acceptance-exercise-start",
 		"compose_base up -d --no-build --no-deps smtp-fixture",
