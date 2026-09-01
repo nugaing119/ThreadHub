@@ -362,6 +362,39 @@ func TestPublishCAUsesSeparateReadablePublicCertificate(t *testing.T) {
 	}
 }
 
+func TestPublishCAReusesMatchingCertificateInReadOnlyDirectory(t *testing.T) {
+	t.Parallel()
+
+	privateDir := t.TempDir()
+	publicDir := t.TempDir()
+	if err := ensureCertificate(privateDir, "smtp.email.ap-singapore-1.oci.oraclecloud.com", time.Now().UTC()); err != nil {
+		t.Fatal(err)
+	}
+	destination := filepath.Join(publicDir, "ca.crt")
+	if err := publishCA(filepath.Join(privateDir, "ca.crt"), destination); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(publicDir, 0o555); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(publicDir, 0o700) })
+
+	if err := publishCA(filepath.Join(privateDir, "ca.crt"), destination); err != nil {
+		t.Fatalf("publishCA() rewrote an identical trusted CA: %v", err)
+	}
+	after, err := os.ReadFile(destination)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(after, before) {
+		t.Fatal("publishCA() changed an identical trusted CA")
+	}
+}
+
 func testNotice(permalink, extra string) []byte {
 	plain := "ThreadHub에 새 메시지가 등록되었습니다.\r\n로그인하여 확인해 주세요.\r\n\r\n[메시지 확인]\r\n" + permalink + "\r\n" + extra
 	html := "<p>ThreadHub에 새 메시지가 등록되었습니다.<br>로그인하여 확인해 주세요.</p><p><a href=\"" + permalink + "\">메시지 확인</a></p>\r\n"
