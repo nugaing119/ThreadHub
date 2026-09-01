@@ -78,7 +78,7 @@ jobs:
         run: ./deploy/scripts/validate.sh
 
       - name: Run ShellCheck
-        run: '"${RUNNER_TEMP}/shellcheck/shellcheck" -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh'
+        run: '"${RUNNER_TEMP}/shellcheck/shellcheck" -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh deploy/integration/backup/*.sh'
 
       - name: Clean pinned ShellCheck
         if: always()
@@ -209,6 +209,44 @@ jobs:
             > "${temp_config}"
           sudo install -m 0644 "${temp_config}" /etc/nginx/conf.d/threadhub.conf
           sudo nginx -t
+
+  backup-restore-integration:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go 1.25.14
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.25.14
+          cache-dependency-path: notifier/go.sum
+
+      - name: Install backup integration dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y expect jq zstd
+
+      - name: Run static and unit validation
+        run: ./deploy/scripts/validate.sh
+
+      - name: Run isolated real-image backup and restore
+        run: sudo --preserve-env=PATH ./deploy/integration/backup/run.sh
+
+      - name: Verify guarded integration cleanup
+        if: always()
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          sudo test ! -e /srv/threadhub
+          sudo test ! -e /srv/threadhub-backup-integration-source
+          sudo test ! -e /var/lib/threadhub-backup
+          sudo test ! -e /etc/threadhub
+          test ! -e deploy/.env
 
   notifier-integration:
     runs-on: ubuntu-24.04

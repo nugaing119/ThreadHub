@@ -366,7 +366,6 @@ require_file "${SCRIPT_DIR}/existing-notifier-overlay.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
-require_file "${DEPLOY_DIR}/tests/backup-documentation-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
@@ -379,8 +378,6 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
     || die "Notifier installer security regression test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-documentation-test.sh" ]] \
     || die "Notifier documentation contract test must be executable"
-[[ -x "${DEPLOY_DIR}/tests/backup-documentation-test.sh" ]] \
-    || die "Backup documentation contract test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh" ]] \
     || die "Existing notifier configuration test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh" ]] \
@@ -396,7 +393,6 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
-"${DEPLOY_DIR}/tests/backup-documentation-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-config-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-preflight-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
@@ -543,6 +539,9 @@ grep -F 'exit code `20`' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
 log "Guided installation entry point and OCI setup guides are present"
 
 for script in \
+    "${SCRIPT_DIR}/backup-common.sh" \
+    "${SCRIPT_DIR}/backup-oci.sh" \
+    "${SCRIPT_DIR}/backup-artifacts.sh" \
     "${SCRIPT_DIR}/configure-backup.sh" \
     "${SCRIPT_DIR}/install-backup.sh" \
     "${SCRIPT_DIR}/backup.sh" \
@@ -554,14 +553,24 @@ done
 for artifact in \
     "${DEPLOY_DIR}/backup.env.example" \
     "${DEPLOY_DIR}/systemd/threadhub-backup.service.template" \
-    "${DEPLOY_DIR}/systemd/threadhub-backup.timer" \
-    "${DEPLOY_DIR}/tests/backup-installer-test.sh"; do
+    "${DEPLOY_DIR}/systemd/threadhub-backup.timer"; do
     require_file "${artifact}"
 done
-[[ -x "${DEPLOY_DIR}/tests/backup-installer-test.sh" ]] \
-    || die "Backup installer contract test must be executable"
-"${DEPLOY_DIR}/tests/backup-installer-test.sh"
-log "Pinned backup dependencies and disabled scheduling contracts are valid"
+for backup_test in \
+    "${DEPLOY_DIR}/tests/backup-config-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-oci-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-artifacts-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-orchestration-test.sh" \
+    "${DEPLOY_DIR}/tests/data-layout-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-restore-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-installer-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-documentation-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-integration-contract-test.sh"; do
+    require_file "${backup_test}"
+    [[ -x "${backup_test}" ]] || die "Backup contract test must be executable: ${backup_test}"
+    "${backup_test}"
+done
+log "Backup configuration, transport, artifact, restore, scheduling and integration contracts are valid"
 
 # The notifier’s operational and isolation guarantees are intentionally
 # documented in the public runbooks. Keep these assertions tolerant of normal

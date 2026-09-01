@@ -8,6 +8,30 @@ if ! declare -F notifier_docs_require_file >/dev/null 2>&1; then
     source "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/notifier-documentation-contracts.sh"
 fi
 
+backup_docs_validate_public_schema() {
+    local document="$1"
+
+    awk '
+        $0 == "## backup·restore 공개 자동 증거" { in_section = 1; next }
+        in_section && /^## / { exit }
+        in_section && NF { lines[++count] = $0 }
+        END {
+            header = "| test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | backup scenario count | result |"
+            separator = "| --- | --- | --- | --- | --- | ---: | --- |"
+            if (!in_section || count < 2 || count > 3 || lines[1] != header || lines[2] != separator) exit 1
+            if (count == 2) exit 0
+            fields = split(lines[3], row, "|")
+            if (fields != 9 || row[2] !~ /^ [0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9] $/ ||
+                row[3] !~ /^ `[a-f0-9]+` $/ || (length(row[3]) != 44 && length(row[3]) != 68) ||
+                row[4] !~ /^ `sha256:[a-f0-9]+` $/ || length(row[4]) != 75 ||
+                row[5] !~ /^ `sha256:[a-f0-9]+` $/ || length(row[5]) != 75 ||
+                row[6] !~ /^ `[0-9]+\.[0-9]+\.[0-9]+` $/ ||
+                row[7] !~ /^ [0-9]+ $/ || row[8] !~ /^ (pass|fail) $/) exit 1
+        }
+    ' "${document}" \
+        || notifier_docs_fail "Backup public evidence must use only the approved fixed schema"
+}
+
 validate_backup_documentation_contracts() {
     local repository_root="$1"
     local deploy_dir="${repository_root}/deploy"
@@ -25,6 +49,7 @@ validate_backup_documentation_contracts() {
         "${deploy_dir}/docs/project-close.md"
         "${deploy_dir}/docs/oci-provisioning.md"
         "${deploy_dir}/docs/test-plan.md"
+        "${deploy_dir}/docs/test-results-public.md"
         "${guide}"
         "${prd}"
     )
@@ -104,6 +129,7 @@ validate_backup_documentation_contracts() {
         'explicit user authorization' 'Object Storage' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/test-plan.md" \
         'backup test families' 'BK-UNIT-' 'BK-INT-' 'BK-LIVE-' || return 1
+    backup_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
     notifier_docs_require_terms "${prd}" 'PRD backup baseline' \
         'v4.2 Final' 'G-12' 'RPO 24시간' 'RTO 4시간' \
         'OCI Object Storage' '복구시험' 'R-10' || return 1

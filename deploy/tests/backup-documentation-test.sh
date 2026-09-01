@@ -87,6 +87,12 @@ rm -f "${fixture_root}/deploy/docs/test-plan.md.bak"
 assert_contract_failure 'live backup test identifiers were removed'
 
 reset_fixture
+sed -i.bak 's/| result |/| result | bucket |/' \
+    "${fixture_root}/deploy/docs/test-results-public.md"
+rm -f "${fixture_root}/deploy/docs/test-results-public.md.bak"
+assert_contract_failure 'private backup evidence columns were accepted'
+
+reset_fixture
 perl -0pi -e 's/(configure-backup\.sh.*?install-backup\.sh --register)/(install-backup.sh --enable-after-acceptance BACKUP_ID\n$1)/s' \
     "${fixture_root}/deploy/docs/backup-restore.md"
 assert_contract_failure 'timer activation before manual backup and restore was accepted'
