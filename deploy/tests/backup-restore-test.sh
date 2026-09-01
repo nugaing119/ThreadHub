@@ -290,6 +290,55 @@ test_mailer_image_identity_must_match_manifest() (
     ! restore_verify_mailer_image "${fixture}/manifest.json" "${fixture}/release/release.env"
 )
 
+test_prepare_target_rejects_unknown_mailer_emptiness() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${RESTORE_SCRIPT}"
+    RESTORE_TARGET_ROOT="${fixture}/target"
+    prepare_threadhub_data_layout() {
+        mkdir -p "$1/notifier/mailer"
+    }
+    ensure_disabled_notifier_control() { return 0; }
+    find() { return 2; }
+
+    ! restore_prepare_target
+)
+
+test_publish_rejects_unknown_destination_emptiness() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${RESTORE_SCRIPT}"
+    RESTORE_TARGET_ROOT="${fixture}/target"
+    RESTORE_BACKUP_ID="${VALID_ID}"
+    RESTORE_RUN_ROOT="${fixture}/state/${VALID_ID}"
+    RESTORE_MATTERMOST_STAGING="${RESTORE_RUN_ROOT}/mattermost-data"
+    mkdir -p "${RESTORE_TARGET_ROOT}/mattermost/data/plugins" \
+        "${RESTORE_MATTERMOST_STAGING}"
+    printf 'must-not-publish\n' > "${RESTORE_MATTERMOST_STAGING}/attachment.txt"
+    find() { return 2; }
+    restore_canonicalize_mattermost_publish_roots() { return 0; }
+    normalize_threadhub_restored_data() { return 0; }
+
+    ! restore_publish_mattermost
+    [[ ! -e "${RESTORE_TARGET_ROOT}/mattermost/data/attachment.txt" ]]
+)
+
+test_live_queue_check_rejects_find_failure() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${RESTORE_SCRIPT}"
+    RESTORE_TARGET_ROOT="${fixture}/target"
+    RESTORE_QUEUE_QUARANTINE="${fixture}/quarantine"
+    mkdir -p "${RESTORE_TARGET_ROOT}/notifier/mailer" "${RESTORE_QUEUE_QUARANTINE}"
+    printf 'queue\n' > "${RESTORE_TARGET_ROOT}/notifier/mailer/queue.db"
+    find() { return 2; }
+
+    ! restore_live_queue_is_separate
+)
+
 test_publish_restores_canonical_data_root_metadata() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -349,6 +398,11 @@ run_test 'restore target claim is atomic and no-clobber' test_target_claim_is_at
 run_test 'faults stop before the next restore boundary' test_failures_stop_before_the_next_mutation_boundary
 run_test 'manifest artifacts use fixed no-clobber download names' test_manifest_artifact_downloads_are_fixed_and_no_clobber
 run_test 'rebuilt Mailer identity must match the manifest' test_mailer_image_identity_must_match_manifest
+run_test 'target preparation rejects unknown Mailer emptiness' \
+    test_prepare_target_rejects_unknown_mailer_emptiness
+run_test 'Mattermost publish rejects unknown destination emptiness' \
+    test_publish_rejects_unknown_destination_emptiness
+run_test 'live queue validation rejects find failures' test_live_queue_check_rejects_find_failure
 run_test 'publish restores canonical Mattermost data-root metadata' \
     test_publish_restores_canonical_data_root_metadata
 run_test 'restore has no remote mutation or destructive escape hatch' test_restore_has_no_remote_or_destructive_escape_hatch

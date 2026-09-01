@@ -15,6 +15,7 @@ source "${BACKUP_COMMAND_DIR}/backup-artifacts.sh"
 
 BACKUP_WRITER_DOWNTIME_LIMIT_SECONDS=300
 BACKUP_RECOVERY_LIMIT_SECONDS=300
+BACKUP_TIMEOUT_KILL_GRACE_SECONDS=10
 
 backup_now_epoch() {
     date +%s
@@ -97,12 +98,20 @@ backup_create_set_dir() {
 }
 
 backup_run_with_timeout() {
-    local timeout_seconds="$1"
+    local timeout_seconds="$1" soft_timeout
     shift
 
     [[ "${timeout_seconds}" =~ ^[0-9]+$ && "${timeout_seconds}" -ge 1 \
         && "${timeout_seconds}" -le "${BACKUP_RECOVERY_LIMIT_SECONDS}" ]] || return 20
-    timeout --signal=TERM --kill-after=10s "${timeout_seconds}s" "$@"
+    [[ "${BACKUP_TIMEOUT_KILL_GRACE_SECONDS}" =~ ^[0-9]+$ \
+        && "${BACKUP_TIMEOUT_KILL_GRACE_SECONDS}" -ge 1 ]] || return 20
+    if ((timeout_seconds <= BACKUP_TIMEOUT_KILL_GRACE_SECONDS)); then
+        timeout --signal=KILL "${timeout_seconds}s" "$@"
+        return
+    fi
+    soft_timeout=$((timeout_seconds - BACKUP_TIMEOUT_KILL_GRACE_SECONDS))
+    timeout --signal=TERM --kill-after="${BACKUP_TIMEOUT_KILL_GRACE_SECONDS}s" \
+        "${soft_timeout}s" "$@"
 }
 
 backup_compose_with_timeout() {

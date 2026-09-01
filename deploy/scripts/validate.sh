@@ -37,7 +37,8 @@ for variable in \
     CONTAINERD_VERSION \
     DOCKER_COMPOSE_PLUGIN_VERSION \
     OCI_CLI_VERSION \
-    OCI_CLI_ARCHIVE_SHA256; do
+    OCI_CLI_ARCHIVE_SHA256 \
+    OCI_CLI_WHEEL_SHA256; do
     env_value "${variable}" "${VERSIONS_FILE}" >/dev/null
 done
 
@@ -74,10 +75,21 @@ fi
     || die "NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256 is invalid"
 oci_cli_version="$(env_value OCI_CLI_VERSION "${VERSIONS_FILE}")"
 oci_cli_archive_sha="$(env_value OCI_CLI_ARCHIVE_SHA256 "${VERSIONS_FILE}")"
+oci_cli_wheel_sha="$(env_value OCI_CLI_WHEEL_SHA256 "${VERSIONS_FILE}")"
 [[ "${oci_cli_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
     || die "OCI_CLI_VERSION is invalid"
 [[ "${oci_cli_archive_sha}" =~ ^[a-f0-9]{64}$ ]] \
     || die "OCI_CLI_ARCHIVE_SHA256 is invalid"
+[[ "${oci_cli_wheel_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || die "OCI_CLI_WHEEL_SHA256 is invalid"
+oci_cli_requirements_lock="${DEPLOY_DIR}/oci-cli-requirements.lock"
+require_file "${oci_cli_requirements_lock}"
+[[ ! -L "${oci_cli_requirements_lock}" ]] \
+    || die "OCI CLI requirements lock must not be a symlink"
+grep -Eq '^oci==[0-9]+\.[0-9]+\.[0-9]+ [\\]$' "${oci_cli_requirements_lock}" \
+    || die "OCI CLI requirements lock must pin the OCI SDK"
+grep -Eq '^[[:space:]]+--hash=sha256:[a-f0-9]{64}( \\)?$' "${oci_cli_requirements_lock}" \
+    || die "OCI CLI requirements lock must include SHA-256 hashes"
 
 validation_tmp_dir="$(mktemp -d)"
 cleanup() {
@@ -545,6 +557,7 @@ for script in \
     "${SCRIPT_DIR}/configure-backup.sh" \
     "${SCRIPT_DIR}/install-backup.sh" \
     "${SCRIPT_DIR}/backup.sh" \
+    "${SCRIPT_DIR}/backup-snapshot.sh" \
     "${SCRIPT_DIR}/backup-status.sh" \
     "${SCRIPT_DIR}/restore.sh"; do
     require_file "${script}"

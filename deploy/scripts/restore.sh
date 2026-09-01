@@ -209,8 +209,7 @@ restore_release_claim() {
 restore_prepare_target() {
     (prepare_threadhub_data_layout "${RESTORE_TARGET_ROOT}") >/dev/null 2>&1 || return 20
     (ensure_disabled_notifier_control "${RESTORE_TARGET_ROOT}") >/dev/null 2>&1 || return 20
-    [[ -z "$(find -P "${RESTORE_TARGET_ROOT}/notifier/mailer" -mindepth 1 -print -quit)" ]] \
-        || return 20
+    backup_directory_is_empty "${RESTORE_TARGET_ROOT}/notifier/mailer"
 }
 
 restore_build_notifier() {
@@ -299,13 +298,15 @@ restore_canonicalize_mattermost_publish_roots() {
 }
 
 restore_publish_mattermost() {
-    local destination="${RESTORE_TARGET_ROOT}/mattermost/data" diagnostic
+    local destination="${RESTORE_TARGET_ROOT}/mattermost/data" diagnostic unexpected
 
     [[ -d "${RESTORE_MATTERMOST_STAGING}" && ! -L "${RESTORE_MATTERMOST_STAGING}" \
         && -d "${destination}" && ! -L "${destination}" \
         && -d "${destination}/plugins" && ! -L "${destination}/plugins" ]] || return 20
-    [[ -z "$(find -P "${destination}" -mindepth 1 -maxdepth 1 ! -name plugins -print -quit)" \
-        && -z "$(find -P "${destination}/plugins" -mindepth 1 -print -quit)" ]] || return 20
+    unexpected="$(find -P "${destination}" -mindepth 1 -maxdepth 1 \
+        ! -name plugins -print -quit)" || return 20
+    [[ -z "${unexpected}" ]] || return 20
+    backup_directory_is_empty "${destination}/plugins" || return 20
     if [[ -e "${RESTORE_MATTERMOST_STAGING}/plugins" ]]; then
         [[ -d "${RESTORE_MATTERMOST_STAGING}/plugins" \
             && ! -L "${RESTORE_MATTERMOST_STAGING}/plugins" ]] || return 20
@@ -328,19 +329,26 @@ restore_start_application() {
 
 restore_live_queue_is_separate() {
     local live_dir="${RESTORE_TARGET_ROOT}/notifier/mailer" name live quarantined
+    local unexpected live_identity quarantined_identity
 
     [[ -d "${live_dir}" && ! -L "${live_dir}" ]] || return 20
-    while IFS= read -r name; do
-        [[ "${name}" == queue.db || "${name}" == queue.db-wal || "${name}" == queue.db-shm ]] \
-            || return 20
+    unexpected="$(find -P "${live_dir}" -mindepth 1 -maxdepth 1 \
+        ! -name queue.db ! -name queue.db-wal ! -name queue.db-shm -print -quit)" || return 20
+    [[ -z "${unexpected}" ]] || return 20
+    for name in queue.db queue.db-wal queue.db-shm; do
         live="${live_dir}/${name}"
         quarantined="${RESTORE_QUEUE_QUARANTINE}/${name}"
-        [[ -f "${live}" && ! -L "${live}" ]] || return 20
-        if [[ -e "${quarantined}" ]]; then
-            [[ "$(backup_path_identity "${live}")" != "$(backup_path_identity "${quarantined}")" ]] \
-                || return 20
+        if [[ "${name}" != queue.db && ! -e "${live}" && ! -L "${live}" ]]; then
+            continue
         fi
-    done < <(find -P "${live_dir}" -mindepth 1 -maxdepth 1 -exec basename {} \; | LC_ALL=C sort)
+        [[ -f "${live}" && ! -L "${live}" ]] || return 20
+        if [[ -e "${quarantined}" || -L "${quarantined}" ]]; then
+            [[ -f "${quarantined}" && ! -L "${quarantined}" ]] || return 20
+            live_identity="$(backup_path_identity "${live}")" || return 20
+            quarantined_identity="$(backup_path_identity "${quarantined}")" || return 20
+            [[ "${live_identity}" != "${quarantined_identity}" ]] || return 20
+        fi
+    done
 }
 
 restore_verify_disabled_readiness() {

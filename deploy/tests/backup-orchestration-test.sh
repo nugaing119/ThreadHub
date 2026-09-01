@@ -249,14 +249,31 @@ test_snapshot_command_is_bounded_by_remaining_deadline() (
     [[ "$(<"${calls}")" == "75|${DEPLOY_DIR}/scripts/backup-snapshot.sh|/var/lib/threadhub-backup/staging/20260901T030000Z-0123456789abcdef0123456789abcdef" ]]
 )
 
-test_timeout_wrapper_terminates_a_hung_snapshot_on_linux() (
+test_timeout_wrapper_budgets_termination_grace_inside_the_deadline() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    calls="${fixture}/calls"
+    # shellcheck source=/dev/null
+    source "${BACKUP_COMMAND}"
+    timeout() {
+        printf '%s\n' "$@" > "${calls}"
+        return 124
+    }
+
+    ! backup_run_with_timeout 300 true
+    [[ "$(<"${calls}")" == $'--signal=TERM\n--kill-after=10s\n290s\ntrue' ]]
+    ! backup_run_with_timeout 5 true
+    [[ "$(<"${calls}")" == $'--signal=KILL\n5s\ntrue' ]]
+)
+
+test_timeout_wrapper_holds_the_hard_deadline_for_a_term_resistant_child() (
     [[ "$(uname -s)" != Linux ]] && return 0
     # shellcheck source=/dev/null
     source "${BACKUP_COMMAND}"
     start="$(date +%s)"
-    ! backup_run_with_timeout 1 sh -c 'sleep 30'
+    ! backup_run_with_timeout 2 sh -c 'trap "" TERM; while :; do sleep 1; done'
     elapsed=$(( $(date +%s) - start ))
-    ((elapsed < 10))
+    ((elapsed <= 3))
 )
 
 test_preflight_failure_never_stops_services() (
@@ -503,7 +520,10 @@ test_sunday_policy_reaches_both_upload_and_verification() (
 run_test 'happy backup restarts before manifest and upload' test_happy_path_restarts_before_manifest_and_upload
 run_test 'backup restart commands wait for container health' test_restart_commands_wait_for_container_health
 run_test 'snapshot command is bounded by the remaining deadline' test_snapshot_command_is_bounded_by_remaining_deadline
-run_test 'timeout wrapper terminates a hung snapshot on Linux' test_timeout_wrapper_terminates_a_hung_snapshot_on_linux
+run_test 'timeout wrapper budgets termination grace inside the hard deadline' \
+    test_timeout_wrapper_budgets_termination_grace_inside_the_deadline
+run_test 'timeout wrapper holds the hard deadline for a TERM-resistant child on Linux' \
+    test_timeout_wrapper_holds_the_hard_deadline_for_a_term_resistant_child
 run_test 'preflight failure never stops services' test_preflight_failure_never_stops_services
 run_test 'Mailer stop failure recovers Mattermost' test_mailer_stop_failure_recovers_mattermost
 run_test 'ambiguous Mattermost stop failure still attempts recovery' test_ambiguous_mattermost_stop_failure_still_attempts_recovery
