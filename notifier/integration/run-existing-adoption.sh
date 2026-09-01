@@ -1091,7 +1091,8 @@ wait_queue_pending || fail NF-ADOPT-06
 record_stage mailer-restart
 private compose_combined restart threadhub-mailer || fail NF-ADOPT-07
 record_stage smtp-recovery
-private compose_base start smtp-fixture || fail NF-ADOPT-07
+private compose_base up -d --no-build --no-deps smtp-fixture || fail NF-ADOPT-07
+private wait_http 'http://127.0.0.1:49353/healthz' 60 || fail NF-ADOPT-07
 record_stage outage-delivery
 private acceptance assert-outage || fail NF-ADOPT-07
 record_stage recovery-queue-drain

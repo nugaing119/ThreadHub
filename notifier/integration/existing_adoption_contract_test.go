@@ -59,6 +59,8 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"acceptance_exercise_failure=",
 		"acceptance_exercise_reason=",
 		"[HARNESS] acceptance-exercise-start",
+		"compose_base up -d --no-build --no-deps smtp-fixture",
+		"wait_http 'http://127.0.0.1:49353/healthz' 60",
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-adoption runner contract is missing %q", required)
