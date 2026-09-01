@@ -14,6 +14,9 @@
 deploy/existing-notifier.env
 deploy/existing-notifier.env.*
 !deploy/existing-notifier.env.example
+deploy/backup.env
+deploy/backup.env.*
+!deploy/backup.env.example
 *.secret
 *.secrets
 secrets/
@@ -39,6 +42,8 @@ data/
 postgres/
 mattermost/
 backups/
+backup-staging/
+restore-staging/
 logs/
 *.log
 
