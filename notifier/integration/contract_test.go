@@ -358,8 +358,9 @@ func TestCIHasBoundedPrivacySafeIntegrationArtifact(t *testing.T) {
 	for _, required := range []string{
 		"notifier-integration:",
 		"timeout-minutes: 25",
-		"go-version: 1.25.10",
+		"go-version: 1.25.14",
 		"make test",
+		"golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...",
 		"make plugin-bundle mailer",
 		"make integration",
 		"threadhub-notifier-integration-artifacts/results.txt",
