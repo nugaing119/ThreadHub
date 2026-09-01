@@ -193,6 +193,17 @@ test_generated_id_is_private_and_strict() (
     [[ "${generated_id}" != *threadhub* && "${generated_id}" != *@* ]]
 )
 
+test_gnu_tar_positional_options_precede_file_list() (
+    local no_recursion_line files_from_line
+
+    no_recursion_line="$(grep -n -m1 -- '--directory .* --no-recursion' \
+        "${BACKUP_ARTIFACTS}" | cut -d: -f1)"
+    files_from_line="$(grep -n -m1 -- '--null --files-from' \
+        "${BACKUP_ARTIFACTS}" | cut -d: -f1)"
+    [[ -n "${no_recursion_line}" && -n "${files_from_line}" \
+        && "${no_recursion_line}" -lt "${files_from_line}" ]]
+)
+
 test_artifact_creation_uses_fixed_sources_and_names() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -389,6 +400,7 @@ test_queue_archive_rejects_any_non_sqlite_member() (
 )
 
 run_test 'generated backup ID is private and strict' test_generated_id_is_private_and_strict
+run_test 'GNU tar positional options precede the file list' test_gnu_tar_positional_options_precede_file_list
 run_test 'artifact creation uses only fixed sources and names' test_artifact_creation_uses_fixed_sources_and_names
 run_test 'manifest has exact schema provenance and a valid set' test_manifest_has_exact_schema_and_provenance
 run_test 'corrupt extra and mismatched sets fail closed' test_corrupt_extra_and_mismatched_sets_fail_closed

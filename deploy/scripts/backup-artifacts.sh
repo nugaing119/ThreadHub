@@ -292,8 +292,8 @@ backup_create_archive() {
     fi
 
     if ! "${BACKUP_TAR_COMMAND[@]}" --create --zstd --file "${temporary}" \
-        --directory "${source_dir}" --null --files-from "${file_list}" \
-        --no-recursion --numeric-owner --owner=0 --group=0 > /dev/null 2>"${diagnostic}" \
+        --directory "${source_dir}" --no-recursion --numeric-owner --owner=0 --group=0 \
+        --null --files-from "${file_list}" > /dev/null 2>"${diagnostic}" \
         || ! chmod 0600 "${temporary}" \
         || ! backup_artifact_file_is_private "${temporary}" \
         || ! backup_artifact_publish_no_clobber "${temporary}" "${output}"; then
