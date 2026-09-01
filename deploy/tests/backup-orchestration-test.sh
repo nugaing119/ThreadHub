@@ -104,9 +104,12 @@ load_fixture() {
         [[ "${BACKUP_TEST_FAIL_AT}" != health-after-restart || "${attempts}" -eq 1 ]]
     }
     backup_health_before_deadline() {
+        local attempts
         event health
+        attempts="$(( $(<"${BACKUP_TEST_HEALTH_ATTEMPTS}") + 1 ))"
+        printf '%s\n' "${attempts}" > "${BACKUP_TEST_HEALTH_ATTEMPTS}"
         [[ "${BACKUP_TEST_FAIL_AT}" != deadline-overrun ]] || backup_test_advance_time 301
-        [[ "${BACKUP_TEST_FAIL_AT}" != health-after-restart ]]
+        [[ "${BACKUP_TEST_FAIL_AT}" != health-after-restart || "${attempts}" -ne 2 ]]
     }
     backup_create_set_dir() { install -d -m 0700 "$1"; }
     backup_stop_mattermost() { event stop:mattermost; [[ "${BACKUP_TEST_FAIL_AT}" != stop-mattermost ]]; }
@@ -375,7 +378,9 @@ test_post_restart_health_failure_remains_service_recovery_failure() (
     export BACKUP_TEST_FAIL_AT
 
     run_expect_failure
-    [[ "$(grep -c '^health$' "${BACKUP_TEST_EVENTS}")" == 2 ]]
+    [[ "$(grep -c '^health$' "${BACKUP_TEST_EVENTS}")" == 3 ]]
+    [[ "$(grep -c '^start:threadhub-mailer$' "${BACKUP_TEST_EVENTS}")" == 2 ]]
+    [[ "$(grep -c '^start:mattermost$' "${BACKUP_TEST_EVENTS}")" == 2 ]]
     jq -e '.failure_class == "service_recovery" and .service_recovery_result == "failed"' \
         "${BACKUP_TEST_STATUS}" >/dev/null
 )
@@ -462,7 +467,7 @@ test_expired_resume_state_removes_only_its_staging_set() (
     marker="$(backup_resume_marker_path "${backup_id}")"
     install -d -m 0700 "${set_dir}" "${fixture}/outside"
     printf 'preserve\n' > "${fixture}/outside/sentinel"
-    jq -cn --arg id "${backup_id}" --argjson expires_at "$(( $(date +%s) - 1 ))" \
+    jq -cn --arg id "${backup_id}" --argjson expires_at "$(( $(backup_now_epoch) - 1 ))" \
         '{backup_id:$id,expires_at:$expires_at,weekly_required:false}' > "${marker}"
     chmod 0600 "${marker}"
 
