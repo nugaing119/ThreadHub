@@ -363,7 +363,7 @@ initialize_fixture() {
     chmod 0600 "${PRIVATE_ROOT}/restore-secrets"
     write_runtime_env "${database_password}" "${hmac_secret}"
     write_backup_config
-    install -d -m 0700 "${TARGET_ROOT}"
+    install -d -m 0750 "${TARGET_ROOT}"
     mark_root "${TARGET_ROOT}"
     install -d -m 0700 "${BACKUP_STATE_ROOT}"
     mark_root "${BACKUP_STATE_ROOT}"
