@@ -14,6 +14,10 @@ failures=0
 fail() { printf 'not ok - %s\n' "$1" >&2; failures=$((failures + 1)); }
 pass() { printf 'ok - %s\n' "$1"; }
 
+portable_mode() {
+    if stat -c '%a' "$1" >/dev/null 2>&1; then stat -c '%a' "$1"; else stat -f '%Lp' "$1"; fi
+}
+
 run_test() {
     local name="$1" function_name="$2" test_status
 
@@ -227,6 +231,47 @@ test_mailer_image_identity_must_match_manifest() (
     ! restore_verify_mailer_image "${fixture}/manifest.json" "${fixture}/release/release.env"
 )
 
+test_publish_restores_canonical_data_root_metadata() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${RESTORE_SCRIPT}"
+    RESTORE_TARGET_ROOT="${fixture}/target"
+    RESTORE_STATE_ROOT="${fixture}/state/restore"
+    RESTORE_BACKUP_ID="${VALID_ID}"
+    RESTORE_RUN_ROOT="${RESTORE_STATE_ROOT}/${VALID_ID}"
+    RESTORE_MATTERMOST_STAGING="${RESTORE_RUN_ROOT}/mattermost-data"
+    install -d -m 0700 \
+        "${RESTORE_RUN_ROOT}" \
+        "${RESTORE_MATTERMOST_STAGING}/plugins"
+    install -d -m 0750 \
+        "${RESTORE_TARGET_ROOT}/mattermost/data/plugins"
+    printf 'attachment\n' > "${RESTORE_MATTERMOST_STAGING}/attachment.txt"
+    chmod 0600 "${RESTORE_MATTERMOST_STAGING}/attachment.txt"
+    SUDO_COMMAND=(restore_test_privileged)
+    restore_test_privileged() {
+        local command_name="$1"
+        shift
+        case "${command_name}" in
+            chown) return 0 ;;
+            *) command "${command_name}" "$@" ;;
+        esac
+    }
+    data_layout_validate_root() {
+        [[ "$1" == "${RESTORE_TARGET_ROOT}" ]] || return 1
+        data_layout_assert_no_symlink_components "$1" || return 1
+        [[ "$(portable_mode "${RESTORE_TARGET_ROOT}/mattermost/data")" == 750 \
+            && "$(portable_mode "${RESTORE_TARGET_ROOT}/mattermost/data/plugins")" == 750 ]]
+    }
+
+    restore_publish_mattermost
+
+    [[ "$(<"${RESTORE_TARGET_ROOT}/mattermost/data/attachment.txt")" == attachment ]]
+    [[ "$(portable_mode "${RESTORE_TARGET_ROOT}/mattermost/data")" == 750 ]]
+    [[ "$(portable_mode "${RESTORE_TARGET_ROOT}/mattermost/data/plugins")" == 750 ]]
+    [[ "$(portable_mode "${RESTORE_TARGET_ROOT}/mattermost/data/attachment.txt")" == 640 ]]
+)
+
 test_restore_has_no_remote_or_destructive_escape_hatch() (
     [[ -f "${RESTORE_SCRIPT}" ]]
     ! grep -Eq 'backup_oci_(upload|delete)|os object (put|delete)|--force|rm -rf.*threadhub' \
@@ -242,6 +287,8 @@ run_test 'valid restore orders mutations and starts disabled' test_valid_restore
 run_test 'faults stop before the next restore boundary' test_failures_stop_before_the_next_mutation_boundary
 run_test 'manifest artifacts use fixed no-clobber download names' test_manifest_artifact_downloads_are_fixed_and_no_clobber
 run_test 'rebuilt Mailer identity must match the manifest' test_mailer_image_identity_must_match_manifest
+run_test 'publish restores canonical Mattermost data-root metadata' \
+    test_publish_restores_canonical_data_root_metadata
 run_test 'restore has no remote mutation or destructive escape hatch' test_restore_has_no_remote_or_destructive_escape_hatch
 
 if ((failures > 0)); then

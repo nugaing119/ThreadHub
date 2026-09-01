@@ -233,6 +233,16 @@ restore_database() {
     chmod 0600 "${diagnostic}" || return 30
 }
 
+restore_canonicalize_mattermost_publish_roots() {
+    local destination="${RESTORE_TARGET_ROOT}/mattermost/data"
+    local plugins="${destination}/plugins"
+
+    [[ -d "${destination}" && ! -L "${destination}" \
+        && -d "${plugins}" && ! -L "${plugins}" ]] || return 20
+    "${SUDO_COMMAND[@]}" chown 2000:2000 "${destination}" "${plugins}" || return 20
+    "${SUDO_COMMAND[@]}" chmod 0750 "${destination}" "${plugins}" || return 20
+}
+
 restore_publish_mattermost() {
     local destination="${RESTORE_TARGET_ROOT}/mattermost/data" diagnostic
 
@@ -253,6 +263,7 @@ restore_publish_mattermost() {
         return 30
     fi
     chmod 0600 "${diagnostic}" || return 30
+    restore_canonicalize_mattermost_publish_roots || return $?
     (normalize_threadhub_restored_data "${RESTORE_TARGET_ROOT}") >/dev/null 2>&1
 }
 
