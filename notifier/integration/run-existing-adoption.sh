@@ -728,7 +728,8 @@ queue_has_pending() {
     local status_file="${integration_root}/mailer-pending.json"
     compose_combined exec -T threadhub-mailer /threadhub-mailer status --json \
         >"${status_file}" 2>>"${diagnostic_file}" || return 1
-    jq -e '.pending > 0 and .sending == 0 and .failed == 0' \
+    jq -e '.pending > 0 and .sending == 0 and .failed == 0 and
+        .last_error_class == "temporary" and .last_smtp_code == 450' \
         "${status_file}" >/dev/null 2>&1
 }
 
@@ -753,6 +754,21 @@ wait_http() {
         ((attempt += 1))
     done
     return 1
+}
+
+inject_smtp_failures() {
+    local count="$1"
+    local attempt=0
+    local http_code=""
+
+    [[ "${count}" =~ ^[1-9][0-9]*$ && "${count}" -le 10 ]] || return 1
+    while ((attempt < count)); do
+        http_code="$(curl --noproxy '*' --silent --show-error --max-time 2 \
+            --output /dev/null --write-out '%{http_code}' --request POST \
+            'http://127.0.0.1:49353/v1/fail-next')" || return 1
+        [[ "${http_code}" == 204 ]] || return 1
+        ((attempt += 1))
+    done
 }
 
 cleanup() {
@@ -1112,14 +1128,13 @@ bundle_sha_public="$(sudo awk -F= '$1 == "NOTIFIER_PLUGIN_BUNDLE_SHA256" { count
 record_stage outage-snapshot
 private acceptance snapshot || fail NF-ADOPT-06
 record_stage smtp-outage
-private compose_base stop smtp-fixture || fail NF-ADOPT-06
+private inject_smtp_failures 2 || fail NF-ADOPT-06
 private acceptance outage-post || fail NF-ADOPT-06
 record_stage outage-queue-pending
 wait_queue_pending || fail NF-ADOPT-06
 record_stage mailer-restart
 private compose_combined restart threadhub-mailer || fail NF-ADOPT-07
 record_stage smtp-recovery
-private compose_base up -d --no-build --no-deps smtp-fixture || fail NF-ADOPT-07
 private wait_http 'http://127.0.0.1:49353/healthz' 60 || fail NF-ADOPT-07
 record_stage outage-delivery
 private acceptance assert-outage || fail NF-ADOPT-07

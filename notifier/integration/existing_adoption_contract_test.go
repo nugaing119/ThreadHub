@@ -63,9 +63,10 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"error_class-",
 		"under-delivery | over-delivery | mixed-count",
 		"[HARNESS] acceptance-exercise-start",
-		"compose_base up -d --no-build --no-deps smtp-fixture",
+		"inject_smtp_failures 2",
 		"wait_http 'http://127.0.0.1:49353/healthz' 60",
-		".pending > 0 and .sending == 0 and .failed == 0",
+		`.pending > 0 and .sending == 0 and .failed == 0 and
+        .last_error_class == "temporary" and .last_smtp_code == 450`,
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-adoption runner contract is missing %q", required)
@@ -80,7 +81,10 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 			t.Fatalf("existing-adoption runner does not isolate Mattermost's system bot: missing %q", required)
 		}
 	}
-	for _, forbidden := range []string{"source deploy/.env", "docker compose config\n", "rm -rf /srv"} {
+	for _, forbidden := range []string{
+		"source deploy/.env", "docker compose config\n", "rm -rf /srv",
+		"compose_base stop smtp-fixture", "compose_base up -d --no-build --no-deps smtp-fixture",
+	} {
 		if strings.Contains(runner, forbidden) {
 			t.Fatalf("existing-adoption runner contains forbidden contract %q", forbidden)
 		}
