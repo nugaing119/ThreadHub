@@ -109,9 +109,10 @@ backup_artifact_copy_release() {
 backup_artifact_git_commit() {
     local source_commit
 
-    source_commit="$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 20
+    source_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+        rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 20
     [[ "${source_commit}" =~ ^[a-f0-9]{40}$|^[a-f0-9]{64}$ ]] || return 20
-    [[ -z "$(git -C "${REPOSITORY_ROOT}" status --porcelain=v1 \
+    [[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" status --porcelain=v1 \
         --untracked-files=all --ignore-submodules=none 2>/dev/null)" ]] || return 20
     printf '%s\n' "${source_commit}"
 }

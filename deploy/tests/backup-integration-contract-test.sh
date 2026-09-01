@@ -52,6 +52,7 @@ test_harness_is_ephemeral_and_guards_cleanup() {
     grep -F 'require_ubuntu_amd64' "${HARNESS}" >/dev/null
     grep -F 'INTEGRATION_SENTINEL' "${HARNESS}" >/dev/null
     grep -F 'COMPOSE_PROJECT_NAME=threadhub-backup-integration' "${HARNESS}" >/dev/null
+    grep -F 'export GIT_OPTIONAL_LOCKS=0' "${HARNESS}" >/dev/null
     grep -F 'backup_assert_empty_target /srv/threadhub' "${HARNESS}" >/dev/null
     grep -F 'docker compose' "${HARNESS}" >/dev/null
     grep -F 'install -d -m 0750 "${TARGET_ROOT}"' "${HARNESS}" >/dev/null

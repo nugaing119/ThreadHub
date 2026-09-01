@@ -146,7 +146,8 @@ backup_installer_install_oci_cli() (
 backup_installer_repository_path() {
     local repository_path physical_path
 
-    repository_path="$(git -C "${REPOSITORY_ROOT}" rev-parse --show-toplevel 2>/dev/null)" || return 20
+    repository_path="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+        rev-parse --show-toplevel 2>/dev/null)" || return 20
     physical_path="$(cd "${REPOSITORY_ROOT}" && pwd -P)" || return 20
     [[ "${repository_path}" == "${physical_path}" \
         && "${repository_path}" =~ ^/[A-Za-z0-9._/-]+$ \
@@ -155,7 +156,7 @@ backup_installer_repository_path() {
         && "${repository_path}" != */../* \
         && "${repository_path}" != */. \
         && "${repository_path}" != */.. \
-        && -z "$(git -C "${repository_path}" status --porcelain=v1 \
+        && -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${repository_path}" status --porcelain=v1 \
             --untracked-files=all --ignore-submodules=none 2>/dev/null)" ]] || return 20
     printf '%s\n' "${repository_path}"
 }

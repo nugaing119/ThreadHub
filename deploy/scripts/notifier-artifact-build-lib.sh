@@ -28,10 +28,11 @@ notifier_validate_artifact_release_dir() {
 notifier_require_clean_source_commit() {
     local source_commit
 
-    source_commit="$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}')" \
+    source_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+        rev-parse --verify 'HEAD^{commit}')" \
         || return 1
     [[ "${source_commit}" =~ ^[a-f0-9]{40,64}$ ]] || return 1
-    [[ -z "$(git -C "${REPOSITORY_ROOT}" status --porcelain=v1 \
+    [[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" status --porcelain=v1 \
         --untracked-files=all --ignore-submodules=none)" ]] || return 1
     printf '%s\n' "${source_commit}"
 }
@@ -81,7 +82,8 @@ notifier_artifact_release_is_current() (
         && "${bundle_sha}" =~ ^[a-f0-9]{64}$ \
         && "${mailer_image}" == "threadhub/notifier-mailer:${notifier_version}" \
         && "${mailer_image_id}" =~ ^sha256:[a-f0-9]{64}$ \
-        && "${source_commit}" == "$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}')" ]] \
+        && "${source_commit}" == "$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+            rev-parse --verify 'HEAD^{commit}')" ]] \
         || return 1
     bundle_path="${REPOSITORY_ROOT}/${bundle_relative}"
     [[ -f "${bundle_path}" && ! -L "${bundle_path}" \
@@ -147,7 +149,8 @@ notifier_build_artifacts() (
         || die "Notifier artifact path is not a directory"
     [[ ! -L "${bundle_path}" ]] || die "Refusing symbolic-link notifier bundle output"
     install -d -m 0755 "${tmp_dir}/context"
-    git -C "${REPOSITORY_ROOT}" archive --format=tar "${source_commit}:notifier" \
+    GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+        archive --format=tar "${source_commit}:notifier" \
         | tar --extract --file - --directory "${tmp_dir}/context" \
             --no-same-owner --no-same-permissions
 

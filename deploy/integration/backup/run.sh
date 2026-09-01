@@ -6,6 +6,7 @@
 
 set -Eeuo pipefail
 umask 077
+export GIT_OPTIONAL_LOCKS=0
 
 INTEGRATION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${INTEGRATION_DIR}/../.." && pwd)"
