@@ -711,7 +711,7 @@ abort("shellcheck workflow contract") unless install_run.include?('shellcheck-v$
 abort("shellcheck workflow contract") unless install_run.include?('sha256sum --check -')
 abort("shellcheck workflow contract") unless install_run.include?('tar -xJf')
 abort("shellcheck workflow contract") unless install_run.include?('"${install_dir}/shellcheck" --version')
-abort("shellcheck workflow contract") unless run.fetch("run") == '"${RUNNER_TEMP}/shellcheck/shellcheck" -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh'
+abort("shellcheck workflow contract") unless run.fetch("run") == '"${RUNNER_TEMP}/shellcheck/shellcheck" -x -P deploy/scripts deploy/scripts/*.sh deploy/tests/*.sh deploy/integration/backup/*.sh'
 abort("shellcheck workflow contract") unless cleanup.fetch("if") == "always()"
 cleanup_lines = cleanup.fetch("run").lines.map(&:strip)
 expected_cleanup = 'rm -rf "${RUNNER_TEMP}/shellcheck.tar.xz" "${RUNNER_TEMP}/shellcheck"'
