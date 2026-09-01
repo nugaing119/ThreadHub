@@ -504,6 +504,26 @@ safe_disabled_count_differences() {
     ' "${baseline_file}" "${disabled_file}" 2>/dev/null || printf '%s\n' unavailable
 }
 
+safe_mailer_queue_state() {
+    local raw=""
+    local summary=""
+
+    raw="$(compose_combined exec -T threadhub-mailer \
+        /threadhub-mailer status --json 2>/dev/null)" || raw=""
+    summary="$(jq -er '
+        if (.pending | type == "number" and . >= 0 and floor == .) and
+           (.sending | type == "number" and . >= 0 and floor == .) and
+           (.failed | type == "number" and . >= 0 and floor == .)
+        then "pending-\(.pending),sending-\(.sending),failed-\(.failed)"
+        else error("invalid status") end
+    ' <<<"${raw}" 2>/dev/null)" || summary=""
+    if [[ "${summary}" =~ ^pending-[0-9]+,sending-[0-9]+,failed-[0-9]+$ ]]; then
+        printf '%s\n' "${summary}"
+    else
+        printf '%s\n' unavailable
+    fi
+}
+
 write_safe_diagnostic() {
     local evidence_parent=""
     local postgres_state=""
@@ -523,6 +543,7 @@ write_safe_diagnostic() {
     local disabled_count_differences=""
     local acceptance_exercise_failure=""
     local acceptance_exercise_reason=""
+    local mailer_queue_state=""
     local safe_smtp_acceptance_failure=""
     local safe_smtp_acceptance_phase=""
     local integration_root_writable=""
@@ -550,6 +571,7 @@ write_safe_diagnostic() {
     disabled_count_differences="$(safe_disabled_count_differences)"
     acceptance_exercise_failure="$(safe_acceptance_exercise_failure)"
     acceptance_exercise_reason="$(safe_acceptance_exercise_reason)"
+    mailer_queue_state="$(safe_mailer_queue_state)"
     case "${smtp_acceptance_failure}" in
         none | unavailable | temporary-[0-9] | temporary-[0-9][0-9] | temporary-[0-9][0-9][0-9] \
             | permanent-[0-9] | permanent-[0-9][0-9] | permanent-[0-9][0-9][0-9] \
@@ -591,6 +613,7 @@ write_safe_diagnostic() {
         printf 'disabled_count_differences=%s\n' "${disabled_count_differences}"
         printf 'acceptance_exercise_failure=%s\n' "${acceptance_exercise_failure}"
         printf 'acceptance_exercise_reason=%s\n' "${acceptance_exercise_reason}"
+        printf 'mailer_queue_state=%s\n' "${mailer_queue_state}"
         printf 'smtp_acceptance_phase=%s\n' "${safe_smtp_acceptance_phase}"
         printf 'smtp_acceptance_failure=%s\n' "${safe_smtp_acceptance_failure}"
         printf 'integration_root_writable=%s\n' "${integration_root_writable}"

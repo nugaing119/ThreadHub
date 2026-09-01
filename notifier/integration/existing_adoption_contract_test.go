@@ -58,6 +58,8 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"--channel-ids-stdin",
 		"acceptance_exercise_failure=",
 		"acceptance_exercise_reason=",
+		"mailer_queue_state=",
+		"safe_mailer_queue_state",
 		"under-delivery | over-delivery | mixed-count",
 		"[HARNESS] acceptance-exercise-start",
 		"compose_base up -d --no-build --no-deps smtp-fixture",
