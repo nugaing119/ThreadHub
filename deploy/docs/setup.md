@@ -191,6 +191,14 @@ OCI Ubuntu 이미지의 host iptables가 외부 연결을 거부할 수 있으�
 
 ## 11. 완료 기준
 
-- [PRD의 고객 파일럿 Go 조건](../../docs/threadhub-prd-v4.1-final.md#1911-제한된-고객-파일럿-go-조건)을 충족해야 합니다.
+- [PRD의 고객 파일럿 Go 조건](../../docs/threadhub-prd-v4.2-final.md#1912-제한된-고객-파일럿-go-조건)을 충족해야 합니다.
 - [상세 구축·검증 계획](../../docs/threadhub-mvp-build-validation-plan.md)을 시험 결과와 함께 완료해야 합니다.
 - 실제 고객을 초대하기 전에 No-Go 조건이 남아 있지 않아야 합니다.
+
+## 12. 선택적 백업 구성
+
+기본 ThreadHub가 `[READY]`가 된 뒤에만 [백업 및 복구 운영 가이드](./backup-restore.md)를
+별도 절차로 수행합니다. 백업 unit 등록은 타이머를 시작하지 않으며, 최초 수동 원격
+백업과 폐기 가능한 새 VM 복구시험을 모두 인수하기 전에는 활성화하지 않습니다.
+Object Storage 버킷·lifecycle·Dynamic Group·IAM policy는 실제 compartment와
+`ap-singapore-1`을 명시하고 별도 승인을 받은 뒤 구성합니다.

@@ -53,3 +53,21 @@ When the user asks to add the notifier to an already running Mattermost:
    changes still require explicit authorization with the compartment and region
    stated. A repository request alone does not authorize live infrastructure or
    a production Mattermost change.
+
+## Backup agent safety contract
+
+When the user asks to configure, test, restore, or remove ThreadHub backups:
+
+1. Read `deploy/docs/backup-restore.md`; repository work alone never authorizes
+   live OCI or production VM changes.
+2. OCI bucket, lifecycle, Dynamic Group, and IAM policy changes require
+   explicit user authorization after stating the exact compartment and
+   `ap-singapore-1` region.
+3. Register backup units disabled. The timer remains disabled until a manual
+   remote backup and a disposable-VM restore have been reviewed and accepted.
+4. Restore only to a new or empty `/srv/threadhub`; never overwrite or merge
+   existing persistent data and never add a force bypass.
+5. Keep restored notifier data in queue quarantine. Never replay a restored
+   queue into live SMTP delivery.
+6. Do not print, commit, or paste backup manifests, status files, diagnostics,
+   bucket names, backup IDs, customer data, or credentials into public output.

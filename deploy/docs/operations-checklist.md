@@ -29,6 +29,22 @@
 - [ ] 활성 사용자 50명 이하 확인
 - [ ] notifier pending/sending/failed counter와 oldest pending 기준을 확인하고, 상태 출력에 channel ID·수신자·비밀값이 없는지 확인
 
+## Backup daily operations
+
+[백업 및 복구 운영 가이드](./backup-restore.md)를 활성화한 인스턴스는 매일 다음을
+확인합니다.
+
+- [ ] `backup-status.sh`의 마지막 원격 검증 성공이 24시간 이내
+- [ ] daily 세트가 정확히 5개이며 일요일 weekly 세트도 정확히 5개
+- [ ] 원격 객체 크기와 SHA-256 metadata가 manifest와 일치
+- [ ] `/var/lib/threadhub-backup/staging`에는 실패 세트만 제한적으로 존재
+- [ ] `threadhub-backup.timer`와 최근 service 실행 결과 정상
+- [ ] failure email이 도착했고 고객 데이터·백업 ID·버킷명이 없음
+
+서비스는 회복되었으나 업로드만 실패했고 완전한 로컬 세트가 24시간 이내라면
+`sudo ./deploy/scripts/backup.sh --resume-upload <BACKUP_ID>`로만 재개합니다. 상태를
+수동 편집하거나 불완전 세트를 성공으로 취급하지 않습니다.
+
 ## 즉시 채널 이메일 알림 운영
 
 기존 Mattermost에 별도 override로 채택한 notifier는
@@ -130,4 +146,5 @@ sudo certbot renew \
 4. 필요 시 자격 증명 폐기·교체
 5. 고객에게 서비스 중단 또는 데이터 손실 가능성 안내
 
-백업과 장애·오삭제 후 데이터 복구는 보장하지 않습니다.
+마지막 검증 성공 이후 최대 24시간의 데이터는 손실될 수 있고 수동 복구 목표는
+4시간입니다. HA·PITR·리전 간 복제와 복구시간 SLA는 제공하지 않습니다.

@@ -33,9 +33,15 @@ deploy/
 │   ├── notifier-control.sh
 │   ├── notifier-smtp-test.sh
 │   ├── notifier-status.sh
+│   ├── configure-backup.sh
+│   ├── install-backup.sh
+│   ├── backup.sh
+│   ├── backup-status.sh
+│   ├── restore.sh
 │   └── validate.sh
 └── docs/
     ├── quick-install.md
+    ├── backup-restore.md
     ├── existing-mattermost-notifier.md
     ├── oci-provisioning.md
     ├── oci-email-delivery.md
@@ -111,6 +117,11 @@ notifier artifact build, 설정, plugin 설치, SMTP 접수시험, 제어와 상
 `./deploy/scripts/notifier-control.sh`, `./deploy/scripts/notifier-status.sh`를 사용합니다.
 순서와 수동 인수 항목은 [빠른 설치 가이드](./docs/quick-install.md), 일상 운영은
 [운영 점검표](./docs/operations-checklist.md), 종료는 [프로젝트 종료 절차](./docs/project-close.md)를 따릅니다.
+
+일일 백업은 기본 설치 `[READY]`와 분리하여 등록합니다. 타이머는 최초 원격 백업
+검증과 폐기 가능한 새 VM 복구시험의 증거를 검토할 때까지 비활성 상태로 유지합니다.
+설정·인수·활성화·복구·보존 절차는 [백업 및 복구 운영 가이드](./docs/backup-restore.md)를
+따릅니다.
 
 위 절차는 새 ThreadHub 인스턴스용입니다. 이미 운영 중인 지원 대상 Mattermost에
 notifier만 추가할 때는 base Compose와 기존 환경파일을 변경하지 않고

@@ -103,3 +103,11 @@ DNS가 아직 전파되지 않아도 설치 마법사는 컨테이너까지 구�
 - [ ] 프로젝트 hostname A 레코드를 추가함
 - [ ] SSH 공개키로 접속함
 - [ ] OCI Email Delivery 준비를 완료함
+
+## 7. 선택적 Object Storage 백업
+
+백업을 사용할 때만 [백업 및 복구 운영 가이드](./backup-restore.md)의 전용 Private
+버킷, exact-instance Dynamic Group과 create/inspect/read-only object policy를
+구성합니다. 실제 버킷·lifecycle·Dynamic Group·IAM policy는 설치 요청만으로 만들지
+않습니다. 대상 compartment와 `ap-singapore-1`을 명시하고 별도 승인을 받아야 하며,
+VM에는 object 또는 bucket delete 권한을 주지 않습니다.

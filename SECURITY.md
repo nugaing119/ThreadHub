@@ -33,8 +33,18 @@ vulnerability report를 제출해 주십시오.
 - 고객 도메인, 이메일, 사용자명과 프로젝트 식별정보
 - 운영 로그, 메시지, 첨부파일, PostgreSQL 데이터와 백업
 - notifier 큐의 수신자 주소·제어 파일·SMTP acceptance marker와 실제 알림 수신 결과
+- 백업 artifact·manifest, backup status·diagnostic, 버킷명과 백업 ID
 
 즉시 채널 이메일 알림은 메시지 본문, 채널·Team 이름, 작성자와 수신자 주소를
 일반 공개 문서·로그·상태 출력에 넣지 않습니다. 공개 시험 증거는
 [공개 검증 결과 요약](./deploy/docs/test-results-public.md)의 고정 ID·SHA·통과/실패
 범위로 제한하고, 운영 식별자가 필요한 기록은 비공개 운영 기록에서만 보관합니다.
+
+## Backup privacy boundary
+
+백업은 Private OCI Object Storage 버킷과 root 전용 로컬 상태에만 저장합니다.
+backup manifest, backup status, diagnostic 파일에는 운영 구조와 식별정보가 포함될
+수 있으므로 공개 저장소, Issue, 채팅 또는 공개 CI artifact로 내보내지 않습니다.
+백업 객체와 복구 증거에는 public URL 또는 Pre-Authenticated Request를 만들지
+않으며, 실패 메일은 고객 데이터 없이 일반 문구만 전송합니다. 자세한 통제는
+[백업 및 복구 운영 가이드](./deploy/docs/backup-restore.md)를 따릅니다.

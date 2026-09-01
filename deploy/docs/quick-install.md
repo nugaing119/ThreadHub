@@ -130,3 +130,14 @@ System Admin을 생성합니다. 관리자 비밀번호는 채팅이나 셸 인�
 자동 점검 통과는 위 수동 인수시험을 대체하지 않습니다.
 actual inbox/link/SPF/DKIM remains manual; `[READY]`는 자동 설치 검증의 결과일 뿐
 실제 받은편지함, 링크, SPF/DKIM, 권한, CJK 또는 모바일 성공을 주장하지 않습니다.
+
+## 7. 기본 readiness와 백업 readiness 분리
+
+base readiness and backup readiness separation: 설치 마법사의 `[READY]`는 채팅
+서비스의 자동 설치 gate만 뜻합니다. 백업 사용을 자동 승인하지 않습니다.
+
+백업을 사용할 프로젝트는 [백업 및 복구 운영 가이드](./backup-restore.md)에 따라
+`configure-backup.sh`, `install-backup.sh --register`, 최초 수동 백업, 원격 5개 객체
+검증, 폐기 가능한 신규 VM 복구시험을 순서대로 수행합니다. unit 등록 뒤에도
+timer remains disabled 상태여야 하며, 증거 검토와 명시적 인수 후에만 별도 명령으로
+활성화합니다.

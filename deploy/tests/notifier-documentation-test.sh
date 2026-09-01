@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 REPOSITORY_ROOT="$(cd "${DEPLOY_DIR}/.." && pwd)"
 # shellcheck source=../scripts/notifier-documentation-contracts.sh
+# shellcheck disable=SC1091
 source "${DEPLOY_DIR}/scripts/notifier-documentation-contracts.sh"
 
 temporary_dir="$(mktemp -d)"
@@ -31,12 +32,16 @@ assert_contract_failure() {
 
 reset_fixture() {
     rm -rf "${fixture_root}"
-    mkdir -p "${fixture_root}/deploy"
+    mkdir -p "${fixture_root}/deploy/scripts" "${fixture_root}/docs"
     cp "${REPOSITORY_ROOT}/README.md" "${fixture_root}/README.md"
     cp "${REPOSITORY_ROOT}/AGENTS.md" "${fixture_root}/AGENTS.md"
     cp "${REPOSITORY_ROOT}/SECURITY.md" "${fixture_root}/SECURITY.md"
     cp "${DEPLOY_DIR}/README.md" "${fixture_root}/deploy/README.md"
+    cp "${DEPLOY_DIR}/scripts/backup-documentation-contracts.sh" \
+        "${fixture_root}/deploy/scripts/backup-documentation-contracts.sh"
     cp -R "${DEPLOY_DIR}/docs" "${fixture_root}/deploy/docs"
+    cp "${REPOSITORY_ROOT}/docs/threadhub-prd-v4.2-final.md" \
+        "${fixture_root}/docs/threadhub-prd-v4.2-final.md"
 }
 
 reset_fixture
