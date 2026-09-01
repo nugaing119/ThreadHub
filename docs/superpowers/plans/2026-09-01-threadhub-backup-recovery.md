@@ -426,7 +426,7 @@ backup_oci_verify() {
 }
 ```
 
-`backup_oci_find_set` lists only `daily/`, filters keys matching the strict fixed-artifact suffix for the requested backup ID, requires exactly one directory prefix, and prints only that prefix to its caller. Do not print it in status or user-facing logs.
+`backup_oci_find_set` first lists `daily/` and, when no matching daily set remains, falls back to `weekly/`. Within each tier it filters keys matching the strict fixed-artifact suffix for the requested backup ID, requires exactly one directory prefix, and prints only that prefix to its caller. This preserves restore access after the shorter daily lifecycle expires while rejecting ambiguous duplicate prefixes. Do not print the selected prefix in status or user-facing logs.
 
 - [ ] **Step 5: Cover list pagination, immutable upload, and private output**
 
