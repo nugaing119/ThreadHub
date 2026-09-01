@@ -375,6 +375,10 @@ func TestCIHasBoundedPrivacySafeIntegrationArtifact(t *testing.T) {
 			t.Fatalf("CI artifact path exposes %q", forbidden)
 		}
 	}
+	const node24UploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1"
+	if count := strings.Count(workflow, node24UploadArtifact); count != 2 {
+		t.Fatalf("CI must pin both artifact uploads to the reviewed Node.js 24 action, got %d", count)
+	}
 }
 
 func readContractFile(t *testing.T, path string) string {
