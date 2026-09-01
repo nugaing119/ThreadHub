@@ -42,7 +42,7 @@ exec 3>&1
 emit_result() {
     local result="$1"
 
-    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-health|seed|backup|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
+    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-postgres|deploy-mattermost|deploy-mailer|deploy-plugin|deploy-health|seed|backup|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
         || result=preflight
     printf 'BK-INTEGRATION-%s\n' "${result}" >&3
 }
@@ -144,10 +144,47 @@ cleanup() {
 }
 
 classify_deploy_failure() {
+    local postgres_id mattermost_id mailer_id service_state service_health
+
     if grep -Fq '[threadhub] Notifier plugin ' "${PRIVATE_LOG}"; then
         printf '%s\n' deploy-health
     elif grep -Fq '[threadhub] Starting ThreadHub' "${PRIVATE_LOG}"; then
-        printf '%s\n' deploy-start
+        postgres_id="$(integration_compose ps -q postgres 2>/dev/null || true)"
+        if [[ -z "${postgres_id}" ]]; then
+            printf '%s\n' deploy-postgres
+            return
+        fi
+        service_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+            "${postgres_id}" 2>/dev/null || true)"
+        if [[ "${service_health}" != healthy ]]; then
+            printf '%s\n' deploy-postgres
+            return
+        fi
+
+        mattermost_id="$(integration_compose ps -q mattermost 2>/dev/null || true)"
+        if [[ -z "${mattermost_id}" ]]; then
+            printf '%s\n' deploy-mattermost
+            return
+        fi
+        service_state="$(docker inspect --format '{{.State.Status}}' \
+            "${mattermost_id}" 2>/dev/null || true)"
+        if [[ "${service_state}" != running ]]; then
+            printf '%s\n' deploy-mattermost
+            return
+        fi
+
+        mailer_id="$(integration_compose ps -q threadhub-mailer 2>/dev/null || true)"
+        if [[ -z "${mailer_id}" ]]; then
+            printf '%s\n' deploy-mailer
+            return
+        fi
+        service_health="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' \
+            "${mailer_id}" 2>/dev/null || true)"
+        if [[ "${service_health}" != healthy ]]; then
+            printf '%s\n' deploy-mailer
+            return
+        fi
+        printf '%s\n' deploy-plugin
     elif grep -Fq '[threadhub] Pulling immutable external linux/amd64 image manifests' \
         "${PRIVATE_LOG}"; then
         printf '%s\n' deploy-image

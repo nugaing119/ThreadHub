@@ -54,6 +54,11 @@ test_harness_is_ephemeral_and_guards_cleanup() {
     grep -F 'backup_assert_empty_target /srv/threadhub' "${HARNESS}" >/dev/null
     grep -F 'docker compose' "${HARNESS}" >/dev/null
     grep -F 'install -d -m 0750 "${TARGET_ROOT}"' "${HARNESS}" >/dev/null
+    for deploy_result in deploy-postgres deploy-mattermost deploy-mailer deploy-plugin; do
+        grep -F "${deploy_result}" "${HARNESS}" >/dev/null
+    done
+    grep -F 'integration_compose ps -q' "${HARNESS}" >/dev/null
+    grep -F "docker inspect --format '{{.State.Status}}'" "${HARNESS}" >/dev/null
     target_mark_line="$(grep -nF 'mark_root "${TARGET_ROOT}"' "${HARNESS}" | head -n 1 | cut -d: -f1)"
     deploy_line="$(grep -nF '"${DEPLOY_DIR}/scripts/deploy.sh"' "${HARNESS}" | head -n 1 | cut -d: -f1)"
     [[ -n "${target_mark_line}" && -n "${deploy_line}" && "${target_mark_line}" -lt "${deploy_line}" ]]
