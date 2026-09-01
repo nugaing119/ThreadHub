@@ -116,23 +116,65 @@ backup_artifact_git_commit() {
     printf '%s\n' "${source_commit}"
 }
 
-backup_artifact_provenance_json() {
-    local release_copy source_commit release_commit notifier_version pinned_notifier_version
-    local plugin_id plugin_bundle plugin_bundle_sha mailer_image mailer_image_id
+backup_artifact_compatibility_json() {
+    local source_commit notifier_version
     local mattermost_repository mattermost_tag mattermost_digest
     local postgres_repository postgres_tag postgres_digest
 
+    source_commit="$(backup_artifact_git_commit)" || return 20
+    mattermost_repository="$(env_value MATTERMOST_IMAGE_REPOSITORY "${VERSIONS_FILE}")" || return 20
+    mattermost_tag="$(env_value MATTERMOST_IMAGE_TAG "${VERSIONS_FILE}")" || return 20
+    mattermost_digest="$(env_value MATTERMOST_IMAGE_DIGEST "${VERSIONS_FILE}")" || return 20
+    postgres_repository="$(env_value POSTGRES_IMAGE_REPOSITORY "${VERSIONS_FILE}")" || return 20
+    postgres_tag="$(env_value POSTGRES_IMAGE_TAG "${VERSIONS_FILE}")" || return 20
+    postgres_digest="$(env_value POSTGRES_IMAGE_DIGEST "${VERSIONS_FILE}")" || return 20
+    notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" || return 20
+
+    [[ "${notifier_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
+        && "${mattermost_repository}" == mattermost/mattermost-team-edition \
+        && "${mattermost_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
+        && "${mattermost_digest}" =~ ^sha256:[a-f0-9]{64}$ \
+        && "${postgres_repository}" == postgres \
+        && "${postgres_tag}" =~ ^[0-9]+\.[0-9]+$ \
+        && "${postgres_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] || return 20
+
+    jq -S -c -n \
+        --arg source_commit "${source_commit}" \
+        --arg mattermost_repository "${mattermost_repository}" \
+        --arg mattermost_tag "${mattermost_tag}" \
+        --arg mattermost_digest "${mattermost_digest}" \
+        --arg postgres_repository "${postgres_repository}" \
+        --arg postgres_tag "${postgres_tag}" \
+        --arg postgres_digest "${postgres_digest}" \
+        --arg notifier_version "${notifier_version}" '
+        {
+          source_commit:$source_commit,
+          images:{
+            mattermost:{repository:$mattermost_repository,tag:$mattermost_tag,digest:$mattermost_digest},
+            postgres:{repository:$postgres_repository,tag:$postgres_tag,digest:$postgres_digest}
+          },
+          notifier:{version:$notifier_version}
+        }
+    '
+}
+
+backup_artifact_provenance_json() {
+    local compatibility release_copy source_commit release_commit notifier_version release_notifier_version
+    local plugin_id plugin_bundle plugin_bundle_sha mailer_image mailer_image_id
+
+    compatibility="$(backup_artifact_compatibility_json)" || return 20
+    source_commit="$(jq -er '.source_commit' <<< "${compatibility}")" || return 20
+    notifier_version="$(jq -er '.notifier.version' <<< "${compatibility}")" || return 20
     release_copy="$(backup_artifact_temporary)" || return 20
     if ! backup_artifact_copy_release "${release_copy}"; then
         rm -f -- "${release_copy}"
         return 20
     fi
-    source_commit="$(backup_artifact_git_commit)" || { rm -f -- "${release_copy}"; return 20; }
     release_commit="$(backup_artifact_release_value "${release_copy}" NOTIFIER_SOURCE_COMMIT)" || {
         rm -f -- "${release_copy}"
         return 20
     }
-    notifier_version="$(backup_artifact_release_value "${release_copy}" NOTIFIER_VERSION)" || {
+    release_notifier_version="$(backup_artifact_release_value "${release_copy}" NOTIFIER_VERSION)" || {
         rm -f -- "${release_copy}"
         return 20
     }
@@ -158,48 +200,17 @@ backup_artifact_provenance_json() {
     }
     rm -f -- "${release_copy}"
 
-    mattermost_repository="$(env_value MATTERMOST_IMAGE_REPOSITORY "${VERSIONS_FILE}")" || return 20
-    mattermost_tag="$(env_value MATTERMOST_IMAGE_TAG "${VERSIONS_FILE}")" || return 20
-    mattermost_digest="$(env_value MATTERMOST_IMAGE_DIGEST "${VERSIONS_FILE}")" || return 20
-    postgres_repository="$(env_value POSTGRES_IMAGE_REPOSITORY "${VERSIONS_FILE}")" || return 20
-    postgres_tag="$(env_value POSTGRES_IMAGE_TAG "${VERSIONS_FILE}")" || return 20
-    postgres_digest="$(env_value POSTGRES_IMAGE_DIGEST "${VERSIONS_FILE}")" || return 20
-    pinned_notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" || return 20
-
     [[ "${release_commit}" == "${source_commit}" \
-        && "${notifier_version}" == "${pinned_notifier_version}" \
+        && "${release_notifier_version}" == "${notifier_version}" \
         && "${notifier_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
         && "${plugin_id}" == com.threadhub.channel-email-notifier \
         && "${plugin_bundle}" == "notifier/dist/${plugin_id}-${notifier_version}.tar.gz" \
         && "${plugin_bundle_sha}" =~ ^[a-f0-9]{64}$ \
         && "${mailer_image}" == "threadhub/notifier-mailer:${notifier_version}" \
-        && "${mailer_image_id}" =~ ^sha256:[a-f0-9]{64}$ \
-        && "${mattermost_repository}" == mattermost/mattermost-team-edition \
-        && "${mattermost_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
-        && "${mattermost_digest}" =~ ^sha256:[a-f0-9]{64}$ \
-        && "${postgres_repository}" == postgres \
-        && "${postgres_tag}" =~ ^[0-9]+\.[0-9]+$ \
-        && "${postgres_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] || return 20
+        && "${mailer_image_id}" =~ ^sha256:[a-f0-9]{64}$ ]] || return 20
 
-    jq -S -c -n \
-        --arg source_commit "${source_commit}" \
-        --arg mattermost_repository "${mattermost_repository}" \
-        --arg mattermost_tag "${mattermost_tag}" \
-        --arg mattermost_digest "${mattermost_digest}" \
-        --arg postgres_repository "${postgres_repository}" \
-        --arg postgres_tag "${postgres_tag}" \
-        --arg postgres_digest "${postgres_digest}" \
-        --arg notifier_version "${notifier_version}" \
-        --arg mailer_image_id "${mailer_image_id}" '
-        {
-          source_commit:$source_commit,
-          images:{
-            mattermost:{repository:$mattermost_repository,tag:$mattermost_tag,digest:$mattermost_digest},
-            postgres:{repository:$postgres_repository,tag:$postgres_tag,digest:$postgres_digest}
-          },
-          notifier:{version:$notifier_version,mailer_image_id:$mailer_image_id}
-        }
-    '
+    jq -S -c --arg mailer_image_id "${mailer_image_id}" \
+        '.notifier.mailer_image_id = $mailer_image_id' <<< "${compatibility}"
 }
 
 backup_create_database_dump() {
@@ -367,9 +378,9 @@ backup_write_manifest() {
     fi
 }
 
-backup_validate_manifest_identity() {
+backup_validate_manifest_compatibility() {
     local set_dir="$1" expected_id="$2" manifest manifest_checksum checksum_line expected_line
-    local expected_created_at provenance source_commit images notifier
+    local expected_created_at compatibility source_commit images notifier_version
 
     backup_validate_id "${expected_id}" || return 20
     backup_artifact_set_dir_is_valid "${set_dir}" || return 20
@@ -384,20 +395,23 @@ backup_validate_manifest_identity() {
     [[ "${checksum_line}" == "${expected_line}" ]] || return 20
 
     expected_created_at="$(backup_id_created_at "${expected_id}")" || return 20
-    provenance="$(backup_artifact_provenance_json)" || return 20
-    source_commit="$(jq -er '.source_commit' <<< "${provenance}")" || return 20
-    images="$(jq -cS '.images' <<< "${provenance}")" || return 20
-    notifier="$(jq -cS '.notifier' <<< "${provenance}")" || return 20
+    compatibility="$(backup_artifact_compatibility_json)" || return 20
+    source_commit="$(jq -er '.source_commit' <<< "${compatibility}")" || return 20
+    images="$(jq -cS '.images' <<< "${compatibility}")" || return 20
+    notifier_version="$(jq -er '.notifier.version' <<< "${compatibility}")" || return 20
     jq -e --arg backup_id "${expected_id}" --arg created_at "${expected_created_at}" \
-        --arg source_commit "${source_commit}" --argjson images "${images}" --argjson notifier "${notifier}" '
+        --arg source_commit "${source_commit}" --argjson images "${images}" \
+        --arg notifier_version "${notifier_version}" '
         type == "object" and
         keys == ["artifacts","backup_id","created_at","images","notifier","schema_version","source_commit"] and
         .schema_version == 1 and .backup_id == $backup_id and .created_at == $created_at and
-        .source_commit == $source_commit and .images == $images and .notifier == $notifier and
+        .source_commit == $source_commit and .images == $images and
         (.images | keys == ["mattermost","postgres"]) and
         (.images.mattermost | keys == ["digest","repository","tag"]) and
         (.images.postgres | keys == ["digest","repository","tag"]) and
         (.notifier | keys == ["mailer_image_id","version"]) and
+        .notifier.version == $notifier_version and
+        (.notifier.mailer_image_id | type == "string" and test("^sha256:[a-f0-9]{64}$")) and
         (.artifacts | type == "array" and length == 3) and
         (.artifacts | map(.name) == ["database.dump","mattermost-data.tar.zst","notifier-queue.tar.zst"]) and
         (.artifacts | all(
@@ -406,6 +420,16 @@ backup_validate_manifest_identity() {
           (.sha256 | type == "string" and test("^[a-f0-9]{64}$"))
         ))
     ' "${manifest}" >/dev/null 2>&1
+}
+
+backup_validate_manifest_identity() {
+    local set_dir="$1" expected_id="$2" provenance notifier
+
+    backup_validate_manifest_compatibility "${set_dir}" "${expected_id}" || return 20
+    provenance="$(backup_artifact_provenance_json)" || return 20
+    notifier="$(jq -cS '.notifier' <<< "${provenance}")" || return 20
+    jq -e --argjson notifier "${notifier}" '.notifier == $notifier' \
+        "${set_dir}/manifest.json" >/dev/null 2>&1
 }
 
 backup_require_gnu_tar() {
@@ -474,10 +498,12 @@ backup_validate_archive() {
     rm -f -- "${names}" "${listing}" "${diagnostic}"
 }
 
-backup_validate_set() {
-    local set_dir="$1" expected_id="$2" names name expected bytes sha path
+backup_validate_set_with_manifest_validator() {
+    local validator="$1" set_dir="$2" expected_id="$3" names name expected bytes sha path
 
-    backup_validate_manifest_identity "${set_dir}" "${expected_id}" || return 20
+    [[ "${validator}" == backup_validate_manifest_identity \
+        || "${validator}" == backup_validate_manifest_compatibility ]] || return 20
+    "${validator}" "${set_dir}" "${expected_id}" || return 20
     names="$(backup_artifact_temporary)" || return 20
     if ! find -P "${set_dir}" -mindepth 1 -maxdepth 1 -exec basename {} \; \
         | LC_ALL=C sort > "${names}"; then
@@ -500,6 +526,14 @@ backup_validate_set() {
     done
     backup_validate_archive "${set_dir}/mattermost-data.tar.zst" || return 20
     backup_validate_archive "${set_dir}/notifier-queue.tar.zst"
+}
+
+backup_validate_set() {
+    backup_validate_set_with_manifest_validator backup_validate_manifest_identity "$@"
+}
+
+backup_validate_set_compatibility() {
+    backup_validate_set_with_manifest_validator backup_validate_manifest_compatibility "$@"
 }
 
 backup_extract_archive() {

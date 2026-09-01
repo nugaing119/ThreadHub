@@ -294,6 +294,58 @@ test_dirty_or_mismatched_provenance_is_rejected() (
     [[ ! -s "${fixture}/stdout" && ! -s "${fixture}/stderr" ]]
 )
 
+test_restore_compatibility_does_not_require_live_release() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    set_dir="$(prepare_valid_set "${fixture}" "${VALID_ID}")"
+
+    mv "${BACKUP_ARTIFACT_RELEASE_FILE}" "${BACKUP_ARTIFACT_RELEASE_FILE}.absent"
+    backup_validate_manifest_compatibility "${set_dir}" "${VALID_ID}"
+    backup_validate_set_compatibility "${set_dir}" "${VALID_ID}"
+    ! backup_validate_manifest_identity "${set_dir}" "${VALID_ID}" \
+        >"${fixture}/stdout" 2>"${fixture}/stderr"
+    ! backup_validate_set "${set_dir}" "${VALID_ID}" \
+        >>"${fixture}/stdout" 2>>"${fixture}/stderr"
+    [[ ! -s "${fixture}/stdout" && ! -s "${fixture}/stderr" ]]
+)
+
+test_restore_compatibility_rejects_source_and_image_mismatch() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+
+    for mutation in source mattermost postgres notifier; do
+        rm -rf "${fixture}/sets/${VALID_ID}"
+        set_dir="$(prepare_valid_set "${fixture}" "${VALID_ID}")"
+        case "${mutation}" in
+            source) jq '.source_commit = ("f" * 40)' "${set_dir}/manifest.json" ;;
+            mattermost) jq '.images.mattermost.digest = ("sha256:" + ("e" * 64))' "${set_dir}/manifest.json" ;;
+            postgres) jq '.images.postgres.tag = "18.5"' "${set_dir}/manifest.json" ;;
+            notifier) jq '.notifier.version = "0.1.1"' "${set_dir}/manifest.json" ;;
+        esac > "${set_dir}/replacement"
+        chmod 0600 "${set_dir}/replacement"
+        mv "${set_dir}/replacement" "${set_dir}/manifest.json"
+        printf '%s  manifest.json\n' "$(sha256_file "${set_dir}/manifest.json")" \
+            > "${set_dir}/manifest.sha256"
+        ! backup_validate_manifest_compatibility "${set_dir}" "${VALID_ID}" \
+            >"${fixture}/stdout" 2>"${fixture}/stderr"
+    done
+    [[ ! -s "${fixture}/stdout" && ! -s "${fixture}/stderr" ]]
+)
+
+test_restore_set_rejects_missing_artifact() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    set_dir="$(prepare_valid_set "${fixture}" "${VALID_ID}")"
+    rm "${set_dir}/database.dump"
+
+    ! backup_validate_set_compatibility "${set_dir}" "${VALID_ID}" \
+        >"${fixture}/stdout" 2>"${fixture}/stderr"
+    [[ ! -s "${fixture}/stdout" && ! -s "${fixture}/stderr" ]]
+)
+
 test_unsafe_archives_are_rejected_before_extraction() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -341,6 +393,9 @@ run_test 'artifact creation uses only fixed sources and names' test_artifact_cre
 run_test 'manifest has exact schema provenance and a valid set' test_manifest_has_exact_schema_and_provenance
 run_test 'corrupt extra and mismatched sets fail closed' test_corrupt_extra_and_mismatched_sets_fail_closed
 run_test 'dirty or mismatched provenance is rejected' test_dirty_or_mismatched_provenance_is_rejected
+run_test 'restore compatibility does not require a live notifier release' test_restore_compatibility_does_not_require_live_release
+run_test 'restore compatibility rejects source and image mismatch' test_restore_compatibility_rejects_source_and_image_mismatch
+run_test 'restore set rejects a missing artifact' test_restore_set_rejects_missing_artifact
 run_test 'unsafe archives fail before extraction' test_unsafe_archives_are_rejected_before_extraction
 run_test 'queue archive rejects every non-SQLite member' test_queue_archive_rejects_any_non_sqlite_member
 
