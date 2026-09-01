@@ -159,7 +159,11 @@ service_downtime_seconds
 local_bundle_bytes
 uploaded_object_count
 verification_result
+snapshot_result
+service_recovery_result
+upload_result
 failure_class
+alert_delivery
 ```
 
 버킷명, Object key, 도메인, 이메일, 사용자, 채널, 메시지, 파일명, 비밀값과 OCI OCID는
