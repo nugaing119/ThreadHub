@@ -29,3 +29,27 @@ instance without guessing deployment values or exposing credentials.
 
 The installation is complete only when the wizard reports `[READY]` and the
 manual acceptance tests linked from `deploy/docs/admin-guide.md` are complete.
+
+## Existing Mattermost fail-closed agent contract
+
+When the user asks to add the notifier to an already running Mattermost:
+
+1. Read `deploy/docs/existing-mattermost-notifier.md` and run
+   `./deploy/scripts/existing-notifier-preflight.sh` before any target change.
+2. Support only the documented Ubuntu 24.04 AMD64, Mattermost Team Edition
+   11.7.7, single-node Compose, explicit bind-mount topology. Stop on any
+   ambiguity; do not modify the base Compose file or base environment file.
+3. Treat exit code 20 as `[ACTION REQUIRED]`, never as success, and do not
+   bypass the failed gate.
+4. Install disabled, complete the one-time SMTP acceptance, activate only a
+   test-channel allowlist, and finish the public/private root and thread manual
+   acceptance tests before broader delivery.
+5. Never enable all_channels without explicit approval from the user after the
+   allowlist evidence has been reviewed.
+6. Warn that setup and rollback recreate the Mattermost container and can cause
+   a 30–60 second reconnect window. Preserve queue data and rollback evidence;
+   do not delete or silently cancel pending or failed delivery.
+7. OCI IAM, SMTP Credential, Approved Sender, DNS, public IP, and Email Delivery
+   changes still require explicit authorization with the compartment and region
+   stated. A repository request alone does not authorize live infrastructure or
+   a production Mattermost change.

@@ -35,6 +35,12 @@ var (
 	errSMTPAcceptance = errors.New("SMTP server did not return final 250 acceptance")
 )
 
+type smtpAcceptanceError struct {
+	result smtpclient.Result
+}
+
+func (e *smtpAcceptanceError) Error() string { return errSMTPAcceptance.Error() }
+
 type commandOperations struct {
 	serve          func(context.Context, config.Config) error
 	healthcheck    func(context.Context, config.Config) error
@@ -69,7 +75,16 @@ func main() {
 
 func runMain(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer, getenv func(string) string, operations commandOperations) int {
 	if err := runCommand(ctx, args, stdin, stdout, getenv, operations); err != nil {
-		_, _ = fmt.Fprintln(stderr, "threadhub-mailer: command failed")
+		var acceptanceError *smtpAcceptanceError
+		if errors.As(err, &acceptanceError) {
+			class := safeErrorClass(acceptanceError.result.Class.String())
+			if class == "" {
+				class = "protocol"
+			}
+			_, _ = fmt.Fprintf(stderr, "threadhub-mailer: command failed error_class=%s smtp_code=%d\n", class, safeSMTPCode(acceptanceError.result.Code))
+		} else {
+			_, _ = fmt.Fprintln(stderr, "threadhub-mailer: command failed")
+		}
 		return 1
 	}
 	return 0
@@ -128,7 +143,7 @@ func runCommand(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 		}
 		result := operations.smtpAcceptance(ctx, cfg, recipient)
 		if !result.Accepted || result.Code != 250 {
-			return errSMTPAcceptance
+			return &smtpAcceptanceError{result: result}
 		}
 		return writeConfigFingerprint(stdout, cfg)
 	case "config-fingerprint":

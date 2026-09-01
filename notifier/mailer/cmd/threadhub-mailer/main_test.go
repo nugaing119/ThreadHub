@@ -289,13 +289,42 @@ func TestSMTPTestCommandUsesBoundedTransactionAndSafeFailure(t *testing.T) {
 	if elapsed := time.Since(started); elapsed >= 500*time.Millisecond {
 		t.Fatalf("smtp-test stalled transaction elapsed = %s, want bounded return", elapsed)
 	}
-	if got := stderr.String(); got != "threadhub-mailer: command failed\n" {
-		t.Fatalf("smtp-test stderr = %q, want fixed safe failure", got)
+	if got := stderr.String(); got != "threadhub-mailer: command failed error_class=timeout smtp_code=0\n" {
+		t.Fatalf("smtp-test stderr = %q, want classified safe failure", got)
 	}
 	for _, forbidden := range []string{recipient, testEnvironment("SMTP_USERNAME"), testEnvironment("SMTP_PASSWORD")} {
 		if strings.Contains(stderr.String(), forbidden) {
 			t.Fatalf("smtp-test stderr exposed private sentinel %q", forbidden)
 		}
+	}
+}
+
+func TestSMTPTestFailureClassificationIsBoundedAndSafe(t *testing.T) {
+	tests := []struct {
+		name   string
+		result smtpclient.Result
+		want   string
+	}{
+		{"temporary", smtpclient.Result{Class: smtpclient.ClassTemporary, Code: 451}, "temporary smtp_code=451"},
+		{"permanent", smtpclient.Result{Class: smtpclient.ClassPermanent, Code: 550}, "permanent smtp_code=550"},
+		{"invalid success", smtpclient.Result{Accepted: true, Code: 251}, "protocol smtp_code=251"},
+		{"unknown values", smtpclient.Result{Class: smtpclient.ErrorClass("private-detail"), Code: 1234}, "protocol smtp_code=0"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			operations := commandOperations{smtpAcceptance: func(context.Context, config.Config, string) smtpclient.Result {
+				return test.result
+			}}
+			var stderr bytes.Buffer
+			exitCode := runMain(context.Background(), []string{"smtp-test", "--recipient-stdin"}, strings.NewReader("recipient@example.test\n"), io.Discard, &stderr, testEnvironment, operations)
+			if exitCode != 1 {
+				t.Fatalf("smtp-test exit code = %d, want 1", exitCode)
+			}
+			want := "threadhub-mailer: command failed error_class=" + test.want + "\n"
+			if got := stderr.String(); got != want {
+				t.Fatalf("smtp-test stderr = %q, want %q", got, want)
+			}
+		})
 	}
 }
 

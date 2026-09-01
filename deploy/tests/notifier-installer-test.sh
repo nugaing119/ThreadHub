@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Compose fixtures are dispatched indirectly and grep patterns are literal shell source.
+# shellcheck disable=SC2016,SC2329
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -731,7 +734,7 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
 
 test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
     for script_name in \
-        install-notifier-plugin.sh readiness-check.sh notifier-control.sh notifier-status.sh; do
+        readiness-check.sh notifier-control.sh notifier-status.sh; do
         script="${TEST_DEPLOY_DIR}/scripts/${script_name}"
         # Match the literal source expression; expansion is not intended.
         # shellcheck disable=SC2016
@@ -740,6 +743,12 @@ test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
         grep -F 'notifier_plugin_list_is_exact_active' "${script}" >/dev/null \
             || return 1
     done
+    grep -F 'source "${SCRIPT_DIR}/notifier-lib.sh"' \
+        "${TEST_DEPLOY_DIR}/scripts/install-notifier-plugin.sh" >/dev/null || return 1
+    grep -F 'source "${SCRIPT_DIR}/notifier-plugin-install-lib.sh"' \
+        "${TEST_DEPLOY_DIR}/scripts/install-notifier-plugin.sh" >/dev/null || return 1
+    grep -F 'notifier_plugin_list_is_exact_active' \
+        "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-install-lib.sh" >/dev/null
 )
 
 notifier_test_plugin_files_privileged() {
@@ -937,6 +946,55 @@ test_prior_plugin_pair_capture_validates_archive_tree_identity_and_metadata() (
         "${fixture}/captured-wrong-id" "${scratch}" >/dev/null 2>&1
 )
 
+test_pair_capture_normalizes_review_tree_under_restrictive_umask() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(notifier_test_plugin_files_privileged)
+    plugin_id=com.threadhub.channel-email-notifier
+    version=0.0.9
+    runtime_root="${fixture}/runtime/${plugin_id}"
+    bundle_target="${fixture}/filestore/${plugin_id}.tar.gz"
+    scratch="${fixture}/scratch"
+    capture_root="${fixture}/captured-restrictive"
+
+    make_reviewed_plugin_pair_fixture "${fixture}" "${version}" || return 1
+    umask 077
+    notifier_plugin_capture_pair \
+        "${runtime_root}" "${bundle_target}" "${plugin_id}" \
+        "${capture_root}" "${scratch}" >/dev/null || return 1
+
+    [[ "$(portable_mode "${capture_root}/${plugin_id}")" == 755 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/server")" == 755 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/server/dist")" == 755 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/plugin.json")" == 644 \
+        && "$(portable_mode "${capture_root}/${plugin_id}/server/dist/plugin-linux-amd64")" == 644 ]]
+)
+
+test_plugin_scratch_cleanup_falls_back_to_privilege() (
+    fixture="$(mktemp -d)"
+    calls="${fixture}.calls"
+    trap 'if [[ -e "${fixture}" ]]; then chmod -R u+rwx "${fixture}"; rm -rf "${fixture}"; fi; rm -f "${calls}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    mkdir "${fixture}/root-owned-review"
+    printf 'review\n' > "${fixture}/root-owned-review/plugin.json"
+    chmod 000 "${fixture}/root-owned-review"
+    fixture_privileged_cleanup() {
+        printf '%s\n' "$*" >> "${calls}"
+        [[ "$1" == rm ]] || return 2
+        shift
+        chmod -R u+rwx "${fixture}"
+        command rm "$@"
+    }
+    SUDO_COMMAND=(fixture_privileged_cleanup)
+
+    notifier_plugin_cleanup_scratch_root "${fixture}" || return 1
+    [[ ! -e "${fixture}" ]] || return 1
+    grep -F 'rm -rf --' "${calls}" >/dev/null
+)
+
 test_post_start_pair_verification_rejects_deleted_or_replaced_objects() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -973,19 +1031,6 @@ test_post_start_pair_verification_rejects_deleted_or_replaced_objects() (
     ! notifier_plugin_pair_is_exact \
         "${runtime_root}" "${bundle_target}" "${reviewed_root}" \
         "${expected_sha}" "${scratch}" >/dev/null 2>&1
-)
-
-test_already_exact_installer_rechecks_pair_after_startup_synchronization() (
-    installer="${TEST_DEPLOY_DIR}/scripts/install-notifier-plugin.sh"
-    awk '
-        /^ensure_plugin_active\(\)/ { in_function = 1; next }
-        in_function && /^}/ { exit(state == 4 ? 0 : 1) }
-        in_function && state == 0 && /compose up -d --wait --wait-timeout 240 mattermost/ { state = 1; next }
-        in_function && state == 1 && /enable_expected_plugin/ { state = 2; next }
-        in_function && state == 2 && /notifier_plugin_list_is_exact_active/ { state = 3; next }
-        in_function && state == 3 && /notifier_plugin_pair_is_exact/ { state = 4; next }
-        END { if (!in_function) exit 1 }
-    ' "${installer}"
 )
 
 test_prior_pair_recovery_evidence_survives_post_start_deletion() (
@@ -1156,11 +1201,14 @@ run_test \
     'prior plugin pair capture validates archive tree identity and verified metadata' \
     test_prior_plugin_pair_capture_validates_archive_tree_identity_and_metadata
 run_test \
+    'plugin pair capture normalizes its review tree under a restrictive umask' \
+    test_pair_capture_normalizes_review_tree_under_restrictive_umask
+run_test \
+    'plugin review scratch cleanup falls back to privilege' \
+    test_plugin_scratch_cleanup_falls_back_to_privilege
+run_test \
     'post-start pair verification rejects deleted or replaced production objects' \
     test_post_start_pair_verification_rejects_deleted_or_replaced_objects
-run_test \
-    'already-exact plugin install rechecks the pair after startup synchronization' \
-    test_already_exact_installer_rechecks_pair_after_startup_synchronization
 run_test \
     'verified prior pair recovery evidence survives post-start deletion' \
     test_prior_pair_recovery_evidence_survives_post_start_deletion

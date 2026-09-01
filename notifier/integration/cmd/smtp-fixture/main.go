@@ -403,6 +403,16 @@ func publishCA(source, destination string) error {
 	if _, err := x509.ParseCertificate(block.Bytes); err != nil {
 		return errors.New("invalid runtime CA")
 	}
+	destinationInfo, destinationErr := os.Lstat(destination)
+	if destinationErr == nil && destinationInfo.Mode().IsRegular() &&
+		destinationInfo.Mode().Perm() == 0o644 && destinationInfo.Size() > 0 && destinationInfo.Size() <= 64<<10 {
+		published, readErr := os.ReadFile(destination)
+		if readErr == nil && bytes.Equal(published, raw) {
+			return nil
+		}
+	} else if destinationErr != nil && !errors.Is(destinationErr, os.ErrNotExist) {
+		return errors.New("invalid published CA")
+	}
 	temporary, err := os.CreateTemp(filepath.Dir(destination), ".ca.*")
 	if err != nil {
 		return err

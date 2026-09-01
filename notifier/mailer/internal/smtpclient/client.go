@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"errors"
+	"io"
 	"net"
 	"net/smtp"
 	"net/textproto"
@@ -133,6 +134,9 @@ func classify(err error) Result {
 		return Result{Class: ClassTimeout}
 	}
 	if errors.Is(err, context.Canceled) {
+		return Result{Class: ClassTemporary}
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 		return Result{Class: ClassTemporary}
 	}
 	var smtpErr *textproto.Error

@@ -68,6 +68,11 @@ DNS 또는 OCI Email Delivery가 아직 준비되지 않았다면 기존 작업�
 있습니다. 자세한 절차는 [빠른 설치 가이드](./deploy/docs/quick-install.md)를
 따릅니다.
 
+이미 운영 중인 지원 대상 Mattermost에 알림만 추가할 때는 신규 설치 마법사를
+사용하지 않습니다. base Compose와 기존 환경파일을 수정하지 않는 별도
+[기존 Mattermost notifier 적용 가이드](./deploy/docs/existing-mattermost-notifier.md)를
+따릅니다.
+
 프로젝트 Team의 사용자 운영 절차는 [프로젝트 Team 운영 절차](./deploy/docs/project-team-runbook.md)를 사용합니다.
 즉시 채널 이메일 알림의 설치, 운영, 개인정보와 종료 절차는
 [빠른 설치](./deploy/docs/quick-install.md), [운영 점검표](./deploy/docs/operations-checklist.md),

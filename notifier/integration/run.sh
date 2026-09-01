@@ -220,6 +220,7 @@ for required_command in awk chmod cmp curl dirname find go grep id jq mkdir mkte
     command -v "${required_command}" >/dev/null 2>&1 || abort_run NF-HARNESS-config
 done
 [[ -f "${compose_file}" && -f "${versions_file}" && -f "${scenario_ids_file}" && -f "${failure_assertions_file}" ]] || abort_run NF-HARNESS-config
+[[ "$(wc -l <"${scenario_ids_file}" | tr -d '[:space:]')" == 15 ]] || abort_run NF-HARNESS-config
 [[ "${compose_command_value}" != *$'\n'* && "${compose_command_value}" != *$'\r'* ]] || abort_run NF-HARNESS-config
 read -r -a compose_command <<<"${compose_command_value}"
 if [[ "${#compose_command[@]}" -eq 2 ]]; then

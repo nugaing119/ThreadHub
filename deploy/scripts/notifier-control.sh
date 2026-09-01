@@ -102,8 +102,9 @@ notifier_control_dispatch() (
 
     init_docker
     "${SCRIPT_DIR}/health-check.sh" >/dev/null
-    compose exec -T threadhub-mailer /threadhub-mailer healthcheck >/dev/null
-    [[ -z "$(compose port threadhub-mailer)" ]] \
+    notifier_compose exec -T "$(notifier_mailer_service)" \
+        /threadhub-mailer healthcheck >/dev/null
+    [[ -z "$(notifier_compose port "$(notifier_mailer_service)")" ]] \
         || die "Notifier Mailer unexpectedly publishes a host port"
     notifier_smtp_marker_is_current "${marker_file}" \
         || die "Current SMTP credentials have not passed notifier SMTP acceptance"
@@ -114,12 +115,12 @@ notifier_control_dispatch() (
     mailer_status_file="${temporary_dir}/mailer-status.json"
     plugin_id="$(env_value NOTIFIER_PLUGIN_ID "${VERSIONS_FILE}")"
     notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")"
-    compose exec -T mattermost \
+    notifier_compose exec -T "$(notifier_mattermost_service)" \
         mmctl plugin list --local --suppress-warnings --json > "${plugin_list_file}"
     notifier_plugin_list_is_exact_active \
         "${plugin_list_file}" "${plugin_id}" "${notifier_version}" \
         || die "Exact notifier plugin ID and version are not active"
-    compose exec -T threadhub-mailer \
+    notifier_compose exec -T "$(notifier_mailer_service)" \
         /threadhub-mailer status --json > "${mailer_status_file}"
     notifier_activate_state \
         "${state_file}" "${target_mode}" "${target_channel_ids}" "${mailer_status_file}" \

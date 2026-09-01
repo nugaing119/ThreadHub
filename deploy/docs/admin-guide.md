@@ -105,6 +105,11 @@ Gmail, 네이버와 다음 주소에 대해 각각 다음 메일을 시험합니
 
 ## 6. 즉시 채널 이메일 알림
 
+신규 ThreadHub는 빠른 설치 절차를 사용합니다. 이미 운영 중인 지원 대상
+Mattermost에 notifier를 채택할 때는 base Compose를 수정하지 않는
+[기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)를 먼저
+따릅니다.
+
 이 notifier는 Mattermost Team Edition의 normal plugin API를 사용합니다. no paid feature를
 활성화하지 않으며 no license check change가 없습니다. 공개·비공개 채널의 새 글과
 스레드 답글에서 작성자를 제외한 현재 채널 멤버에게 일반 안내문만 보냅니다. DM과

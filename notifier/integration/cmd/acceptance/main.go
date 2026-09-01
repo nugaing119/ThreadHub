@@ -795,10 +795,23 @@ func (a *acceptance) enableAndRestart(ctx context.Context, activatedAt int64) er
 	if err := writeControl(a.cfg.controlFile, controlState{Enabled: true, DeliveryEnabled: true, Mode: "all_channels", ChannelIDs: []string{}, ActivatedAt: activatedAt}); err != nil {
 		return err
 	}
-	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil {
+	return a.restartMattermostThenMailer(ctx, integrationRestartTimeout)
+}
+
+func (a *acceptance) restartMattermostThenMailer(ctx context.Context, timeout time.Duration) error {
+	if _, err := a.compose.run(ctx, "restart", "mattermost"); err != nil {
 		return err
 	}
-	return a.waitServices(ctx, integrationRestartTimeout)
+	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", timeout); err != nil {
+		return err
+	}
+	if err := a.waitPluginRuntime(ctx, timeout); err != nil {
+		return err
+	}
+	if _, err := a.compose.run(ctx, "restart", "threadhub-mailer"); err != nil {
+		return err
+	}
+	return waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", timeout)
 }
 
 func writeControl(path string, state controlState) error {
@@ -827,16 +840,6 @@ func writeControl(path string, state controlState) error {
 		return err
 	}
 	return os.Rename(temporaryPath, path)
-}
-
-func (a *acceptance) waitServices(ctx context.Context, timeout time.Duration) error {
-	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", timeout); err != nil {
-		return err
-	}
-	if err := waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", timeout); err != nil {
-		return err
-	}
-	return a.waitPluginRuntime(ctx, timeout)
 }
 
 func waitHTTP(ctx context.Context, client *http.Client, endpoint string, timeout time.Duration) error {
@@ -1322,10 +1325,19 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 	if err := writeControl(a.cfg.controlFile, controlState{Enabled: false, DeliveryEnabled: false, Mode: "all_channels", ChannelIDs: []string{}, ActivatedAt: time.Now().UnixMilli()}); err != nil {
 		return "NF-REL-05-control-disable-write"
 	}
-	if _, err := a.compose.run(ctx, "restart", "mattermost", "threadhub-mailer"); err != nil {
+	if _, err := a.compose.run(ctx, "restart", "mattermost"); err != nil {
 		return "NF-REL-05-control-disable-restart"
 	}
-	if err := a.waitServices(ctx, integrationRestartTimeout); err != nil {
+	if err := waitHTTP(ctx, a.mattermost.client, a.mattermost.baseURL+"/api/v4/system/ping", integrationRestartTimeout); err != nil {
+		return "NF-REL-05-control-disable-wait"
+	}
+	if err := a.waitPluginRuntime(ctx, integrationRestartTimeout); err != nil {
+		return "NF-REL-05-control-disable-wait"
+	}
+	if _, err := a.compose.run(ctx, "restart", "threadhub-mailer"); err != nil {
+		return "NF-REL-05-control-disable-restart"
+	}
+	if err := waitHTTP(ctx, a.http, a.cfg.mailerURL.String()+"/healthz", integrationRestartTimeout); err != nil {
 		return "NF-REL-05-control-disable-wait"
 	}
 	if err := a.verifyPluginPair(ctx); err != nil {

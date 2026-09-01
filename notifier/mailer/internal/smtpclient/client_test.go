@@ -61,6 +61,18 @@ func TestSendClassifiesNonTimeoutNetworkFailureAsTemporary(t *testing.T) {
 	}
 }
 
+func TestSendClassifiesPeerDisconnectAsTemporary(t *testing.T) {
+	host, port := startClosingSMTPPeer(t)
+	client := smtpclient.New(smtpclient.Config{
+		Host: host, Port: port, Username: "fixture-user", Password: "fixture-password",
+		DialTimeout: time.Second,
+	}, nil)
+	result := client.Send(context.Background(), testMessage(t))
+	if result.Accepted || result.Class != smtpclient.ClassTemporary || result.Code != 0 {
+		t.Fatalf("Send(peer disconnect) = %+v, want temporary connection failure", result)
+	}
+}
+
 func TestSendClassifiesSMTPFailures(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -184,6 +196,23 @@ func startSilentSMTPPeer(t *testing.T) (string, int) {
 		close(release)
 		_ = listener.Close()
 	})
+	address := listener.Addr().(*net.TCPAddr)
+	return "127.0.0.1", address.Port
+}
+
+func startClosingSMTPPeer(t *testing.T) (string, int) {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		connection, acceptErr := listener.Accept()
+		if acceptErr == nil {
+			_ = connection.Close()
+		}
+	}()
+	t.Cleanup(func() { _ = listener.Close() })
 	address := listener.Addr().(*net.TCPAddr)
 	return "127.0.0.1", address.Port
 }

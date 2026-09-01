@@ -4,6 +4,15 @@
 # Mattermost filestore bundle. Callers source common.sh first so SUDO_COMMAND
 # is an initialized command array.
 
+notifier_plugin_cleanup_scratch_root() {
+    local scratch_root="${1:-}"
+
+    [[ "$#" -eq 1 && "${scratch_root}" == /* && "${scratch_root}" != / \
+        && "${scratch_root}" != *$'\n'* && "${scratch_root}" != *$'\r'* ]] || return 2
+    rm -rf -- "${scratch_root}" >/dev/null 2>&1 && return 0
+    "${SUDO_COMMAND[@]}" rm -rf -- "${scratch_root}" >/dev/null 2>&1
+}
+
 notifier_plugin_privileged_sha256() {
     local path="$1"
 
@@ -186,10 +195,17 @@ notifier_plugin_capture_pair() (
         "${inspection_dir}/verbose-entries" || return 1
 
     mkdir -m 0700 "${extraction_dir}"
-    "${SUDO_COMMAND[@]}" tar --extract --gzip \
-        --file "${inspection_dir}/bundle.tar.gz" \
-        --directory "${extraction_dir}" \
-        --no-same-owner --no-same-permissions
+    # The review tree is root-owned when privilege is required, but the
+    # unprivileged caller must still be able to traverse and compare it.
+    # Normalize the extraction umask so a caller-wide umask 077 cannot turn
+    # the reviewed directories into inaccessible mode 0700 objects.
+    (
+        umask 022
+        "${SUDO_COMMAND[@]}" tar --extract --gzip \
+            --file "${inspection_dir}/bundle.tar.gz" \
+            --directory "${extraction_dir}" \
+            --no-same-owner --no-same-permissions
+    )
     reviewed_root="${extraction_dir}/${plugin_id}"
     manifest="${reviewed_root}/plugin.json"
     # shellcheck disable=SC2016 # jq variables are intentionally expanded by jq.

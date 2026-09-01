@@ -1,7 +1,10 @@
 # ThreadHub 빠른 설치
 
 이 절차는 새 Ubuntu 24.04 LTS AMD64 VM 한 대에 새 ThreadHub 인스턴스를
-설치합니다. 기존 프로젝트 데이터를 이전하거나 OCI 리소스를 자동 생성하지 않습니다.
+설치하는 fresh installation only 절차입니다. 기존 프로젝트 데이터를 이전하거나 OCI
+리소스를 자동 생성하지 않습니다. 이미 운영 중인 Mattermost에 notifier만 추가하려면
+이 문서나 설치 마법사를 사용하지 말고
+[기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)를 따릅니다.
 
 ## 1. 설치 순서와 준비해야 할 값
 

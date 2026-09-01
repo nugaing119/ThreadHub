@@ -115,7 +115,9 @@ notifier_docs_validate_nf_matrix() {
         NF-REL-01 NF-REL-02 NF-REL-03 NF-REL-04 NF-REL-05 NF-REL-06 \
         NF-REL-07 NF-REL-08 NF-REL-09 \
         NF-INS-01 NF-INS-02 NF-INS-03 NF-INS-04 NF-INS-05 \
-        NF-IAM-01 NF-IAM-02 NF-IAM-03 NF-IAM-04 NF-IAM-05 NF-IAM-06 NF-IAM-07; do
+        NF-IAM-01 NF-IAM-02 NF-IAM-03 NF-IAM-04 NF-IAM-05 NF-IAM-06 NF-IAM-07 \
+        NF-ADOPT-01 NF-ADOPT-02 NF-ADOPT-03 NF-ADOPT-04 NF-ADOPT-05 \
+        NF-ADOPT-06 NF-ADOPT-07 NF-ADOPT-08 NF-ADOPT-09 NF-ADOPT-10; do
         row="$(grep -m1 -E "^\\|[[:space:]]*${identifier}[[:space:]]*\\|" "${document}" || true)"
         [[ -n "${row}" && ( "${row}" == *'| 자동 |'* || "${row}" == *'| 수동 |'* || "${row}" == *'| 라이브 승인 필요 |'* ) ]] \
             || {
@@ -133,6 +135,7 @@ validate_notifier_documentation_contracts() {
         "${repository_root}/SECURITY.md"
         "${deploy_dir}/README.md"
         "${deploy_dir}/docs/quick-install.md"
+        "${deploy_dir}/docs/existing-mattermost-notifier.md"
         "${deploy_dir}/docs/setup.md"
         "${deploy_dir}/docs/admin-guide.md"
         "${deploy_dir}/docs/oci-email-delivery.md"
@@ -147,9 +150,13 @@ validate_notifier_documentation_contracts() {
         notifier_docs_require_file "${document}" || return 1
     done
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/quick-install.md' || return 1
+    notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/existing-mattermost-notifier.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" './docs/quick-install.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/README.md" './docs/existing-mattermost-notifier.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './oci-email-delivery.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './admin-guide.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './existing-mattermost-notifier.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/admin-guide.md" './existing-mattermost-notifier.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/setup.md" './oci-email-delivery.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/admin-guide.md" './operations-checklist.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/operations-checklist.md" './project-close.md' || return 1
@@ -161,6 +168,26 @@ validate_notifier_documentation_contracts() {
         'fresh Ubuntu 24.04 AMD64 VM' './deploy/scripts/validate.sh' \
         '프로젝트 DNS와 Email Delivery' '숨김 SMTP 입력' 'build/install' \
         '일회성 SMTP acceptance' 'activation cutoff' '[READY]' 'inbox/link/SPF/DKIM' || return 1
+
+    notifier_docs_require_section_order "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        '## 적용 순서' 'existing adoption safety sequence' \
+        'existing-notifier-preflight.sh' 'disabled' 'existing-notifier-setup.sh' \
+        'SMTP acceptance' 'allowlist' 'manual acceptance' 'explicit all_channels approval' || return 1
+    # Backticks below are required literal Markdown delimiters.
+    # shellcheck disable=SC2016
+    notifier_docs_require_terms "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        'existing adoption support and impact boundary' \
+        'Mattermost Team Edition 11.7.7' 'Ubuntu 24.04 AMD64' 'single-node Compose' \
+        'bind mount' '30–60초' 'base Compose' 'base environment' 'exit code 20' \
+        'queue data' 'rollback' 'public/private root and thread' \
+        '`existing-notifier-setup.sh` → `SMTP acceptance` → `allowlist`' || return 1
+    notifier_docs_require_terms "${repository_root}/AGENTS.md" \
+        'existing Mattermost fail-closed agent contract' \
+        'existing-notifier-preflight.sh' 'do not modify the base Compose file' \
+        'exit code 20' 'never enable all_channels without explicit approval' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
+        'fresh and existing adoption separation' \
+        'fresh installation only' 'existing-mattermost-notifier.md' || return 1
 
     notifier_docs_require_section_order "${deploy_dir}/docs/operations-checklist.md" \
         '### 종료·credential 교체 전 queue 처리' 'close delivery sequence' \

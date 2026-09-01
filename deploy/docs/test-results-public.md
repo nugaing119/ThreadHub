@@ -22,6 +22,23 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 | --- | --- | --- | --- | --- | --- | ---: | --- |
 | 2026-08-28 | `0cbb3c35927a7cc5b3cd0f07d8cdfbfbc98e072e` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | 15 | pass |
 
+## existing-adoption 자동 증거 계약
+
+`notifier-existing-adoption` CI job은 신규설치 real-image integration 성공 뒤 실행되며,
+기존 Mattermost 채택 시나리오 `NF-ADOPT-01`~`NF-ADOPT-10`을 검증합니다. 성공
+artifact에는 다음 비밀정보 없는 필드만 기록됩니다. 이 설명은 아직 실행되지 않은
+커밋을 통과로 표시하지 않으며, 실제 판정은 해당 커밋의 CI artifact를 기준으로 합니다.
+
+| 필드 | 공개 값 |
+| --- | --- |
+| test date | UTC 실행일 |
+| source commit | 검증한 Git commit |
+| Mattermost/PostgreSQL image digest | `deploy/versions.env`의 고정 Digest |
+| notifier version | 고정 release version |
+| plugin bundle SHA-256 | 실행 중 검증된 bundle hash |
+| existing-adoption scenario count | 10 |
+| result | `pass` 또는 실패 시 안전한 `NF-ADOPT-*` ID |
+
 ## 2. 자동·반자동 검증
 
 다음 항목은 저장소 검증 스크립트, GitHub Actions와 실제 시험 인스턴스에서
