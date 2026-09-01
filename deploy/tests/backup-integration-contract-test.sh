@@ -46,11 +46,17 @@ test_harness_has_real_image_and_acceptance_contracts() {
 }
 
 test_harness_is_ephemeral_and_guards_cleanup() {
+    local target_mark_line deploy_line
+
     grep -F 'require_ubuntu_amd64' "${HARNESS}" >/dev/null
     grep -F 'INTEGRATION_SENTINEL' "${HARNESS}" >/dev/null
     grep -F 'COMPOSE_PROJECT_NAME=threadhub-backup-integration' "${HARNESS}" >/dev/null
     grep -F 'backup_assert_empty_target /srv/threadhub' "${HARNESS}" >/dev/null
     grep -F 'docker compose' "${HARNESS}" >/dev/null
+    target_mark_line="$(grep -nF 'mark_root "${TARGET_ROOT}"' "${HARNESS}" | head -n 1 | cut -d: -f1)"
+    deploy_line="$(grep -nF '"${DEPLOY_DIR}/scripts/deploy.sh"' "${HARNESS}" | head -n 1 | cut -d: -f1)"
+    [[ -n "${target_mark_line}" && -n "${deploy_line}" && "${target_mark_line}" -lt "${deploy_line}" ]]
+    grep -F 'CURRENT_FAILURE="$(classify_deploy_failure)"' "${HARNESS}" >/dev/null
     ! grep -Eq 'docker (system|volume|network) prune|rm -rf /srv($|/[^t])' "${HARNESS}"
 }
 

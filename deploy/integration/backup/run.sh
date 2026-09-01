@@ -42,7 +42,7 @@ exec 3>&1
 emit_result() {
     local result="$1"
 
-    [[ "${result}" =~ ^(pass|preflight|deploy|seed|backup|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
+    [[ "${result}" =~ ^(pass|preflight|deploy|deploy-layout|deploy-image|deploy-start|deploy-health|seed|backup|remote-verify|source-root-unchanged|restore|notifier-old-mail-not-sent|service-downtime-at-most-300|restore-rto-at-most-14400|privacy|cleanup)$ ]] \
         || result=preflight
     printf 'BK-INTEGRATION-%s\n' "${result}" >&3
 }
@@ -143,6 +143,22 @@ cleanup() {
     [[ "${cleanup_ok}" == true ]]
 }
 
+classify_deploy_failure() {
+    if grep -Fq '[threadhub] Notifier plugin ' "${PRIVATE_LOG}"; then
+        printf '%s\n' deploy-health
+    elif grep -Fq '[threadhub] Starting ThreadHub' "${PRIVATE_LOG}"; then
+        printf '%s\n' deploy-start
+    elif grep -Fq '[threadhub] Pulling immutable external linux/amd64 image manifests' \
+        "${PRIVATE_LOG}"; then
+        printf '%s\n' deploy-image
+    elif grep -Fq '[threadhub] Creating explicit PostgreSQL, Mattermost and notifier bind-mount paths' \
+        "${PRIVATE_LOG}"; then
+        printf '%s\n' deploy-layout
+    else
+        printf '%s\n' deploy
+    fi
+}
+
 collect_privacy_evidence() {
     local path destination index=0
 
@@ -199,7 +215,7 @@ finish() {
     if [[ -n "${PRIVATE_ROOT}" && -d "${PRIVATE_ROOT}" ]] && ! privacy_scan; then
         result=privacy
     fi
-    if ! cleanup; then
+    if ! cleanup && [[ "${result}" == pass ]]; then
         result=cleanup
     fi
     emit_result "${result}"
@@ -347,6 +363,8 @@ initialize_fixture() {
     chmod 0600 "${PRIVATE_ROOT}/restore-secrets"
     write_runtime_env "${database_password}" "${hmac_secret}"
     write_backup_config
+    install -d -m 0700 "${TARGET_ROOT}"
+    mark_root "${TARGET_ROOT}"
     install -d -m 0700 "${BACKUP_STATE_ROOT}"
     mark_root "${BACKUP_STATE_ROOT}"
     export OCI_STUB_NAMESPACE=integrationnamespace
@@ -471,8 +489,10 @@ main() {
     initialize_fixture
 
     CURRENT_FAILURE=deploy
-    "${DEPLOY_DIR}/scripts/deploy.sh"
-    mark_root "${TARGET_ROOT}"
+    if ! "${DEPLOY_DIR}/scripts/deploy.sh"; then
+        CURRENT_FAILURE="$(classify_deploy_failure)"
+        return 1
+    fi
 
     CURRENT_FAILURE=seed
     "${MATTERMOST_SEED}" --seed
