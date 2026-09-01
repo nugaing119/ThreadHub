@@ -120,6 +120,24 @@ test_prepare_rejects_symlink_without_replacing_it() (
     [[ ! -s "${LAYOUT_TEST_TRACE}" ]]
 )
 
+test_restore_rejects_invalid_entry_when_find_exits_on_sigpipe() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    prepare_threadhub_data_layout "${LAYOUT_TEST_ROOT}"
+    : > "${LAYOUT_TEST_TRACE}"
+
+    find() {
+        printf '%s\n' "${LAYOUT_TEST_ROOT}/mattermost/data/link"
+        return 141
+    }
+
+    if normalize_threadhub_restored_data "${LAYOUT_TEST_ROOT}"; then
+        return 1
+    fi
+    [[ ! -s "${LAYOUT_TEST_TRACE}" ]]
+)
+
 test_restore_normalization_touches_only_regular_mattermost_data() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -149,6 +167,7 @@ run_test 'production layout validator accepts only the fixed root' test_producti
 run_test 'layout has canonical modes and ownership intent' test_layout_has_canonical_modes_and_ownership_intent
 run_test 'repeated layout preparation preserves existing content' test_repeated_prepare_preserves_existing_content
 run_test 'layout preparation rejects symlinks without replacement' test_prepare_rejects_symlink_without_replacing_it
+run_test 'restore rejects invalid entries when find exits on SIGPIPE' test_restore_rejects_invalid_entry_when_find_exits_on_sigpipe
 run_test 'restore normalization touches only regular Mattermost data' test_restore_normalization_touches_only_regular_mattermost_data
 
 if ((failures > 0)); then

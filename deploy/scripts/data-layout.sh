@@ -98,13 +98,14 @@ prepare_threadhub_data_layout() {
 }
 
 normalize_threadhub_restored_data() {
-    local data_root="$1" mattermost_data
+    local data_root="$1" mattermost_data invalid_entry
 
     data_layout_validate_root "${data_root}" || return 20
     mattermost_data="${data_root}/mattermost/data"
     [[ -d "${mattermost_data}" && ! -L "${mattermost_data}" ]] || return 20
-    if find -P "${mattermost_data}" -mindepth 1 ! -type f ! -type d -print -quit 2>/dev/null \
-        | grep -q .; then
+    invalid_entry="$(find -P "${mattermost_data}" -mindepth 1 \
+        ! -type f ! -type d -print -quit 2>/dev/null)" || return 20
+    if [[ -n "${invalid_entry}" ]]; then
         return 20
     fi
     data_layout_validate_root "${data_root}" || return 20
