@@ -152,7 +152,9 @@ test_restore_normalization_touches_only_regular_mattermost_data() (
     : > "${LAYOUT_TEST_TRACE}"
 
     normalize_threadhub_restored_data "${LAYOUT_TEST_ROOT}"
-    [[ "$(portable_mode "${LAYOUT_TEST_ROOT}/mattermost/data/file")" == 640 ]]
+    if [[ "$(portable_mode "${LAYOUT_TEST_ROOT}/mattermost/data/file")" != 640 ]]; then
+        return 1
+    fi
     grep -F "chown -R 2000:2000 ${LAYOUT_TEST_ROOT}/mattermost/data" "${LAYOUT_TEST_TRACE}" >/dev/null
     [[ "$(sha256_file "${LAYOUT_TEST_ROOT}/postgres/sentinel")" == "${postgres_before}" ]]
     [[ "$(sha256_file "${LAYOUT_TEST_ROOT}/notifier/mailer/queue.db")" == "${queue_before}" ]]

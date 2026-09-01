@@ -110,6 +110,9 @@ normalize_threadhub_restored_data() {
     fi
     data_layout_validate_root "${data_root}" || return 20
     "${SUDO_COMMAND[@]}" chown -R 2000:2000 "${mattermost_data}" || return 20
-    "${SUDO_COMMAND[@]}" chmod -R u=rwX,g=rX,o= "${mattermost_data}" || return 20
+    "${SUDO_COMMAND[@]}" find -P "${mattermost_data}" -type d \
+        -exec chmod 0750 {} + || return 20
+    "${SUDO_COMMAND[@]}" find -P "${mattermost_data}" -type f \
+        -exec chmod 0640 {} + || return 20
     data_layout_validate_root "${data_root}"
 }
