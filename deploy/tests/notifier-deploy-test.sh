@@ -1019,35 +1019,50 @@ test_writable_notifier_parent_is_rejected_without_mutation() (
 
 test_deploy_validates_notifier_layout_top_down() (
     # shellcheck disable=SC2031 # each test function executes in its own subshell
+    deploy_script="${DEPLOY_DIR}/scripts/deploy.sh"
+    # shellcheck disable=SC2031 # each test function executes in its own subshell
+    layout_script="${DEPLOY_DIR}/scripts/data-layout.sh"
+    # Match literal deployment expressions; expansion is not intended.
+    # shellcheck disable=SC2016
+    grep -F 'source "${SCRIPT_DIR}/data-layout.sh"' "${deploy_script}" >/dev/null || return 1
+    # shellcheck disable=SC2016
+    grep -F 'prepare_threadhub_data_layout "${data_root}"' "${deploy_script}" >/dev/null || return 1
     awk '
         index($0, "install -d -o root -g root -m 0750 \"${data_root}\"") { if (state != 0) exit 1; state = 1; next }
-        state == 1 && index($0, "validate_notifier_host_path \"${data_root}\"") { state = 2; next }
+        state == 1 && index($0, "data_layout_validate_root \"${data_root}\"") { state = 2; next }
         state == 2 && index($0, "install -d -o root -g root -m 0750 \"${notifier_root}\"") { state = 3; next }
-        state == 3 && index($0, "validate_notifier_host_path \"${data_root}\"") { state = 4; next }
+        state == 3 && index($0, "data_layout_validate_root \"${data_root}\"") { state = 4; next }
         state == 4 && index($0, "${notifier_root}/control") { state = 5; next }
-        state == 5 && index($0, "${notifier_root}/mailer") { state = 6; next }
-        state == 6 && index($0, "${notifier_root}/release") { state = 7; next }
-        state == 7 && index($0, "validate_notifier_host_path \"${data_root}\"") { state = 8; next }
-        END { exit(state == 8 ? 0 : 1) }
-    ' "${DEPLOY_DIR}/scripts/deploy.sh"
+        state == 5 && index($0, "data_layout_validate_root \"${data_root}\"") { state = 6; next }
+        state == 6 && index($0, "${notifier_root}/mailer") { state = 7; next }
+        state == 7 && index($0, "data_layout_validate_root \"${data_root}\"") { state = 8; next }
+        state == 8 && index($0, "${notifier_root}/release") { state = 9; next }
+        state == 9 && index($0, "data_layout_validate_root \"${data_root}\"") { state = 10; next }
+        END { exit(state == 10 ? 0 : 1) }
+    ' "${layout_script}"
 )
 
 test_deploy_creates_and_validates_filestore_plugin_directory() (
     # shellcheck disable=SC2031 # each test function executes in its own subshell
     deploy_script="${DEPLOY_DIR}/scripts/deploy.sh"
+    # shellcheck disable=SC2031 # each test function executes in its own subshell
+    layout_script="${DEPLOY_DIR}/scripts/data-layout.sh"
+    # shellcheck disable=SC2016
+    grep -F 'prepare_threadhub_data_layout "${data_root}"' \
+        "${deploy_script}" >/dev/null || return 1
     # Match literal deployment expressions; expansion is not intended.
     # shellcheck disable=SC2016,SC2031
     grep -F '"${mattermost_root}/data/plugins"' \
-        "${deploy_script}" >/dev/null || return 1
+        "${layout_script}" >/dev/null || return 1
 
     # Existing production plugin files are transaction inputs. A repeated
     # deploy must not normalize their metadata before the installer captures
     # and verifies the prior runtime/filestore pair.
     # shellcheck disable=SC2016
     if grep -F 'chown -R 2000:2000 "${mattermost_root}"' \
-        "${deploy_script}" >/dev/null \
+        "${layout_script}" >/dev/null \
         || grep -F 'chmod -R u=rwX,g=rX,o= "${mattermost_root}"' \
-            "${deploy_script}" >/dev/null; then
+            "${layout_script}" >/dev/null; then
         return 1
     fi
 
@@ -1063,7 +1078,7 @@ test_deploy_creates_and_validates_filestore_plugin_directory() (
         'chmod 0750 "${mattermost_root}" "${mattermost_root}/plugins"' \
         'chown -R 2000:2000 "${mattermost_mutable_paths[@]}"' \
         'chmod -R u=rwX,g=rX,o= "${mattermost_mutable_paths[@]}"'; do
-        grep -F "${required}" "${deploy_script}" >/dev/null || return 1
+        grep -F "${required}" "${layout_script}" >/dev/null || return 1
     done
 )
 

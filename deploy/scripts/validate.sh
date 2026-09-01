@@ -476,11 +476,15 @@ validate_runtime_env
 ENV_FILE="${original_env_file}"
 log "Runtime environment validation accepts a complete non-placeholder configuration"
 
-# Match the literal deployment-script expression; expansion is not intended.
+# Match the literal shared-layout expressions; expansion is not intended.
 # shellcheck disable=SC2016
 grep -F 'install -d -m 0755 "${data_root}/postgres"' \
-    "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    "${SCRIPT_DIR}/data-layout.sh" >/dev/null \
     || die "PostgreSQL bind-mount root permission regression detected"
+# shellcheck disable=SC2016
+grep -F 'prepare_threadhub_data_layout "${data_root}"' \
+    "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    || die "Deployment must use the canonical ThreadHub data layout"
 log "PostgreSQL bind-mount root remains traversable after the entrypoint drops privileges"
 
 grep -F 'ensure_tcp_input_rule 80' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
