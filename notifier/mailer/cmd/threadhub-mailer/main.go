@@ -2,7 +2,9 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +21,7 @@ import (
 	"time"
 
 	"github.com/nugaing119/ThreadHub/notifier/control"
+	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/adminnotice"
 	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/config"
 	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/httpapi"
 	"github.com/nugaing119/ThreadHub/notifier/mailer/internal/logsafe"
@@ -32,6 +35,7 @@ import (
 var (
 	errUsage          = errors.New("invalid command")
 	errRecipientInput = errors.New("recipient is required on stdin")
+	errBackupAlert    = errors.New("invalid backup alert input")
 	errSMTPAcceptance = errors.New("SMTP server did not return final 250 acceptance")
 )
 
@@ -46,6 +50,7 @@ type commandOperations struct {
 	healthcheck    func(context.Context, config.Config) error
 	status         func(context.Context, config.Config) (store.Status, error)
 	smtpAcceptance func(context.Context, config.Config, string) smtpclient.Result
+	backupAlert    func(context.Context, config.Config, string, string) smtpclient.Result
 	retryFailed    func(context.Context, config.Config) (int64, error)
 	cancelFailed   func(context.Context, config.Config) (int64, error)
 }
@@ -63,6 +68,11 @@ type statusOutput struct {
 
 type configFingerprintOutput struct {
 	ConfigFingerprint string `json:"config_fingerprint"`
+}
+
+type backupAlertInput struct {
+	Recipient    string `json:"recipient"`
+	FailureClass string `json:"failure_class"`
 }
 
 func main() {
@@ -146,6 +156,19 @@ func runCommand(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 			return &smtpAcceptanceError{result: result}
 		}
 		return writeConfigFingerprint(stdout, cfg)
+	case "backup-alert":
+		if operations.backupAlert == nil {
+			return errUsage
+		}
+		input, err := readBackupAlertInput(stdin)
+		if err != nil {
+			return err
+		}
+		result := operations.backupAlert(ctx, cfg, input.Recipient, input.FailureClass)
+		if !result.Accepted || result.Code != 250 {
+			return &smtpAcceptanceError{result: result}
+		}
+		return nil
 	case "config-fingerprint":
 		return writeConfigFingerprint(stdout, cfg)
 	case "retry-failed":
@@ -183,6 +206,8 @@ func parseCommand(args []string) (string, error) {
 		return "status", nil
 	case len(args) == 2 && args[0] == "smtp-test" && args[1] == "--recipient-stdin":
 		return "smtp-test", nil
+	case len(args) == 2 && args[0] == "backup-alert" && args[1] == "--json-stdin":
+		return "backup-alert", nil
 	case len(args) == 2 && args[0] == "config-fingerprint" && args[1] == "--json":
 		return "config-fingerprint", nil
 	case len(args) == 1 && args[0] == "retry-failed":
@@ -214,6 +239,30 @@ func readRecipient(stdin io.Reader) (string, error) {
 		return "", errRecipientInput
 	}
 	return recipient, nil
+}
+
+func readBackupAlertInput(stdin io.Reader) (backupAlertInput, error) {
+	if stdin == nil {
+		return backupAlertInput{}, errBackupAlert
+	}
+	data, err := io.ReadAll(io.LimitReader(stdin, 1025))
+	if err != nil || len(data) == 0 || len(data) > 1024 {
+		return backupAlertInput{}, errBackupAlert
+	}
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.DisallowUnknownFields()
+	var input backupAlertInput
+	if err := decoder.Decode(&input); err != nil {
+		return backupAlertInput{}, errBackupAlert
+	}
+	var trailing any
+	if err := decoder.Decode(&trailing); !errors.Is(err, io.EOF) {
+		return backupAlertInput{}, errBackupAlert
+	}
+	if protocol.ValidateEmail(input.Recipient) != nil || !adminnotice.ValidFailureClass(input.FailureClass) {
+		return backupAlertInput{}, errBackupAlert
+	}
+	return input, nil
 }
 
 func writeStatus(output io.Writer, status store.Status) error {
@@ -248,7 +297,8 @@ func safeSMTPCode(value int) int {
 func productionOperations() commandOperations {
 	return commandOperations{
 		serve: defaultServe, healthcheck: defaultHealthcheck, status: defaultStatus,
-		smtpAcceptance: defaultSMTPAcceptance, retryFailed: defaultRetryFailed, cancelFailed: defaultCancelFailed,
+		smtpAcceptance: defaultSMTPAcceptance, backupAlert: defaultBackupAlert,
+		retryFailed: defaultRetryFailed, cancelFailed: defaultCancelFailed,
 	}
 }
 
@@ -307,6 +357,32 @@ func defaultHealthcheck(ctx context.Context, cfg config.Config) error {
 
 func defaultSMTPAcceptance(ctx context.Context, cfg config.Config, recipient string) smtpclient.Result {
 	return sendSMTPAcceptance(ctx, cfg, recipient, time.Now(), smtpclient.DefaultTransactionTimeout)
+}
+
+func defaultBackupAlert(ctx context.Context, cfg config.Config, recipient, failureClass string) smtpclient.Result {
+	return sendBackupAlert(ctx, cfg, recipient, failureClass, time.Now(), smtpclient.DefaultTransactionTimeout, nil)
+}
+
+func sendBackupAlert(ctx context.Context, cfg config.Config, recipient, failureClass string, now time.Time, transactionTimeout time.Duration, roots *x509.CertPool) smtpclient.Result {
+	opaqueID := protocol.HashIdentifier(
+		cfg.HMACSecret,
+		"backup-alert",
+		recipient+"\n"+failureClass+"\n"+strconv.FormatInt(now.UnixNano(), 10),
+	)
+	rendered, err := adminnotice.Render(adminnotice.Input{
+		FromName: cfg.FeedbackName, FromAddress: cfg.FromAddress, ReplyTo: cfg.ReplyTo,
+		ToAddress: recipient, Domain: cfg.Domain, FailureClass: failureClass,
+		OpaqueID: opaqueID, Date: now,
+	})
+	if err != nil {
+		return smtpclient.Result{Class: smtpclient.ClassProtocol}
+	}
+	client := smtpclient.New(smtpclient.Config{
+		Host: cfg.SMTPHost, Port: cfg.SMTPPort, Username: cfg.SMTPUsername,
+		Password: cfg.SMTPPassword, DialTimeout: 10 * time.Second,
+		TransactionTimeout: transactionTimeout,
+	}, roots)
+	return client.Send(ctx, rendered)
 }
 
 func sendSMTPAcceptance(ctx context.Context, cfg config.Config, recipient string, now time.Time, transactionTimeout time.Duration) smtpclient.Result {

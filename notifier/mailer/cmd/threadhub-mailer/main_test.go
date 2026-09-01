@@ -9,6 +9,7 @@ import (
 	"mime"
 	"net"
 	"net/http"
+	"net/mail"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -33,6 +34,7 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 		{name: "healthcheck", args: []string{"healthcheck"}, want: "healthcheck"},
 		{name: "status json", args: []string{"status", "--json"}, want: "status"},
 		{name: "smtp recipient stdin", args: []string{"smtp-test", "--recipient-stdin"}, want: "smtp-test"},
+		{name: "backup alert json stdin", args: []string{"backup-alert", "--json-stdin"}, want: "backup-alert"},
 		{name: "retry failed", args: []string{"retry-failed"}, want: "retry-failed"},
 		{name: "cancel failed", args: []string{"cancel-failed"}, want: "cancel-failed"},
 	} {
@@ -49,10 +51,18 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 					called = "smtp-test"
 					return smtpclient.Result{Accepted: true, Code: 250}
 				},
+				backupAlert: func(context.Context, config.Config, string, string) smtpclient.Result {
+					called = "backup-alert"
+					return smtpclient.Result{Accepted: true, Code: 250}
+				},
 				retryFailed:  func(context.Context, config.Config) (int64, error) { called = "retry-failed"; return 0, nil },
 				cancelFailed: func(context.Context, config.Config) (int64, error) { called = "cancel-failed"; return 0, nil },
 			}
-			stdin := strings.NewReader("recipient@example.test\n")
+			input := "recipient@example.test\n"
+			if test.want == "backup-alert" {
+				input = `{"recipient":"admin@example.test","failure_class":"upload"}`
+			}
+			stdin := strings.NewReader(input)
 			if err := runCommand(context.Background(), test.args, stdin, io.Discard, testEnvironment, operations); err != nil {
 				t.Fatalf("runCommand(%v) error = %v", test.args, err)
 			}
@@ -66,11 +76,132 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 		nil, {"unknown"}, {"serve", "extra"}, {"healthcheck", "--json"}, {"status"},
 		{"status", "--json", "extra"}, {"smtp-test"}, {"smtp-test", "recipient@example.test"},
 		{"smtp-test", "--recipient-stdin", "recipient@example.test"}, {"config-fingerprint"},
+		{"backup-alert"}, {"backup-alert", "--recipient-stdin"}, {"backup-alert", "--json-stdin", "extra"},
 		{"config-fingerprint", "--json", "extra"}, {"retry-failed", "extra"}, {"cancel-failed", "extra"},
 	} {
 		if err := runCommand(context.Background(), args, strings.NewReader("recipient@example.test\n"), io.Discard, testEnvironment, commandOperations{}); err == nil {
 			t.Errorf("runCommand(%v) error = nil, want exact syntax rejection", args)
 		}
+	}
+}
+
+func TestBackupAlertAcceptsStrictJSONStdinWithoutOutput(t *testing.T) {
+	const input = `{"recipient":"admin@example.test","failure_class":"upload"}`
+	var calledRecipient, calledClass string
+	operations := commandOperations{backupAlert: func(_ context.Context, _ config.Config, recipient, failureClass string) smtpclient.Result {
+		calledRecipient, calledClass = recipient, failureClass
+		return smtpclient.Result{Accepted: true, Code: 250}
+	}}
+	var stdout bytes.Buffer
+	if err := runCommand(context.Background(), []string{"backup-alert", "--json-stdin"}, strings.NewReader(input), &stdout, testEnvironment, operations); err != nil {
+		t.Fatalf("runCommand(backup-alert) error = %v", err)
+	}
+	if calledRecipient != "admin@example.test" || calledClass != "upload" {
+		t.Fatalf("backup alert operation received recipient=%q class=%q", calledRecipient, calledClass)
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("backup-alert stdout = %q, want empty", stdout.String())
+	}
+}
+
+func TestBackupAlertRejectsMalformedOrPrivateInputBeforeSending(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+	}{
+		{name: "unknown field", input: `{"recipient":"admin@example.test","failure_class":"upload","extra":true}`},
+		{name: "private failure class", input: `{"recipient":"admin@example.test","failure_class":"customer@example.test"}`},
+		{name: "invalid recipient", input: `{"recipient":"not-an-address","failure_class":"upload"}`},
+		{name: "second JSON value", input: `{"recipient":"admin@example.test","failure_class":"upload"}{}`},
+		{name: "empty object", input: `{}`},
+		{name: "oversized", input: `{"recipient":"admin@example.test","failure_class":"` + strings.Repeat("a", 1025) + `"}`},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			called := false
+			operations := commandOperations{backupAlert: func(context.Context, config.Config, string, string) smtpclient.Result {
+				called = true
+				return smtpclient.Result{Accepted: true, Code: 250}
+			}}
+			err := runCommand(context.Background(), []string{"backup-alert", "--json-stdin"}, strings.NewReader(test.input), io.Discard, testEnvironment, operations)
+			if err == nil {
+				t.Fatal("runCommand(backup-alert) error = nil")
+			}
+			if called {
+				t.Fatal("backup alert operation was called for invalid input")
+			}
+			for _, private := range []string{"admin@example.test", "customer@example.test", strings.Repeat("a", 64)} {
+				if strings.Contains(err.Error(), private) {
+					t.Fatalf("backup-alert error exposed private input: %v", err)
+				}
+			}
+		})
+	}
+}
+
+func TestBackupAlertRequiresFinal250Acceptance(t *testing.T) {
+	for _, result := range []smtpclient.Result{
+		{Accepted: false, Class: smtpclient.ClassTemporary, Code: 451},
+		{Accepted: true, Code: 0},
+		{Accepted: true, Code: 251},
+	} {
+		operations := commandOperations{backupAlert: func(context.Context, config.Config, string, string) smtpclient.Result { return result }}
+		input := `{"recipient":"admin@example.test","failure_class":"upload"}`
+		if err := runCommand(context.Background(), []string{"backup-alert", "--json-stdin"}, strings.NewReader(input), io.Discard, testEnvironment, operations); err == nil {
+			t.Errorf("SMTP result %+v accepted as final 250", result)
+		}
+	}
+}
+
+func TestBackupAlertOperationSendsOneGenericMessageOverSTARTTLS(t *testing.T) {
+	server := testutil.StartSMTP(t, testutil.SMTPOptions{
+		STARTTLS: true,
+		Username: testEnvironment("SMTP_USERNAME"),
+		Password: testEnvironment("SMTP_PASSWORD"),
+	})
+	cfg, err := config.Load(testEnvironment)
+	if err != nil {
+		t.Fatalf("config.Load() error = %v", err)
+	}
+	cfg.SMTPHost = "localhost"
+	cfg.SMTPPort = server.Port()
+	const recipient = "admin@example.test"
+	result := sendBackupAlert(
+		context.Background(), cfg, recipient, "snapshot",
+		time.Date(2026, 9, 1, 3, 4, 5, 6, time.UTC), time.Second, server.Roots(),
+	)
+	if !result.Accepted || result.Code != 250 || result.Class != smtpclient.ClassNone {
+		t.Fatalf("sendBackupAlert() = %+v, want final 250 acceptance", result)
+	}
+	if !server.Authenticated() || server.SawPlaintextAuthOrMail() {
+		t.Fatal("backup alert was not authenticated exclusively after STARTTLS")
+	}
+	messages := server.Messages()
+	if len(messages) != 1 {
+		t.Fatalf("SMTP message count = %d, want 1", len(messages))
+	}
+	parsed, err := mail.ReadMessage(bytes.NewReader(messages[0]))
+	if err != nil {
+		t.Fatalf("mail.ReadMessage() error = %v", err)
+	}
+	subject, err := new(mime.WordDecoder).DecodeHeader(parsed.Header.Get("Subject"))
+	if err != nil || subject != "[ThreadHub] 백업 실패 (snapshot)" {
+		t.Fatalf("backup alert Subject = %q, error = %v", subject, err)
+	}
+	body, err := io.ReadAll(parsed.Body)
+	if err != nil {
+		t.Fatalf("ReadAll(body) error = %v", err)
+	}
+	for _, forbidden := range []string{recipient, cfg.Domain, cfg.SMTPUsername, cfg.SMTPPassword} {
+		if bytes.Contains(body, []byte(forbidden)) {
+			t.Fatalf("backup alert body exposed %q", forbidden)
+		}
+	}
+}
+
+func TestProductionOperationsRegistersBackupAlert(t *testing.T) {
+	if productionOperations().backupAlert == nil {
+		t.Fatal("production backup-alert operation is nil")
 	}
 }
 
