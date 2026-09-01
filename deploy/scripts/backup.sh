@@ -102,11 +102,11 @@ backup_stop_mailer() {
 }
 
 backup_start_mailer() {
-    compose up -d --no-deps threadhub-mailer >/dev/null 2>&1
+    compose up -d --no-deps --wait --wait-timeout 240 threadhub-mailer >/dev/null 2>&1
 }
 
 backup_start_mattermost() {
-    compose up -d --no-deps mattermost >/dev/null 2>&1
+    compose up -d --no-deps --wait --wait-timeout 240 mattermost >/dev/null 2>&1
 }
 
 backup_snapshot() {

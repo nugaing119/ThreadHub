@@ -205,6 +205,21 @@ test_happy_path_restarts_before_manifest_and_upload() (
         .upload_result == "ok" and .verification_result == "ok"' "${BACKUP_TEST_STATUS}" >/dev/null
 )
 
+test_restart_commands_wait_for_container_health() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    calls="${fixture}/compose-calls"
+    export calls
+    # shellcheck source=/dev/null
+    source "${BACKUP_COMMAND}"
+    compose() { printf '%s\n' "$*" >> "${calls}"; }
+
+    backup_start_mailer
+    backup_start_mattermost
+
+    [[ "$(<"${calls}")" == $'up -d --no-deps --wait --wait-timeout 240 threadhub-mailer\nup -d --no-deps --wait --wait-timeout 240 mattermost' ]]
+)
+
 test_preflight_failure_never_stops_services() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -419,6 +434,7 @@ test_sunday_policy_reaches_both_upload_and_verification() (
 )
 
 run_test 'happy backup restarts before manifest and upload' test_happy_path_restarts_before_manifest_and_upload
+run_test 'backup restart commands wait for container health' test_restart_commands_wait_for_container_health
 run_test 'preflight failure never stops services' test_preflight_failure_never_stops_services
 run_test 'Mailer stop failure recovers Mattermost' test_mailer_stop_failure_recovers_mattermost
 run_test 'snapshot failure recovers both and alerts once' test_snapshot_failure_recovers_both_and_alerts_once
