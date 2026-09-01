@@ -70,7 +70,7 @@ func safeFailureReason(err error) string {
 		return "unavailable"
 	}
 	switch delta.reason {
-	case "capture-unavailable", "no-deliveries", "count-mismatch", "content-mismatch":
+	case "capture-unavailable", "no-deliveries", "under-delivery", "over-delivery", "mixed-count", "content-mismatch":
 		return delta.reason
 	default:
 		return "unavailable"
@@ -507,6 +507,8 @@ func deliveryDeltaReason(before captureSnapshot, after *captureSnapshot, expecte
 	countMatch := true
 	contentMatch := true
 	noDeliveries := true
+	underDelivery := false
+	overDelivery := false
 	for hash, count := range expected {
 		delta := afterCounts[hash] - beforeCounts[hash]
 		if delta != 0 {
@@ -514,6 +516,12 @@ func deliveryDeltaReason(before captureSnapshot, after *captureSnapshot, expecte
 		}
 		if delta != count {
 			countMatch = false
+		}
+		if delta < count {
+			underDelivery = true
+		}
+		if delta > count {
+			overDelivery = true
 		}
 		if count > 0 && !afterCaptures[hash].GenericContent {
 			contentMatch = false
@@ -528,7 +536,16 @@ func deliveryDeltaReason(before captureSnapshot, after *captureSnapshot, expecte
 	if countMatch {
 		return "content-mismatch"
 	}
-	return "count-mismatch"
+	if underDelivery && overDelivery {
+		return "mixed-count"
+	}
+	if underDelivery {
+		return "under-delivery"
+	}
+	if overDelivery {
+		return "over-delivery"
+	}
+	return "unavailable"
 }
 
 func captureByHash(snapshot captureSnapshot) map[string]capture {

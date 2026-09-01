@@ -51,6 +51,7 @@ func TestDeliveryDeltaFailureReasonIsSafeAndBounded(t *testing.T) {
 		want string
 	}{
 		{name: "known", err: phaseError("delivery-delta", &deliveryDeltaError{reason: "no-deliveries"}), want: "no-deliveries"},
+		{name: "under delivery", err: phaseError("delivery-delta", &deliveryDeltaError{reason: "under-delivery"}), want: "under-delivery"},
 		{name: "unknown reason", err: phaseError("delivery-delta", &deliveryDeltaError{reason: "private-value"}), want: "unavailable"},
 		{name: "plain error", err: errors.New("private upstream detail"), want: "unavailable"},
 	} {
@@ -78,7 +79,14 @@ func TestDeliveryDeltaReasonClassifiesSafeAggregateState(t *testing.T) {
 	}{
 		{name: "capture unavailable", after: nil, want: "capture-unavailable"},
 		{name: "no deliveries", after: &captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 1, LastAttemptMS: 1}}}, want: "no-deliveries"},
-		{name: "count mismatch", after: &captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 2, GenericContent: true, LastAttemptMS: 2}}}, want: "count-mismatch"},
+		{name: "under delivery", after: &captureSnapshot{Captures: []capture{{RecipientHash: hashA, EnvelopeCount: 2, GenericContent: true, LastAttemptMS: 2}}}, want: "under-delivery"},
+		{name: "over delivery", after: &captureSnapshot{Captures: []capture{
+			{RecipientHash: hashA, EnvelopeCount: 4, GenericContent: true, LastAttemptMS: 2},
+			{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: true, LastAttemptMS: 2},
+		}}, want: "over-delivery"},
+		{name: "mixed count", after: &captureSnapshot{Captures: []capture{
+			{RecipientHash: hashA, EnvelopeCount: 4, GenericContent: true, LastAttemptMS: 2},
+		}}, want: "mixed-count"},
 		{name: "content mismatch", after: &captureSnapshot{Captures: []capture{
 			{RecipientHash: hashA, EnvelopeCount: 3, GenericContent: true, LastAttemptMS: 2},
 			{RecipientHash: hashB, EnvelopeCount: 1, GenericContent: false, LastAttemptMS: 2},

@@ -434,7 +434,8 @@ safe_acceptance_exercise_reason() {
         <<<"${logs}" | tail -n 1)" || reason=""
     reason="${reason##*reason=}"
     case "${reason}" in
-        capture-unavailable | no-deliveries | count-mismatch | content-mismatch | unavailable)
+        capture-unavailable | no-deliveries | under-delivery | over-delivery | mixed-count \
+            | content-mismatch | unavailable)
             printf '%s\n' "${reason}"
             ;;
         *)

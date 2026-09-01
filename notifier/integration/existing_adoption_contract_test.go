@@ -58,6 +58,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 		"--channel-ids-stdin",
 		"acceptance_exercise_failure=",
 		"acceptance_exercise_reason=",
+		"under-delivery | over-delivery | mixed-count",
 		"[HARNESS] acceptance-exercise-start",
 		"compose_base up -d --no-build --no-deps smtp-fixture",
 		"wait_http 'http://127.0.0.1:49353/healthz' 60",
