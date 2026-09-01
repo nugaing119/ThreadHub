@@ -281,7 +281,7 @@ write_runtime_env() {
           replacement["THREADHUB_DOMAIN"]="threadhub.integration.test"
           replacement["LETSENCRYPT_EMAIL"]="admin@integration.invalid"
           replacement["POSTGRES_PASSWORD"]=ENVIRON["INTEGRATION_DATABASE_PASSWORD"]
-          replacement["SMTP_SERVER"]="127.0.0.1"
+          replacement["SMTP_SERVER"]="smtp.email.ap-singapore-1.oci.oraclecloud.com"
           replacement["SMTP_USERNAME"]="integration-smtp-user"
           replacement["SMTP_PASSWORD"]="integration-smtp-password"
           replacement["SMTP_FROM_ADDRESS"]="no-reply@integration.invalid"

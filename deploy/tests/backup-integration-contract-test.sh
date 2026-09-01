@@ -38,6 +38,7 @@ test_harness_has_real_image_and_acceptance_contracts() {
         'notifier-old-mail-not-sent' \
         'service-downtime-at-most-300' \
         'restore-rto-at-most-14400' \
+        'smtp.email.ap-singapore-1.oci.oraclecloud.com' \
         'privacy_patterns' \
         'grep -R -F -q' \
         'BK-INTEGRATION-pass'; do
