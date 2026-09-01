@@ -37,8 +37,9 @@ Mattermost나 `existing-notifier` 채택 경로는 데이터 위치와 운영 �
 - VM은 사용자 API 키가 아니라 Instance Principal로 Object Storage에 접근한다.
 - Object Storage 기본 AES-256 서버 암호화와 HTTPS/TLS를 사용한다.
 - Object Storage 버킷은 Public Access를 차단한다.
-- VM에는 정확한 프로젝트 버킷의 객체 생성·조회 권한만 부여하고 삭제 권한을 주지
-  않는다.
+- VM에는 정확한 프로젝트 버킷의 `BUCKET_READ`와 객체 생성·조회 권한만 부여하고
+  삭제 권한을 주지 않는다. `GetBucket` preflight 때문에 `inspect buckets`만으로는
+  충분하지 않다.
 - Dynamic Group, IAM Policy와 Object Storage Lifecycle 서비스 권한은 리전에
   종속되지 않는 IAM 변경이므로 실행 직전 별도 명시적 승인을 받는다.
 - 실제 OCI 작업은 지정 compartment에서만 수행하며 다른 리전은 사용하지 않는다.
@@ -50,6 +51,9 @@ RPO는 마지막으로 Object Storage 원격 검증까지 성공한 backup set�
 기준으로 계산한다. RTO는 복구 결정을 내리고 필요한 OCI 권한과 백업 ID가 준비된
 시점부터 새 도메인의 HTTPS 인수시험 완료까지로 측정하며, 사용자 승인 대기시간은
 제외한다. 백업 중단시간은 Mattermost 정지 시작부터 재시작 후 health 성공까지다.
+복구 VM은 일반 배포를 먼저 실행하지 않고, Docker·Compose·OCI CLI·`zstd`만 설치하는
+전용 restore-host bootstrap을 거친다. bootstrap 전후 `/srv/threadhub`는 new or empty
+상태여야 한다.
 
 ## 4. 범위
 
@@ -140,8 +144,9 @@ Team, 채널과 파일명을 포함하지 않는다.
 ### 7.2 `backup.sh`
 
 - `flock` 기반 단일 실행 보장
-- 사전점검, 정지, snapshot, 재시작, 업로드와 검증의 전체 orchestration
-- 모든 종료 경로에서 서비스 복구를 시도하는 trap
+- 사전점검 뒤 정지·snapshot·재시작·health를 하나의 절대 300초 deadline으로 제한
+- 모든 subprocess를 남은 시간으로 종료시키고 timeout 시 업로드를 금지
+- 모든 종료 경로에서 별도의 단일 300초 recovery deadline 안에 서비스 복구를 시도하는 trap
 - `--resume-upload BACKUP_ID`를 통한 완성된 로컬 backup set 재업로드
 - 성공한 원격 검증 뒤에만 `latest-success.json` 갱신
 
@@ -167,13 +172,16 @@ alert_delivery
 ```
 
 버킷명, Object key, 도메인, 이메일, 사용자, 채널, 메시지, 파일명, 비밀값과 OCI OCID는
-표시하지 않는다. 마지막 성공이 24시간을 초과하면 비정상 exit code를 반환한다.
+표시하지 않는다. freshness는 `completed_at`이 아니라 변경 불가능한 backup ID의 UTC
+생성시각으로 계산하며, 마지막 성공 세트가 24시간을 초과하면 비정상 exit code를
+반환한다.
 
 ### 7.4 `restore.sh`
 
 - manifest와 모든 artifact checksum 검증
 - source Git commit과 Mattermost·PostgreSQL 이미지 기준 일치 확인
-- 비어 있는 `THREADHUB_DATA_ROOT`만 허용
+- host-wide non-blocking lock과 원자적 no-clobber claim 뒤 비어 있는
+  `THREADHUB_DATA_ROOT`만 허용
 - PostgreSQL 논리 restore와 Mattermost data 권한 정상화
 - notifier delivery가 disabled인 control state로 서비스 시작
 - queue는 기본 격리하고 별도 명시적 승인 없이는 live path에 연결하지 않음
@@ -184,6 +192,7 @@ alert_delivery
   사용하고 동시 실행을 거부
 - `threadhub-backup.timer`: Asia/Seoul 새벽 03:00, `Persistent=true`
 - 설치기는 unit을 등록하지만 실제 운영 timer 활성화는 전체 인수시험 뒤 수행
+- 이미 active 또는 enabled인 timer에는 `--register`로 unit을 덮어쓰지 않음
 
 ### 7.6 구성과 문서
 
@@ -192,6 +201,12 @@ alert_delivery
 - 실제 `/etc/threadhub/backup.env`: root-owned mode `0600`, Git 제외
 - `deploy/docs/backup-restore.md`: OCI 준비, 수동 실행, timer, 상태, 복구와 실패 대응
 - 운영 점검표, 빠른 설치 가이드, 프로젝트 종료 문서와 agent 설치 계약 갱신
+
+설치기는 고정한 OCI CLI release archive와 내부 단일 wheel을 각각 SHA-256으로
+검증한다. 모든 전이 의존성은 `oci-cli-requirements.lock`의 정확한 버전·hash와 binary
+wheel 조건으로 내려받은 임시 wheelhouse에서 `--no-index` 설치하고, OCI CLI wheel은
+`--no-deps`로 설치한다. 복구 전용 `--prepare-restore-host`는 Docker·Compose·OCI
+CLI·`zstd`만 준비하며 애플리케이션, unit 또는 `/srv/threadhub`를 만들지 않는다.
 
 ## 8. Backup Set 형식
 
@@ -239,6 +254,11 @@ schema version과 생성시각만 기록한다.
 13. 모든 원격 검증이 성공한 뒤 `latest-success.json`을 원자적으로 갱신한다.
 14. 성공한 staging set을 제거한다. 실패 set은 mode `0700` 아래 최대 24시간 보존한다.
 
+5~9단계는 Mattermost 정지 직전에 시작한 하나의 절대 300초 deadline을 공유한다.
+정지 플래그는 stop 명령 전에 설정하여 명령이 side effect 뒤 실패하더라도 trap이
+재시작을 시도한다. stop, snapshot, start와 health는 현재 남은 시간으로 강제 종료하며,
+deadline을 넘긴 세트는 성공으로 기록하거나 업로드하지 않는다.
+
 ## 10. 실패 처리와 가용성
 
 ### 10.1 사전점검 실패
@@ -249,8 +269,9 @@ schema version과 생성시각만 기록한다.
 ### 10.2 snapshot 실패
 
 불완전한 backup set은 업로드하지 않는다. trap이 Mattermost와 Mailer를 재시작하고
-health를 확인한다. 재시작 실패는 snapshot 실패보다 높은 우선순위의 service recovery
-오류로 기록한다.
+health를 확인한다. trap의 재시작과 health는 순차 명령마다 새 timeout을 부여하지 않고
+하나의 300초 recovery deadline을 공유한다. 재시작 실패나 deadline 초과는 snapshot
+실패보다 높은 우선순위의 service recovery 오류로 기록한다.
 
 ### 10.3 서비스 재시작 실패
 
@@ -284,7 +305,8 @@ stdout, stderr와 상태파일에 노출하지 않는다. SMTP 실패는 원래 
 운영자는 첫 7일 동안 매일, 안정화 후 매주 다음을 확인한다.
 
 - timer와 마지막 service 실행 결과
-- `backup-status.sh`의 마지막 성공시각이 24시간 이내인지
+- `backup-status.sh`가 backup ID 생성시각 기준 마지막 성공 세트를 24시간 이내로
+  판정하는지
 - local staging 실패 set과 사용량
 - Object Storage의 daily·weekly 개수와 lifecycle 결과
 - 실패 이메일 발송 결과
@@ -327,21 +349,30 @@ Dynamic Group과 IAM Policy는 tenancy-level 또는 리전에 종속되지 않�
 1. 요구 사양을 충족하는 새 Ubuntu 24.04 AMD64 VM을 준비한다.
 2. 저장소를 clone하고 backup manifest의 source commit을 checkout한다.
 3. `validate.sh`를 실행한다.
-4. `setup-wizard.sh --configure-only`로 새 도메인, DB 비밀번호, SMTP Credential과 HMAC
+4. `install-backup.sh --prepare-restore-host`로 Docker·Compose·OCI CLI·`zstd`만
+   설치하고 `/srv/threadhub`가 계속 new or empty인지 확인한다.
+5. `setup-wizard.sh --configure-only`로 새 도메인, DB 비밀번호, SMTP Credential과 HMAC
    secret을 안전하게 입력한다.
-5. `restore.sh BACKUP_ID`가 Object Storage에서 backup set을 내려받는다.
-6. manifest hash, artifact SHA-256, size, schema와 고정 이미지 버전을 검증한다.
-7. `THREADHUB_DATA_ROOT`가 존재하지 않거나 비어 있는 일반 디렉터리인지 확인한다.
-8. PostgreSQL만 시작하고 빈 database가 healthy인지 확인한다.
-9. logical dump를 restore한다.
-10. Mattermost data archive를 풀고 UID/GID와 mode를 현재 고정 이미지 기준으로
+6. 복구 VM의 Instance Principal과 보호된 `backup.env`를 구성한다.
+7. `restore.sh BACKUP_ID`가 host-wide lock을 획득하고 Object Storage에서 backup set을
+   내려받는다.
+8. manifest hash, artifact SHA-256, size, schema와 고정 이미지 버전을 검증한다.
+9. `THREADHUB_DATA_ROOT`가 존재하지 않거나 비어 있는 일반 디렉터리인지 재확인한 뒤
+   원자적 no-clobber marker로 target을 claim한다.
+10. PostgreSQL만 시작하고 빈 database가 healthy인지 확인한다.
+11. logical dump를 restore한다.
+12. Mattermost data archive를 풀고 UID/GID와 mode를 현재 고정 이미지 기준으로
     정상화한다.
-11. notifier queue archive는 격리된 restore staging에 유지한다.
-12. disabled notifier control state를 만든 뒤 전체 Compose를 시작한다.
-13. health와 readiness를 확인하고 수동 데이터 인수시험을 수행한다.
-14. queue 재사용이 별도로 승인된 경우에만 queue 내용을 검토하고 live path 연결과
+13. notifier queue archive는 격리된 restore staging에 유지한다.
+14. disabled notifier control state를 만든 뒤 전체 Compose를 시작한다.
+15. health와 readiness를 확인하고 성공한 target claim만 해제한 뒤 수동 데이터
+    인수시험을 수행한다.
+16. queue 재사용이 별도로 승인된 경우에만 queue 내용을 검토하고 live path 연결과
     delivery 재활성화를 독립 작업으로 수행한다.
-15. 모든 인수시험이 끝난 뒤에만 DNS를 새 VM으로 전환한다.
+17. 운영 hostname과 분리된 승인된 시험 hostname으로 `configure-nginx.sh`를 실행해
+    HTTPS를 검증한다. 일반 setup wizard resume은 notifier를 활성화할 수 있으므로
+    복구 인수 경로에서 사용하지 않는다.
+18. 모든 인수시험이 끝난 뒤에만 notifier 재활성화와 운영 DNS 전환을 각각 승인한다.
 
 복구 스크립트는 DNS, 예약 공인 IP, NSG, SMTP, IAM, Approved Sender와 인증서를 생성,
 변경 또는 삭제하지 않는다. 이 작업들은 대상 compartment와 `ap-singapore-1`을 명시한
@@ -350,6 +381,8 @@ Dynamic Group과 IAM Policy는 tenancy-level 또는 리전에 종속되지 않�
 ## 14. 복구 안전장치
 
 - 기존 데이터가 하나라도 있는 target root는 즉시 거부
+- 동시 복구를 host-wide lock으로 거부하고 target을 원자적으로 한 실행에만 claim
+- 실패한 복구의 claim과 보호된 restore state를 자동 삭제하지 않아 묵시적 재시도 방지
 - `--force`, 자동 삭제와 자동 in-place restore 미제공
 - version 또는 schema 불일치 시 자동 migration 미수행
 - checksum 또는 archive path 검증 실패 시 추출 전 종료
@@ -380,6 +413,8 @@ Dynamic Group과 IAM Policy는 tenancy-level 또는 리전에 종속되지 않�
 - upload 실패 뒤 local set 보존
 - resume upload가 새 snapshot과 서비스 중단을 수행하지 않음
 - remote size·metadata mismatch 거부
+- 원격 prefix의 누락·추가·중복 객체 거부와 정확한 5개 객체 재검증
+- 동시 복구와 target 선점 race 거부
 - 실패 이메일의 본문·제목과 로그가 privacy-safe임
 - SMTP 실패가 원래 backup failure를 덮어쓰지 않음
 
@@ -427,9 +462,11 @@ OCI는 deterministic stub을 사용해 명령, auth mode, region, bucket scope�
 5. notifier queue 기본 격리와 오래된 알림 미발송 확인
 6. 관리자 실패 이메일 수신 확인
 7. 문서, 운영 점검표와 프로젝트 종료 절차 검토 완료
+8. 활성화 시 승인된 backup ID prefix에 추가·누락 없이 정확한 5개 객체가 있고,
+   manifest/hash와 원격 크기·checksum이 다시 검증됨
 
-운영 적용 뒤 첫 7일은 매일 확인하고 그 뒤 주간 점검으로 전환한다. 마지막 성공이
-24시간을 넘으면 백업 보호가 비정상인 것으로 판정한다.
+운영 적용 뒤 첫 7일은 매일 확인하고 그 뒤 주간 점검으로 전환한다. 마지막 성공
+세트의 backup ID 생성시각이 24시간을 넘으면 백업 보호가 비정상인 것으로 판정한다.
 
 ## 17. 프로젝트 종료
 
@@ -444,7 +481,8 @@ OCI는 deterministic stub을 사용해 명령, auth mode, region, bucket scope�
 ## 18. 완료 조건
 
 1. 새 설치와 지원되는 기존 설치 모두 동일한 backup contract를 사용한다.
-2. 자동 백업은 서비스 중단 5분 이내와 RPO 24시간을 충족한다.
+2. 성공한 자동 백업은 강제된 서비스 중단 deadline 5분 이내와 backup ID 생성시각
+   기준 RPO 24시간을 충족한다.
 3. backup set은 PostgreSQL, Mattermost data와 notifier queue를 같은 backup ID로
    보존한다.
 4. 성공 상태는 원격 업로드와 검증 뒤에만 기록된다.

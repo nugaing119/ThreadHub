@@ -13,6 +13,9 @@ source "${BACKUP_COMMAND_DIR}/backup-oci.sh"
 # shellcheck source=backup-artifacts.sh
 source "${BACKUP_COMMAND_DIR}/backup-artifacts.sh"
 
+BACKUP_WRITER_DOWNTIME_LIMIT_SECONDS=300
+BACKUP_RECOVERY_LIMIT_SECONDS=300
+
 backup_now_epoch() {
     date +%s
 }
@@ -66,7 +69,7 @@ backup_preflight() {
     backup_prepare_state_root >/dev/null 2>&1 || return 20
     backup_cleanup_expired_sets || return 20
     backup_initialize_docker || return 20
-    for required in jq tar zstd openssl flock stat git du df awk find; do
+    for required in jq tar zstd openssl flock stat git du df awk find timeout; do
         command -v "${required}" >/dev/null 2>&1 || return 20
     done
     backup_require_gnu_tar || return 20
@@ -93,24 +96,96 @@ backup_create_set_dir() {
     backup_require_directory_mode_owner "${set_dir}" 700 "${uid}" "${gid}"
 }
 
+backup_run_with_timeout() {
+    local timeout_seconds="$1"
+    shift
+
+    [[ "${timeout_seconds}" =~ ^[0-9]+$ && "${timeout_seconds}" -ge 1 \
+        && "${timeout_seconds}" -le "${BACKUP_RECOVERY_LIMIT_SECONDS}" ]] || return 20
+    timeout --signal=TERM --kill-after=10s "${timeout_seconds}s" "$@"
+}
+
+backup_compose_with_timeout() {
+    local timeout_seconds="$1"
+    shift
+
+    backup_run_with_timeout "${timeout_seconds}" \
+        "${DOCKER_COMMAND[@]}" compose \
+        --env-file "${ENV_FILE}" \
+        --env-file "${VERSIONS_FILE}" \
+        -f "${COMPOSE_FILE}" "$@"
+}
+
+backup_container_stop_timeout() {
+    local remaining="$1"
+
+    ((remaining < 60)) && printf '%s\n' "${remaining}" || printf '60\n'
+}
+
 backup_stop_mattermost() {
-    compose stop --timeout 60 mattermost >/dev/null 2>&1
+    local remaining="$1" stop_timeout
+
+    stop_timeout="$(backup_container_stop_timeout "${remaining}")" || return 20
+    backup_compose_with_timeout "${remaining}" stop --timeout "${stop_timeout}" mattermost \
+        >/dev/null 2>&1
 }
 
 backup_stop_mailer() {
-    compose stop --timeout 60 threadhub-mailer >/dev/null 2>&1
+    local remaining="$1" stop_timeout
+
+    stop_timeout="$(backup_container_stop_timeout "${remaining}")" || return 20
+    backup_compose_with_timeout "${remaining}" stop --timeout "${stop_timeout}" threadhub-mailer \
+        >/dev/null 2>&1
 }
 
 backup_start_mailer() {
-    compose up -d --no-deps --wait --wait-timeout 240 threadhub-mailer >/dev/null 2>&1
+    local remaining="$1"
+
+    backup_compose_with_timeout "${remaining}" \
+        up -d --no-deps --wait --wait-timeout "${remaining}" threadhub-mailer \
+        >/dev/null 2>&1
 }
 
 backup_start_mattermost() {
-    compose up -d --no-deps --wait --wait-timeout 240 mattermost >/dev/null 2>&1
+    local remaining="$1"
+
+    backup_compose_with_timeout "${remaining}" \
+        up -d --no-deps --wait --wait-timeout "${remaining}" mattermost \
+        >/dev/null 2>&1
 }
 
 backup_snapshot() {
-    backup_create_artifacts "$1"
+    local set_dir="$1" remaining="$2"
+
+    backup_run_with_timeout "${remaining}" \
+        "${BACKUP_COMMAND_DIR}/backup-snapshot.sh" "${set_dir}"
+}
+
+backup_health_before_deadline() {
+    local remaining="$1"
+
+    backup_run_with_timeout "${remaining}" "${BACKUP_COMMAND_DIR}/health-check.sh" \
+        >/dev/null 2>&1
+}
+
+backup_downtime_remaining() {
+    local now remaining
+
+    [[ "${BACKUP_RUN_DOWNTIME_DEADLINE}" =~ ^[0-9]+$ \
+        && "${BACKUP_RUN_DOWNTIME_DEADLINE}" -gt 0 ]] || return 20
+    now="$(backup_now_epoch)" || return 20
+    remaining=$((BACKUP_RUN_DOWNTIME_DEADLINE - now))
+    ((remaining >= 1)) || return 1
+    printf '%s\n' "${remaining}"
+}
+
+backup_measure_downtime() {
+    local now
+
+    now="$(backup_now_epoch)" || return 20
+    ((BACKUP_RUN_DOWNTIME_STARTED > 0 && now >= BACKUP_RUN_DOWNTIME_STARTED)) || return 20
+    BACKUP_RUN_DOWNTIME=$((now - BACKUP_RUN_DOWNTIME_STARTED))
+    ((BACKUP_RUN_DOWNTIME <= BACKUP_WRITER_DOWNTIME_LIMIT_SECONDS))
 }
 
 backup_manifest() {
@@ -428,12 +503,15 @@ backup_finish_failure() {
 
 backup_recover_writers_and_exit() {
     local original_status=$? recovery_failed=false had_stopped=false
+    local recovery_deadline remaining
 
     trap - EXIT HUP INT TERM
+    recovery_deadline=$(( $(backup_now_epoch) + BACKUP_RECOVERY_LIMIT_SECONDS ))
     [[ "${BACKUP_RUN_RECOVERY_RESULT}" != failed ]] || recovery_failed=true
     if [[ "${BACKUP_RUN_MAILER_STOPPED}" == true ]]; then
         had_stopped=true
-        if backup_start_mailer; then
+        remaining=$((recovery_deadline - $(backup_now_epoch)))
+        if ((remaining >= 1)) && backup_start_mailer "${remaining}"; then
             BACKUP_RUN_MAILER_STOPPED=false
         else
             recovery_failed=true
@@ -441,17 +519,21 @@ backup_recover_writers_and_exit() {
     fi
     if [[ "${BACKUP_RUN_MATTERMOST_STOPPED}" == true ]]; then
         had_stopped=true
-        if backup_start_mattermost; then
+        remaining=$((recovery_deadline - $(backup_now_epoch)))
+        if ((remaining >= 1)) && backup_start_mattermost "${remaining}"; then
             BACKUP_RUN_MATTERMOST_STOPPED=false
         else
             recovery_failed=true
         fi
     fi
     if [[ "${had_stopped}" == true ]]; then
-        backup_health || recovery_failed=true
+        remaining=$((recovery_deadline - $(backup_now_epoch)))
+        if ((remaining < 1)) || ! backup_health_before_deadline "${remaining}"; then
+            recovery_failed=true
+        fi
     fi
     if [[ "${BACKUP_RUN_DOWNTIME_STARTED}" -gt 0 ]]; then
-        BACKUP_RUN_DOWNTIME=$(( $(backup_now_epoch) - BACKUP_RUN_DOWNTIME_STARTED ))
+        backup_measure_downtime || recovery_failed=true
     fi
     if [[ "${recovery_failed}" == true ]]; then
         BACKUP_RUN_RECOVERY_RESULT=failed
@@ -473,6 +555,8 @@ backup_recover_writers_and_exit() {
 }
 
 backup_run_new() {
+    local remaining
+
     backup_health || {
         backup_finish_failure preflight
         return 1
@@ -491,27 +575,37 @@ backup_run_new() {
     trap 'exit 130' INT
     trap 'exit 143' TERM
     BACKUP_RUN_DOWNTIME_STARTED="$(backup_now_epoch)"
+    BACKUP_RUN_DOWNTIME_DEADLINE=$((BACKUP_RUN_DOWNTIME_STARTED + BACKUP_WRITER_DOWNTIME_LIMIT_SECONDS))
     BACKUP_RUN_FAILURE_CLASS=snapshot
     BACKUP_RUN_SNAPSHOT_RESULT=failed
-    backup_stop_mattermost || return 1
     BACKUP_RUN_MATTERMOST_STOPPED=true
-    backup_stop_mailer || return 1
+    remaining="$(backup_downtime_remaining)" || return 1
+    backup_stop_mattermost "${remaining}" || return 1
     BACKUP_RUN_MAILER_STOPPED=true
-    backup_snapshot "${BACKUP_RUN_SET_DIR}" || return 1
+    remaining="$(backup_downtime_remaining)" || return 1
+    backup_stop_mailer "${remaining}" || return 1
+    remaining="$(backup_downtime_remaining)" || return 1
+    backup_snapshot "${BACKUP_RUN_SET_DIR}" "${remaining}" || return 1
     BACKUP_RUN_SNAPSHOT_RESULT=ok
 
     BACKUP_RUN_PHASE=service_recovery
     BACKUP_RUN_FAILURE_CLASS=service_recovery
-    backup_start_mailer || return 1
-    BACKUP_RUN_MAILER_STOPPED=false
-    backup_start_mattermost || return 1
-    BACKUP_RUN_MATTERMOST_STOPPED=false
-    if ! backup_health; then
+    remaining="$(backup_downtime_remaining)" || return 1
+    backup_start_mailer "${remaining}" || return 1
+    remaining="$(backup_downtime_remaining)" || return 1
+    backup_start_mattermost "${remaining}" || return 1
+    remaining="$(backup_downtime_remaining)" || return 1
+    if ! backup_health_before_deadline "${remaining}"; then
         BACKUP_RUN_RECOVERY_RESULT=failed
         return 1
     fi
+    BACKUP_RUN_MAILER_STOPPED=false
+    BACKUP_RUN_MATTERMOST_STOPPED=false
     BACKUP_RUN_RECOVERY_RESULT=ok
-    BACKUP_RUN_DOWNTIME=$(( $(backup_now_epoch) - BACKUP_RUN_DOWNTIME_STARTED ))
+    if ! backup_measure_downtime; then
+        BACKUP_RUN_RECOVERY_RESULT=failed
+        return 1
+    fi
     trap - EXIT HUP INT TERM
 
     BACKUP_RUN_PHASE=manifest
@@ -602,6 +696,7 @@ backup_initialize_run_state() {
     BACKUP_RUN_COMPLETED_AT=0
     BACKUP_RUN_DOWNTIME=0
     BACKUP_RUN_DOWNTIME_STARTED=0
+    BACKUP_RUN_DOWNTIME_DEADLINE=0
     BACKUP_RUN_BUNDLE_BYTES=0
     BACKUP_RUN_OBJECT_COUNT=0
     BACKUP_RUN_VERIFICATION_RESULT=pending

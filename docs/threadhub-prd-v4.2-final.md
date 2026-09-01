@@ -862,13 +862,13 @@ MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
 | NFR-DATA-005 | 모든 중요 저장 경로가 예상한 bind mount인지 검사해야 한다. |
 | NFR-DATA-006 | 중요 경로에 의도하지 않은 anonymous volume이 없어야 한다. |
 | NFR-DATA-007 | PostgreSQL 논리 덤프, Mattermost 첨부파일과 notifier queue를 하나의 검증 가능한 backup set으로 매일 생성해야 한다. |
-| NFR-DATA-008 | 마지막 원격 검증 성공을 기준으로 RPO 24시간, 수동 복구 RTO 4시간을 목표로 해야 한다. |
-| NFR-DATA-009 | 백업 중 Mattermost와 notifier의 쓰기 중단을 5분 이내로 제한해야 한다. |
+| NFR-DATA-008 | 마지막 원격 검증 성공 세트의 변경 불가능한 backup ID 생성시각을 기준으로 RPO 24시간, 수동 복구 RTO 4시간을 목표로 해야 한다. |
+| NFR-DATA-009 | 백업 중 Mattermost와 notifier의 쓰기 중단 단계 전체에 절대 300초 deadline을 적용하고 timeout·초과 세트를 업로드하지 않아야 한다. |
 | NFR-DATA-010 | 프로젝트 전용 비공개 OCI Object Storage 버킷에서 원격 객체 크기와 SHA-256을 검증해야 한다. |
 | NFR-DATA-011 | 최근 daily 백업을 7일, 일요일 weekly 백업을 28일 보존해야 한다. |
-| NFR-DATA-012 | 복구는 동일 커밋·고정 이미지의 신규 VM과 new or empty `/srv/threadhub`에서만 허용해야 한다. |
+| NFR-DATA-012 | 복구는 동일 커밋·고정 이미지의 신규 VM과 new or empty `/srv/threadhub`에서만 허용하고 host lock과 원자적 no-clobber target claim을 적용해야 한다. |
 | NFR-DATA-013 | 복구한 notifier queue는 격리하고 새 live queue와 delivery를 비활성 상태로 시작해야 한다. |
-| NFR-DATA-014 | 최초 타이머 활성화 전에 원격 수동 백업과 폐기 가능한 신규 VM 복구시험을 통과해야 한다. |
+| NFR-DATA-014 | 최초 타이머 활성화 전에 원격 수동 백업과 폐기 가능한 신규 VM 복구시험을 통과하고 승인 ID의 정확한 5개 원격 객체를 다시 검증해야 한다. |
 | NFR-DATA-015 | 데이터 삭제 시험과 복구시험은 폐기 가능한 기술 시험 인스턴스에서만 수행해야 한다. |
 | NFR-DATA-016 | 프로젝트 완전 폐기 후 데이터가 복구되지 않음을 안내해야 한다. |
 
@@ -1376,7 +1376,8 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 
 - 매일 KST 새벽 PostgreSQL 논리 덤프, Mattermost 첨부파일과 notifier queue의
   애플리케이션 정합성 backup set을 생성한다.
-- Mattermost와 notifier 쓰기를 일시 중지하되 중단시간은 5분 이내를 목표로 한다.
+- Mattermost와 notifier 쓰기 중단의 정지·snapshot·재시작·health 전체에 하나의 절대
+  300초 deadline을 적용하고, timeout이나 초과 시 artifact를 업로드하지 않는다.
 - backup set은 `database.dump`, `mattermost-data.tar.zst`,
   `notifier-queue.tar.zst`, `manifest.json`, `manifest.sha256`의 정확한 5개 객체다.
 - `ap-singapore-1`의 프로젝트별 전용 비공개 OCI Object Storage 버킷을 사용하고
@@ -1384,11 +1385,14 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 - VM은 Instance Principal로 정확한 버킷의 object create·inspect·read만 수행하며
   delete 권한을 갖지 않는다.
 - daily 백업은 7일, 일요일 weekly 백업은 28일 보존한다.
-- RPO는 마지막 원격 검증 성공으로부터 최대 24시간, 수동 RTO는 필요한 승인과
-  백업 ID가 준비된 뒤 새 HTTPS 인수 완료까지 4시간을 목표로 한다.
+- RPO는 마지막 원격 검증 성공 세트의 backup ID 생성시각으로부터 최대 24시간,
+  수동 RTO는 필요한 승인과 백업 ID가 준비된 뒤 새 HTTPS 인수 완료까지 4시간을
+  목표로 한다. 지연된 resume upload의 완료시각으로 RPO를 연장하지 않는다.
 - unit은 비활성 상태로 등록하고, 최초 수동 원격 백업과 폐기 가능한 신규 VM
   복구시험의 증거를 검토한 뒤에만 타이머를 활성화한다.
-- 복구 대상은 동일 commit·고정 이미지의 new or empty `/srv/threadhub`로 제한한다.
+- 복구 VM은 일반 배포 전에 전용 restore-host bootstrap으로 의존성만 설치한다. 복구
+  대상은 동일 commit·고정 이미지의 new or empty `/srv/threadhub`로 제한하고,
+  host-wide lock과 원자적 no-clobber claim으로 동시 실행·선점 race를 거부한다.
 - 복구한 notifier queue는 격리하고 live delivery를 비활성화해 과거 이메일 재발송을 막는다.
 - Dynamic Group, IAM policy, 실제 버킷·lifecycle 생성·변경·삭제는 대상 compartment와
   리전을 명시한 별도 사용자 승인 후 수행한다.
@@ -1584,11 +1588,11 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-BK-002 | 정확한 프로젝트 VM의 Instance Principal만 대상 버킷 object create·inspect·read를 수행한다. |
 | AC-BK-003 | 교차 버킷 접근, object delete와 bucket delete가 거부된다. |
 | AC-BK-004 | backup set이 정확한 5개 객체로 업로드되고 크기와 SHA-256 원격 검증을 통과한다. |
-| AC-BK-005 | Mattermost와 notifier 중단시간이 300초 이내이고 실패 경로에서도 서비스가 복구된다. |
+| AC-BK-005 | Mattermost와 notifier 중단 단계가 절대 300초 deadline 안에 완료되고, timeout·초과 시 업로드가 차단되며 제한된 실패 복구가 시도된다. |
 | AC-BK-006 | 폐기 가능한 신규 VM에서 PostgreSQL, 공개·비공개 채널, 스레드와 첨부파일이 복구된다. |
 | AC-BK-007 | 복구 전후 소스 데이터 hash가 같고 운영 소스는 변경되지 않는다. |
 | AC-BK-008 | 복구 notifier queue는 quarantine에 있고 새 live queue와 delivery는 비활성 상태다. |
-| AC-BK-009 | 최초 수동 백업과 복구 증거 승인 전에는 timer가 disabled 상태다. |
+| AC-BK-009 | 최초 수동 백업과 복구 증거 승인 전에는 timer가 disabled 상태이며, 활성화 직전 승인 ID의 정확한 5개 원격 객체가 다시 검증된다. |
 | AC-BK-010 | 승인 후 24시간 이내 일일 실행과 실패 이메일의 개인정보 비포함을 확인한다. |
 | AC-BK-011 | daily 7일·weekly 28일 lifecycle과 실제 객체 보존 결과를 확인한다. |
 
@@ -1653,7 +1657,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 15. VM 재부팅 후 서비스가 자동 시작된다.
 16. 디스크·컨테이너·인증서·SMTP 점검 절차가 준비된다.
 17. 최초 원격 백업과 폐기 가능한 신규 VM 복구시험을 통과하고 증거 승인 후 타이머를 활성화한다.
-18. 마지막 원격 검증 성공이 24시간 이내이고 daily 세트가 정확히 5개다.
+18. 마지막 원격 검증 성공 세트가 backup ID 생성시각 기준 24시간 이내이고 daily 세트가 정확히 5개다.
 19. 고객에게 모바일 푸시, RPO 24시간·수동 RTO 4시간 목표와 데이터 취급 제한을 안내한다.
 
 ## 19.13 고객 파일럿 No-Go 조건
@@ -1676,7 +1680,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 - 초대·확인·재설정 메일이 동작하지 않거나 SPF·DKIM 검증에 실패한다.
 - 원격 backup set이 정확한 5개 객체가 아니거나 크기·SHA-256 검증에 실패한다.
 - 폐기 가능한 신규 VM 복구시험이 실패하거나 과거 notifier 이메일이 재발송된다.
-- 마지막 원격 검증 성공이 24시간을 초과한다.
+- 마지막 원격 검증 성공 세트가 backup ID 생성시각 기준 24시간을 초과한다.
 
 ---
 
@@ -1866,7 +1870,7 @@ threadhub-deploy/
 43. 실제 `.env`, 비밀번호, 키와 고객 데이터가 Git 저장소에 포함되어 있지 않다.
 44. 백업 unit은 비활성으로 등록되고 최초 수동 backup set의 정확한 5개 원격 객체와 SHA-256이 검증되어 있다.
 45. 폐기 가능한 신규 VM에서 PostgreSQL, 공개·비공개 채널, 스레드, 첨부파일과 notifier queue quarantine 복구시험을 통과한다.
-46. 승인된 성공 백업 ID로만 타이머를 활성화하고 마지막 원격 검증 성공이 24시간 이내다.
+46. 승인된 성공 백업 ID의 정확한 5개 원격 객체를 재검증한 뒤에만 타이머를 활성화하고, 해당 ID 생성시각이 24시간 이내다.
 47. daily 7일·weekly 28일 lifecycle, 실패 이메일과 프로젝트 종료 시 보존·삭제 절차가 검증되어 있다.
 48. 고객 파일럿 No-Go 조건이 남아 있지 않고 최종 시험 결과가 기록되어 있다.
 49. 중앙 로깅, 통합 모니터링, 고가용성과 모바일 푸시는 후속 검토 대상으로 유지되어 있다.
@@ -1943,7 +1947,7 @@ threadhub-deploy/
 
 | 영역 | v4.2 변경 내용 |
 | --- | --- |
-| 백업 목표 | RPO 24시간·수동 RTO 4시간·일일 중단 5분 이내 목표 추가 |
+| 백업 목표 | backup ID 생성시각 기준 RPO 24시간·수동 RTO 4시간·강제된 일일 중단 deadline 5분 추가 |
 | 백업 범위 | PostgreSQL 논리 dump, Mattermost 첨부파일과 notifier queue를 단일 set으로 정의 |
 | 원격 저장 | `ap-singapore-1` 프로젝트별 Private OCI Object Storage와 AES-256 적용 |
 | OCI 권한 | exact-instance Instance Principal과 exact-bucket create·inspect·read, no-delete 확정 |
@@ -2005,7 +2009,7 @@ PostgreSQL은 Mattermost와 동일 VM
 PostgreSQL과 Mattermost 중요 데이터는 명시적 bind mount
 정상 컨테이너 재생성·VM 재부팅 중 데이터 유지
 일일 백업은 프로젝트 전용 Private OCI Object Storage에 저장·원격 검증
-RPO 24시간·수동 RTO 4시간·백업 중단 5분 이내 목표
+backup ID 생성시각 기준 RPO 24시간·수동 RTO 4시간·백업 중단 deadline 5분
 복구는 동일 기준의 신규 VM과 비어 있는 데이터 경로에서만 수행
 HA·PITR·리전 간 복제·무손실 복구·SLA는 미제공
 중앙 로깅·통합 모니터링·고가용성은 초기 미구성

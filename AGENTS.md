@@ -58,8 +58,10 @@ When the user asks to add the notifier to an already running Mattermost:
 
 When the user asks to configure, test, restore, or remove ThreadHub backups:
 
-1. Read `deploy/docs/backup-restore.md`; repository work alone never authorizes
-   live OCI or production VM changes.
+1. Read `deploy/docs/backup-restore.md` and run `./deploy/scripts/validate.sh`
+   before any target change. Never bypass `backup.sh`'s built-in non-writer
+   preflight; it must pass before either application writer is stopped.
+   Repository work alone never authorizes live OCI or production VM changes.
 2. OCI bucket, lifecycle, Dynamic Group, and IAM policy changes require
    explicit user authorization after stating the exact compartment and
    `ap-singapore-1` region.

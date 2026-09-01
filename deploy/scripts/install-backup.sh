@@ -8,12 +8,15 @@ INSTALL_BACKUP_SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "${INSTALL_BACKUP_SCRIPT_DIR}/backup-common.sh"
 # shellcheck source=backup-oci.sh
 source "${INSTALL_BACKUP_SCRIPT_DIR}/backup-oci.sh"
+# shellcheck source=backup-artifacts.sh
+source "${INSTALL_BACKUP_SCRIPT_DIR}/backup-artifacts.sh"
 # shellcheck source=backup-status.sh
 source "${INSTALL_BACKUP_SCRIPT_DIR}/backup-status.sh"
 
 BACKUP_SYSTEMD_DIR=/etc/systemd/system
 BACKUP_OCI_INSTALL_BASE=/opt/threadhub
 BACKUP_OCI_LINK=/usr/local/bin/oci
+BACKUP_OCI_REQUIREMENTS_FILE=${DEPLOY_DIR}/oci-cli-requirements.lock
 BACKUP_SERVICE_TEMPLATE=${DEPLOY_DIR}/systemd/threadhub-backup.service.template
 BACKUP_TIMER_TEMPLATE=${DEPLOY_DIR}/systemd/threadhub-backup.timer
 
@@ -47,7 +50,7 @@ backup_installer_version_value() {
     value="$(env_value "${key}" "${VERSIONS_FILE}")" || return 20
     case "${key}" in
         OCI_CLI_VERSION) [[ "${value}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] ;;
-        OCI_CLI_ARCHIVE_SHA256) [[ "${value}" =~ ^[a-f0-9]{64}$ ]] ;;
+        OCI_CLI_ARCHIVE_SHA256|OCI_CLI_WHEEL_SHA256) [[ "${value}" =~ ^[a-f0-9]{64}$ ]] ;;
         *) return 20 ;;
     esac || return 20
     printf '%s\n' "${value}"
@@ -59,6 +62,9 @@ backup_installer_preflight() {
     [[ -f "${VERSIONS_FILE}" && ! -L "${VERSIONS_FILE}" ]] || return 20
     backup_installer_version_value OCI_CLI_VERSION >/dev/null || return 20
     backup_installer_version_value OCI_CLI_ARCHIVE_SHA256 >/dev/null || return 20
+    backup_installer_version_value OCI_CLI_WHEEL_SHA256 >/dev/null || return 20
+    [[ -f "${BACKUP_OCI_REQUIREMENTS_FILE}" \
+        && ! -L "${BACKUP_OCI_REQUIREMENTS_FILE}" ]] || return 20
     command -v apt-get >/dev/null 2>&1 || return 20
 }
 
@@ -66,6 +72,19 @@ backup_installer_install_dependencies() {
     apt-get update
     env DEBIAN_FRONTEND=noninteractive apt-get install -y \
         ca-certificates curl unzip python3 python3-venv zstd
+}
+
+backup_installer_assert_empty_restore_target() {
+    backup_assert_empty_target /srv/threadhub
+}
+
+backup_installer_install_docker() {
+    "${DEPLOY_DIR}/scripts/install-docker.sh"
+}
+
+backup_installer_timer_is_active() {
+    systemctl is-active --quiet threadhub-backup.timer \
+        || systemctl is-enabled --quiet threadhub-backup.timer
 }
 
 backup_installer_installed_oci_is_exact() {
@@ -83,11 +102,13 @@ backup_installer_installed_oci_is_exact() {
 }
 
 backup_installer_install_oci_cli() (
-    local oci_cli_version archive_sha install_root executable archive_url
-    local temporary archive extraction wheel expected_wheel archive_names actual_sha uid gid
+    local oci_cli_version archive_sha wheel_sha install_root executable archive_url
+    local temporary archive extraction wheel wheelhouse expected_wheel archive_names
+    local actual_sha actual_wheel_sha uid gid
 
     oci_cli_version="$(backup_installer_version_value OCI_CLI_VERSION)" || return 20
     archive_sha="$(backup_installer_version_value OCI_CLI_ARCHIVE_SHA256)" || return 20
+    wheel_sha="$(backup_installer_version_value OCI_CLI_WHEEL_SHA256)" || return 20
     uid="$(backup_installer_expected_uid)"
     gid="$(backup_installer_expected_gid)"
     install_root="${BACKUP_OCI_INSTALL_BASE}/oci-cli-${oci_cli_version}"
@@ -111,8 +132,9 @@ backup_installer_install_oci_cli() (
     temporary="$(mktemp -d)" || return 30
     archive="${temporary}/oci-cli-${oci_cli_version}.zip"
     extraction="${temporary}/extracted"
+    wheelhouse="${temporary}/wheelhouse"
     trap 'rm -rf -- "${temporary}"' EXIT
-    mkdir -m 0700 "${extraction}"
+    mkdir -m 0700 "${extraction}" "${wheelhouse}"
     curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
         "${archive_url}" --output "${archive}" || return 30
     chmod 0600 "${archive}"
@@ -134,9 +156,20 @@ backup_installer_install_oci_cli() (
     unzip -q "${archive}" "${expected_wheel}" -d "${extraction}" || return 30
     wheel="${extraction}/${expected_wheel}"
     [[ -f "${wheel}" && ! -L "${wheel}" ]] || return 20
+    actual_wheel_sha="$(sha256_file "${wheel}")" || return 30
+    [[ "${actual_wheel_sha}" == "${wheel_sha}" ]] || return 20
     python3 -m venv "${install_root}" || return 30
+    "${install_root}/bin/python3" -m pip download \
+        --disable-pip-version-check --no-input --no-cache-dir \
+        --require-hashes --only-binary=:all: \
+        --dest "${wheelhouse}" --requirement "${BACKUP_OCI_REQUIREMENTS_FILE}" || return 30
     "${install_root}/bin/python3" -m pip install \
-        --disable-pip-version-check --no-input --no-cache-dir "${wheel}" || return 30
+        --disable-pip-version-check --no-input --no-cache-dir \
+        --no-index --require-hashes --only-binary=:all: \
+        --find-links "${wheelhouse}" --requirement "${BACKUP_OCI_REQUIREMENTS_FILE}" || return 30
+    "${install_root}/bin/python3" -m pip install \
+        --disable-pip-version-check --no-input --no-cache-dir \
+        --no-index --no-deps "${wheel}" || return 30
     [[ -x "${executable}" && ! -L "${executable}" \
         && "$("${executable}" --version 2>/dev/null)" == "${oci_cli_version}" ]] || return 20
     backup_installer_symlink_no_clobber "${executable}" "${BACKUP_OCI_LINK}" || return 20
@@ -242,7 +275,8 @@ backup_installer_validate_activation() {
     done
     backup_oci_preflight || return 30
     remote_prefix="$(backup_oci_find_set "${requested_id}")" || return 30
-    [[ -n "${remote_prefix}" ]]
+    [[ -n "${remote_prefix}" ]] || return 30
+    backup_oci_verify_remote_set "${remote_prefix}" "${requested_id}"
 }
 
 backup_installer_enable_timer() {
@@ -255,9 +289,23 @@ install_backup_entry() {
     local requested_id confirmation
 
     case "${1:-}" in
+        --prepare-restore-host)
+            (($# == 1)) || return 20
+            backup_installer_preflight || return $?
+            backup_installer_assert_empty_restore_target || return $?
+            backup_installer_install_docker || return $?
+            backup_installer_install_dependencies || return $?
+            backup_installer_install_oci_cli || return $?
+            backup_installer_assert_empty_restore_target || return $?
+            printf '[OK] Restore host dependencies are ready; /srv/threadhub remains new or empty.\n'
+            ;;
         --register)
             (($# == 1)) || return 20
             backup_installer_preflight || return $?
+            if backup_installer_timer_is_active; then
+                printf '[ACTION REQUIRED] Backup timer is already active or enabled; registration made no changes.\n' >&2
+                return 20
+            fi
             backup_installer_install_dependencies || return $?
             backup_installer_install_oci_cli || return $?
             backup_installer_register_units || return $?
@@ -282,7 +330,7 @@ install_backup_entry() {
             printf '[OK] Backup timer is enabled and active.\n'
             ;;
         *)
-            printf 'Usage: %s --register | --enable-after-acceptance BACKUP_ID\n' "$0" >&2
+            printf 'Usage: %s --prepare-restore-host | --register | --enable-after-acceptance BACKUP_ID\n' "$0" >&2
             return 20
             ;;
     esac

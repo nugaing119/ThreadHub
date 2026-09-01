@@ -44,8 +44,11 @@ load_fixture() {
     RESTORE_TEST_FAIL_AT=''
     RESTORE_TEST_PREFIX='daily/2026/09/01/20260901T030000Z-0123456789abcdef0123456789abcdef'
     RESTORE_TEST_POSTGRES_STARTED=false
+    RESTORE_LOCK_FILE="${fixture}/restore.lock"
     export RESTORE_TEST_EVENTS RESTORE_TEST_FAIL_AT RESTORE_TEST_PREFIX
     : > "${RESTORE_TEST_EVENTS}"
+
+    restore_acquire_lock() { event lock; [[ "${RESTORE_TEST_FAIL_AT}" != lock-busy ]] || return 75; }
 
     restore_preflight() {
         event preflight
@@ -77,6 +80,7 @@ load_fixture() {
     }
     restore_extract_archives_to_staging() { event extract-staging; }
     restore_recheck_target() { event recheck-target; }
+    restore_claim_target() { event claim-target; }
     restore_prepare_target() {
         event prepare-target
         mkdir -p "${RESTORE_TARGET_ROOT}"
@@ -107,6 +111,7 @@ load_fixture() {
         event verify-disabled
         [[ "${RESTORE_TEST_FAIL_AT}" != disabled-readiness ]]
     }
+    restore_release_claim() { event release-claim; }
     restore_stop_partial_postgres() { event stop-postgres; }
 }
 
@@ -122,6 +127,28 @@ test_nonempty_target_is_rejected_before_download() (
     ! restore_entry "${VALID_ID}" >"${fixture}/stdout" 2>"${fixture}/stderr"
     [[ "$(<"${RESTORE_TARGET_ROOT}/existing")" == sentinel ]]
     ! grep -Eq '^(find|download-|prepare-target|start-postgres)$' "${RESTORE_TEST_EVENTS}"
+)
+
+test_busy_restore_lock_fails_before_preflight() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    RESTORE_TEST_FAIL_AT=lock-busy
+
+    ! restore_entry "${VALID_ID}" >"${fixture}/stdout" 2>"${fixture}/stderr"
+    [[ "$(<"${RESTORE_TEST_EVENTS}")" == lock ]]
+)
+
+test_unsafe_restore_lock_fails_before_preflight() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    restore_acquire_lock() { return 20; }
+
+    ! restore_entry "${VALID_ID}" >"${fixture}/stdout" 2>"${fixture}/stderr"
+    [[ ! -s "${RESTORE_TEST_EVENTS}" ]]
+    grep -F '[ACTION REQUIRED] Restore lock is unavailable or unsafe; no target change was made.' \
+        "${fixture}/stderr" >/dev/null
 )
 
 test_force_option_does_not_exist() (
@@ -152,10 +179,40 @@ test_valid_restore_orders_every_mutation_and_starts_disabled() (
     load_fixture "${fixture}"
 
     restore_entry "${VALID_ID}" >"${fixture}/stdout" 2>"${fixture}/stderr"
-    expected=$'preflight\noci-preflight\nstate\nfind\ndownload-manifest\nvalidate-manifest\ndownload-artifacts\nvalidate-set\nextract-staging\nrecheck-target\nprepare-target\nbuild-notifier\nverify-mailer\nstart-postgres\nempty-database\nrestore-database\npublish-mattermost\ndeploy\nverify-disabled'
+    expected=$'lock\npreflight\noci-preflight\nstate\nfind\ndownload-manifest\nvalidate-manifest\ndownload-artifacts\nvalidate-set\nextract-staging\nclaim-target\nprepare-target\nbuild-notifier\nverify-mailer\nstart-postgres\nempty-database\nrestore-database\npublish-mattermost\ndeploy\nverify-disabled\nrelease-claim'
     [[ "$(<"${RESTORE_TEST_EVENTS}")" == "${expected}" ]]
     grep -F '[READY] Restore completed with notifier delivery disabled.' "${fixture}/stdout" >/dev/null
     [[ ! -s "${fixture}/stderr" ]]
+)
+
+test_target_claim_is_atomic_and_no_clobber() (
+    local RESTORE_TARGET_PARENT RESTORE_TARGET_ROOT RESTORE_TARGET_PARENT_IDENTITY
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${RESTORE_SCRIPT}"
+    RESTORE_TARGET_PARENT="${fixture}/srv"
+    # The test intentionally overrides this sourced global inside its isolated subshell.
+    # shellcheck disable=SC2030
+    RESTORE_TARGET_ROOT="${RESTORE_TARGET_PARENT}/threadhub"
+    RESTORE_TARGET_PARENT_IDENTITY='fixture-parent'
+    mkdir -p "${RESTORE_TARGET_PARENT}"
+    restore_recheck_target() {
+        [[ ! -e "${RESTORE_TARGET_ROOT}" ]] || backup_directory_is_empty "${RESTORE_TARGET_ROOT}"
+    }
+    backup_expected_uid() { id -u; }
+    backup_expected_gid() { id -g; }
+    backup_link_no_clobber() {
+        [[ ! -e "$2" && ! -L "$2" ]] || return 1
+        command ln "$1" "$2"
+    }
+
+    restore_claim_target
+    [[ -f "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" \
+        && ! -L "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]]
+    ! restore_claim_target
+    restore_release_claim
+    [[ ! -e "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]]
 )
 
 test_failures_stop_before_the_next_mutation_boundary() (
@@ -166,6 +223,8 @@ test_failures_stop_before_the_next_mutation_boundary() (
         ! restore_entry "${VALID_ID}" >"${fixture}/stdout" 2>"${fixture}/stderr"
         case "${failure}" in
             complete-set)
+                # A prior isolated fixture overrides the same sourced test global.
+                # shellcheck disable=SC2031
                 [[ ! -e "${RESTORE_TARGET_ROOT}" ]]
                 ! grep -Fx prepare-target "${RESTORE_TEST_EVENTS}" >/dev/null
                 ;;
@@ -281,9 +340,12 @@ test_restore_has_no_remote_or_destructive_escape_hatch() (
 )
 
 run_test 'nonempty target is rejected before remote download' test_nonempty_target_is_rejected_before_download
+run_test 'busy restore lock fails before preflight' test_busy_restore_lock_fails_before_preflight
+run_test 'unsafe restore lock fails before preflight' test_unsafe_restore_lock_fails_before_preflight
 run_test 'restore has no force option' test_force_option_does_not_exist
 run_test 'invalid manifest never creates the target root' test_invalid_manifest_never_creates_target_root
 run_test 'valid restore orders mutations and starts disabled' test_valid_restore_orders_every_mutation_and_starts_disabled
+run_test 'restore target claim is atomic and no-clobber' test_target_claim_is_atomic_and_no_clobber
 run_test 'faults stop before the next restore boundary' test_failures_stop_before_the_next_mutation_boundary
 run_test 'manifest artifacts use fixed no-clobber download names' test_manifest_artifact_downloads_are_fixed_and_no_clobber
 run_test 'rebuilt Mailer identity must match the manifest' test_mailer_image_identity_must_match_manifest

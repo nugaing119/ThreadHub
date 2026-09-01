@@ -213,6 +213,109 @@ backup_oci_find_set() {
     fi
 }
 
+backup_oci_validate_set_prefix() {
+    local prefix="$1" backup_id="$2"
+
+    backup_validate_id "${backup_id}" || return 20
+    [[ "${prefix}" =~ ^(daily|weekly)/[0-9]{4}/[0-9]{2}/[0-9]{2}/${backup_id}$ ]]
+}
+
+backup_oci_collect_prefix_names() {
+    local prefix="$1" destination="$2" response page='' next='' page_count=0
+
+    [[ -f "${destination}" && ! -L "${destination}" ]] || return 20
+    response="$(backup_oci_temporary)" || return 30
+    while :; do
+        page_count=$((page_count + 1))
+        if ((page_count > 100)); then
+            rm -f -- "${response}"
+            return 30
+        fi
+        if [[ -n "${page}" ]]; then
+            backup_oci_capture "${response}" os object list \
+                --namespace-name "$(backup_env_value BACKUP_NAMESPACE)" \
+                --bucket-name "$(backup_env_value BACKUP_BUCKET)" \
+                --prefix "${prefix}/" --page "${page}" || {
+                    rm -f -- "${response}"
+                    return 30
+                }
+        else
+            backup_oci_capture "${response}" os object list \
+                --namespace-name "$(backup_env_value BACKUP_NAMESPACE)" \
+                --bucket-name "$(backup_env_value BACKUP_BUCKET)" \
+                --prefix "${prefix}/" || {
+                    rm -f -- "${response}"
+                    return 30
+                }
+        fi
+        if ! jq -e '
+                (.data | type == "array") and
+                all(.data[]; type == "object" and (.name | type == "string"))
+            ' "${response}" >/dev/null 2>&1 \
+            || ! jq -r '.data[].name' "${response}" >> "${destination}" 2>/dev/null; then
+            rm -f -- "${response}"
+            return 30
+        fi
+        next="$(jq -er '.["opc-next-page"] // empty' "${response}" 2>/dev/null || true)"
+        [[ -n "${next}" ]] || break
+        backup_oci_page_token_is_valid "${next}" || { rm -f -- "${response}"; return 30; }
+        [[ "${next}" != "${page}" ]] || { rm -f -- "${response}"; return 30; }
+        page="${next}"
+    done
+    rm -f -- "${response}"
+}
+
+backup_oci_prefix_is_exact_set() (
+    local prefix="$1" backup_id="$2" names expected
+
+    backup_oci_validate_set_prefix "${prefix}" "${backup_id}" || return 20
+    names="$(backup_oci_temporary)" || return 30
+    expected="$(backup_oci_temporary)" || { rm -f -- "${names}"; return 30; }
+    trap 'rm -f -- "${names}" "${expected}"' EXIT
+    : > "${names}"
+    printf '%s\n' \
+        "${prefix}/database.dump" \
+        "${prefix}/manifest.json" \
+        "${prefix}/manifest.sha256" \
+        "${prefix}/mattermost-data.tar.zst" \
+        "${prefix}/notifier-queue.tar.zst" \
+        | LC_ALL=C sort > "${expected}"
+    backup_oci_collect_prefix_names "${prefix}" "${names}" || return $?
+    LC_ALL=C sort "${names}" -o "${names}" || return 30
+    cmp -s "${expected}" "${names}"
+)
+
+backup_oci_verify_remote_set() (
+    local prefix="$1" backup_id="$2" temporary set_dir name path size sha
+
+    declare -F backup_validate_manifest_compatibility >/dev/null 2>&1 || return 20
+    backup_oci_prefix_is_exact_set "${prefix}" "${backup_id}" || return $?
+    temporary="$(mktemp -d)" || return 30
+    trap 'rm -rf -- "${temporary}"' EXIT
+    chmod 0700 "${temporary}" || return 30
+    set_dir="${temporary}/${backup_id}"
+    install -d -m 0700 "${set_dir}" || return 30
+    backup_oci_download "${prefix}/manifest.sha256" "${set_dir}/manifest.sha256" || return $?
+    backup_oci_download "${prefix}/manifest.json" "${set_dir}/manifest.json" || return $?
+    backup_validate_manifest_compatibility "${set_dir}" "${backup_id}" || return 20
+
+    for name in database.dump mattermost-data.tar.zst notifier-queue.tar.zst; do
+        size="$(jq -er --arg name "${name}" \
+            '.artifacts[] | select(.name == $name) | .bytes' \
+            "${set_dir}/manifest.json" 2>/dev/null)" || return 20
+        sha="$(jq -er --arg name "${name}" \
+            '.artifacts[] | select(.name == $name) | .sha256' \
+            "${set_dir}/manifest.json" 2>/dev/null)" || return 20
+        backup_oci_verify "${prefix}/${name}" "${size}" "${sha}" || return 30
+    done
+    for name in manifest.json manifest.sha256; do
+        path="${set_dir}/${name}"
+        size="$(wc -c < "${path}" | tr -d ' ')" || return 20
+        sha="$(sha256_file "${path}")" || return 20
+        backup_oci_verify "${prefix}/${name}" "${size}" "${sha}" || return 30
+    done
+)
+
 backup_link_no_clobber() {
     local source="$1" destination="$2" source_identity
 

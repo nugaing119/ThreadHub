@@ -70,6 +70,18 @@ rm -f "${fixture_root}/AGENTS.md.bak"
 assert_contract_failure 'OCI approval boundary was removed'
 
 reset_fixture
+sed -i.bak 's/read buckets/inspect buckets/g' \
+    "${fixture_root}/deploy/docs/backup-restore.md"
+rm -f "${fixture_root}/deploy/docs/backup-restore.md.bak"
+assert_contract_failure 'bucket-read permission required by OCI preflight was removed'
+
+reset_fixture
+sed -i.bak 's/install-backup\.sh --prepare-restore-host/install-backup.sh --register/g' \
+    "${fixture_root}/deploy/docs/backup-restore.md"
+rm -f "${fixture_root}/deploy/docs/backup-restore.md.bak"
+assert_contract_failure 'fresh restore host bootstrap was replaced by deployment registration'
+
+reset_fixture
 sed -i.bak 's/timer remains disabled/timer starts immediately/g' \
     "${fixture_root}/deploy/docs/quick-install.md"
 rm -f "${fixture_root}/deploy/docs/quick-install.md.bak"

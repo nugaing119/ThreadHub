@@ -43,11 +43,15 @@ load_installer_fixture() {
     BACKUP_INSTALLER_TEST_EVENTS="${fixture}/events"
     BACKUP_INSTALLER_TEST_TTY=false
     BACKUP_INSTALLER_TEST_STATUS_MATCH=true
+    BACKUP_INSTALLER_TEST_TIMER_ACTIVE=false
     : > "${BACKUP_INSTALLER_TEST_EVENTS}"
 
     backup_installer_preflight() { event preflight; }
     backup_installer_install_dependencies() { event dependencies; }
     backup_installer_install_oci_cli() { event oci-cli; }
+    backup_installer_install_docker() { event docker; }
+    backup_installer_assert_empty_restore_target() { event empty-target; }
+    backup_installer_timer_is_active() { [[ "${BACKUP_INSTALLER_TEST_TIMER_ACTIVE}" == true ]]; }
     backup_installer_register_units() { event register-units; }
     backup_installer_has_tty() { [[ "${BACKUP_INSTALLER_TEST_TTY}" == true ]]; }
     backup_installer_validate_activation() {
@@ -61,6 +65,35 @@ test_versions_pin_an_upstream_archive() (
     [[ "$(awk -F= '$1 == "OCI_CLI_VERSION" { print $2 }' "${VERSIONS}")" == 3.90.3 ]]
     [[ "$(awk -F= '$1 == "OCI_CLI_ARCHIVE_SHA256" { print $2 }' "${VERSIONS}")" \
         == 098a9470ad4f097d505b8dbab6ec7e7d4397d2d5db2ed19ef402ca39cdfdd35d ]]
+    [[ "$(awk -F= '$1 == "OCI_CLI_WHEEL_SHA256" { print $2 }' "${VERSIONS}")" \
+        == 15a05190a96666e0aa4f029d361563608cae5c66ae28ca51d96186f9d007a3b5 ]]
+    grep -F 'oci==2.184.2' "${DEPLOY_DIR}/oci-cli-requirements.lock" >/dev/null
+    ! grep -F 'oci-cli==' "${DEPLOY_DIR}/oci-cli-requirements.lock" >/dev/null
+)
+
+test_restore_host_bootstrap_installs_without_deploying_or_registering() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_installer_fixture "${fixture}"
+
+    install_backup_entry --prepare-restore-host >"${fixture}/stdout" 2>"${fixture}/stderr"
+    [[ "$(<"${BACKUP_INSTALLER_TEST_EVENTS}")" \
+        == $'preflight\nempty-target\ndocker\ndependencies\noci-cli\nempty-target' ]]
+    ! grep -E 'register-units|enable-timer' "${BACKUP_INSTALLER_TEST_EVENTS}"
+    grep -F '[OK] Restore host dependencies are ready; /srv/threadhub remains new or empty.' \
+        "${fixture}/stdout" >/dev/null
+)
+
+test_registration_refuses_an_already_active_timer() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_installer_fixture "${fixture}"
+    BACKUP_INSTALLER_TEST_TIMER_ACTIVE=true
+
+    ! install_backup_entry --register >"${fixture}/stdout" 2>"${fixture}/stderr"
+    [[ "$(<"${BACKUP_INSTALLER_TEST_EVENTS}")" == preflight ]]
+    grep -F '[ACTION REQUIRED] Backup timer is already active or enabled; registration made no changes.' \
+        "${fixture}/stderr" >/dev/null
 )
 
 test_register_installs_but_does_not_enable_timer() (
@@ -134,6 +167,9 @@ test_installer_and_configurator_are_no_clobber_and_value_safe() (
     grep -F 'oci-cli-${oci_cli_version}.zip' "${INSTALLER}" >/dev/null
     grep -F 'oci_cli-${oci_cli_version}-py3-none-any.whl' "${INSTALLER}" >/dev/null
     grep -F 'OCI_CLI_ARCHIVE_SHA256' "${INSTALLER}" >/dev/null
+    grep -F -- '--require-hashes' "${INSTALLER}" >/dev/null
+    grep -F -- '--no-index' "${INSTALLER}" >/dev/null
+    grep -F 'oci-cli-requirements.lock' "${INSTALLER}" >/dev/null
     grep -F 'ln -T --' "${CONFIGURATOR}" >/dev/null
     ! grep -Eq 'mv -f|install .*backup\.env|systemctl (start|enable) threadhub-backup' \
         "${CONFIGURATOR}"
@@ -220,9 +256,13 @@ with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_STORED) as bundle:
     bundle.write(os.path.join(source, member), member)
 PY
     archive_sha="$(openssl dgst -sha256 "${fixture}/oci.zip" | awk '{print $NF}')"
+    wheel_sha="$(openssl dgst -sha256 \
+        "${fixture}/archive/oci-cli/oci_cli-3.90.3-py3-none-any.whl" | awk '{print $NF}')"
     printf '%s\n' \
         'OCI_CLI_VERSION=3.90.3' \
-        "OCI_CLI_ARCHIVE_SHA256=${archive_sha}" > "${fixture}/versions.env"
+        "OCI_CLI_ARCHIVE_SHA256=${archive_sha}" \
+        "OCI_CLI_WHEEL_SHA256=${wheel_sha}" \
+        > "${fixture}/versions.env"
     cat > "${fixture}/bin/curl" <<'EOF'
 #!/usr/bin/env bash
 set -Eeuo pipefail
@@ -242,6 +282,8 @@ if [[ "$1" == -m && "$2" == venv ]]; then
     exit 0
 fi
 if [[ "$1" == -m && "$2" == pip ]]; then
+    printf '%s\n' "${*:3}" >> "${OCI_INSTALLER_TEST_PIP_TRACE}"
+    [[ "$3" == install ]] || exit 0
     executable="$(dirname "$0")/oci"
     printf '%s\n' '#!/usr/bin/env bash' \
         '[[ "${1:-}" == --version ]] || exit 2' \
@@ -267,11 +309,16 @@ EOF
     backup_installer_resolve_path() { realpath "$1"; }
     OCI_INSTALLER_TEST_ARCHIVE="${fixture}/oci.zip"
     OCI_INSTALLER_TEST_VERSION=3.90.3
-    export OCI_INSTALLER_TEST_ARCHIVE OCI_INSTALLER_TEST_VERSION
+    OCI_INSTALLER_TEST_PIP_TRACE="${fixture}/pip.trace"
+    export OCI_INSTALLER_TEST_ARCHIVE OCI_INSTALLER_TEST_VERSION OCI_INSTALLER_TEST_PIP_TRACE
 
     PATH="${fixture}/bin:${PATH}" backup_installer_install_oci_cli
     [[ -L "${BACKUP_OCI_LINK}" ]]
     [[ "$("${BACKUP_OCI_LINK}" --version)" == 3.90.3 ]]
+    grep -F 'download --disable-pip-version-check --no-input --no-cache-dir --require-hashes --only-binary=:all:' \
+        "${OCI_INSTALLER_TEST_PIP_TRACE}" >/dev/null
+    grep -F 'install --disable-pip-version-check --no-input --no-cache-dir --no-index --require-hashes --only-binary=:all:' \
+        "${OCI_INSTALLER_TEST_PIP_TRACE}" >/dev/null
 
     rm "${BACKUP_OCI_LINK}"
     rm -rf "${BACKUP_OCI_INSTALL_BASE}"
@@ -290,8 +337,15 @@ test_wizard_registers_and_status_separates_backup_readiness() (
         "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
 )
 
+test_activation_reverifies_the_exact_remote_set() (
+    grep -F 'backup_oci_verify_remote_set "${remote_prefix}" "${requested_id}"' \
+        "${INSTALLER}" >/dev/null
+)
+
 run_test 'versions pin the verified upstream OCI CLI archive' test_versions_pin_an_upstream_archive
 run_test 'registration installs without enabling the timer' test_register_installs_but_does_not_enable_timer
+run_test 'restore-host bootstrap installs no application or units' test_restore_host_bootstrap_installs_without_deploying_or_registering
+run_test 'registration refuses an already-active timer' test_registration_refuses_an_already_active_timer
 run_test 'activation requires a TTY and verified latest success' test_enable_requires_tty_and_verified_success
 run_test 'activation requires exact interactive confirmation' test_enable_requires_exact_confirmation
 run_test 'backup units are hardened and registration-safe' test_units_are_hardened_and_disabled_by_registration_contract
@@ -300,6 +354,7 @@ run_test 'configurator creates, reuses and refuses unsafe state' test_configurat
 run_test 'unit publication is idempotent and no-clobber' test_unit_publication_is_idempotent_and_never_overwrites_differences
 run_test 'OCI installer verifies the archive and exact wheel' test_oci_installer_verifies_archive_and_exact_wheel_before_linking
 run_test 'wizard and status keep backup readiness separate' test_wizard_registers_and_status_separates_backup_readiness
+run_test 'activation reverifies the exact remote set' test_activation_reverifies_the_exact_remote_set
 
 if ((failures > 0)); then
     printf '%d backup installer test(s) failed\n' "${failures}" >&2

@@ -172,6 +172,29 @@ test_backup_ids_and_empty_restore_target_are_fail_closed() (
     ! backup_assert_empty_target /srv/threadhub/../other
 )
 
+test_empty_target_rejects_find_failures() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    write_valid_config "${fixture}/backup.env"
+    load_fixture "${fixture}"
+    mkdir -p "${fixture}/target"
+
+    declare -F backup_directory_is_empty >/dev/null
+    find() { return 2; }
+    ! backup_directory_is_empty "${fixture}/target"
+)
+
+test_backup_id_epoch_is_strict_and_utc() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    write_valid_config "${fixture}/backup.env"
+    load_fixture "${fixture}"
+
+    declare -F backup_id_epoch >/dev/null
+    [[ "$(backup_id_epoch '20260901T030000Z-0123456789abcdef0123456789abcdef')" == 1788231600 ]]
+    ! backup_id_epoch '20260230T030000Z-0123456789abcdef0123456789abcdef'
+)
+
 test_state_and_status_are_exact_private_and_atomic() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -227,13 +250,18 @@ test_status_cli_uses_latest_success_freshness_and_current_result() (
     backup_expected_gid() { id -g; }
     backup_prepare_state_root
     id='20260901T030000Z-0123456789abcdef0123456789abcdef'
-    now="$(date +%s)"
+    created_at="$(backup_id_epoch "${id}")"
+    BACKUP_TEST_STATUS_NOW=$((created_at + 10))
+    backup_status_now_epoch() { printf '%s\n' "${BACKUP_TEST_STATUS_NOW}"; }
+    now="${BACKUP_TEST_STATUS_NOW}"
     backup_write_status success complete "${id}" "$((now - 10))" "${now}" 3 2048 5 ok ok ok ok none not_needed
     backup_write_latest_success success complete "${id}" "$((now - 10))" "${now}" 3 2048 5 ok ok ok ok none not_needed
 
     backup_status_main --json > "${fixture}/status.json"
     jq -e '.status == "success" and .backup_id == $id' --arg id "${id}" "${fixture}/status.json" >/dev/null
-    backup_write_latest_success success complete "${id}" 1 1 3 2048 5 ok ok ok ok none not_needed
+    BACKUP_TEST_STATUS_NOW=$((created_at + 86401))
+    now="${BACKUP_TEST_STATUS_NOW}"
+    backup_write_latest_success success complete "${id}" "${created_at}" "${now}" 3 2048 5 ok ok ok ok none not_needed
     ! backup_status_main --json >/dev/null
 )
 
@@ -282,6 +310,8 @@ run_test 'valid backup configuration is exact and secure' test_valid_config_requ
 run_test 'production backup configuration requires root ownership' test_production_config_requires_root_owner
 run_test 'backup configuration rejects mode links duplicate unknown and region drift' test_config_rejects_wrong_mode_symlink_duplicate_unknown_and_region
 run_test 'backup identifiers and restore target checks fail closed' test_backup_ids_and_empty_restore_target_are_fail_closed
+run_test 'empty-target checks reject find failures' test_empty_target_rejects_find_failures
+run_test 'backup ID timestamps parse strictly in UTC' test_backup_id_epoch_is_strict_and_utc
 run_test 'backup state and status are exact private and atomic' test_state_and_status_are_exact_private_and_atomic
 run_test 'backup status rejects unknown values and malformed files' test_status_rejects_unknown_values_and_malformed_files
 run_test 'backup status CLI uses latest-success freshness and current result' test_status_cli_uses_latest_success_freshness_and_current_result

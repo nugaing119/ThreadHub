@@ -17,7 +17,7 @@
 - Backup storage is a per-project private bucket in `ap-singapore-1` with daily retention 7 days and weekly Sunday retention 28 days.
 - RPO is 24 hours, manual RTO is 4 hours, and measured Mattermost/Mailer interruption must remain at or below 5 minutes.
 - OCI access uses `--auth instance_principal`; do not create or read a user API-key configuration.
-- VM permissions are exact-bucket object create/inspect/read only. VM object delete, bucket update, and bucket delete are forbidden.
+- VM permissions are exact-bucket `BUCKET_READ` plus object create/inspect/read only. VM object delete, bucket update, and bucket delete are forbidden.
 - OCI Dynamic Group, IAM Policy, bucket, lifecycle, DNS, public-IP, Email Delivery, and live-VM changes require a new explicit user authorization naming the target compartment and `ap-singapore-1`.
 - Never display or commit `deploy/.env`, `/etc/threadhub/backup.env`, SMTP credentials, HMAC secrets, OCI OCIDs, customer domains, email addresses, messages, filenames, or raw logs.
 - Never run `docker compose config` without `--quiet` against the real `deploy/.env`.
@@ -42,7 +42,7 @@
 | `deploy/scripts/data-layout.sh` | Shared canonical `/srv/threadhub` ownership and directory creation used by deploy and restore. |
 | `deploy/scripts/restore.sh` | Empty-target, version-locked download and restore with queue quarantine. |
 | `deploy/scripts/configure-backup.sh` | Interactive no-clobber creation of `/etc/threadhub/backup.env`. |
-| `deploy/scripts/install-backup.sh` | Pinned OCI CLI/zstd installation and disabled systemd unit registration. |
+| `deploy/scripts/install-backup.sh` | Pinned OCI CLI/zstd installation, restore-host-only bootstrap, and disabled systemd unit registration. |
 | `deploy/systemd/threadhub-backup.service.template` | Hardened oneshot service bound to the reviewed repository path. |
 | `deploy/systemd/threadhub-backup.timer` | 03:00 Asia/Seoul persistent daily schedule, installed disabled. |
 | `deploy/tests/backup-*.sh` | Static, security, fault-injection, installer, restore, and documentation contract tests. |
@@ -295,13 +295,14 @@ case "${1:-}" in
     *) die "Usage: $0 [--json]" ;;
 esac
 
-latest_success_at="$(jq -er '.completed_at | select(type == "number")' "${BACKUP_LATEST_SUCCESS_FILE}")"
+latest_success_id="$(jq -er '.backup_id | select(type == "string")' "${BACKUP_LATEST_SUCCESS_FILE}")"
+latest_success_at="$(backup_id_epoch "${latest_success_id}")"
 (( $(date +%s) - latest_success_at <= 86400 )) || exit 1
 jq -e '.status == "success" and .verification_result == "ok"' "${BACKUP_STATUS_FILE}" >/dev/null
 jq -e '.status == "success" and .verification_result == "ok"' "${BACKUP_LATEST_SUCCESS_FILE}" >/dev/null
 ```
 
-Validate both files with the exact status schema before reading them. A missing or malformed latest-success file, a current failed attempt, a verification result other than `ok`, or a last successful completion older than 24 hours returns non-zero. Human and JSON output still describe `latest.json`; do not merge or print remote object keys.
+Validate both files with the exact status schema before reading them. A missing or malformed latest-success file, a current failed attempt, a verification result other than `ok`, or a successful backup ID whose immutable UTC creation timestamp is older than 24 hours returns non-zero. Delayed resume upload must not extend the RPO by using `completed_at`. Human and JSON output still describe `latest.json`; do not merge or print remote object keys.
 
 - [ ] **Step 5: Implement generic alert invocation without reading SMTP secrets into argv**
 
@@ -633,15 +634,24 @@ A concurrent timer run exits without an alert because the active run owns respon
 ```bash
 mattermost_stopped=false
 mailer_stopped=false
+writer_deadline=0
 recover_writers_and_exit() {
     local original=$?
     local recovery_failed=false
+    local recovery_deadline remaining
     trap - EXIT HUP INT TERM
+    recovery_deadline=$(( $(date +%s) + 300 ))
     if [[ "${mailer_stopped}" == true ]]; then
-        backup_start_mailer || recovery_failed=true
+        remaining=$(( recovery_deadline - $(date +%s) ))
+        ((remaining > 0)) && backup_start_mailer "${remaining}" || recovery_failed=true
     fi
     if [[ "${mattermost_stopped}" == true ]]; then
-        backup_start_mattermost || recovery_failed=true
+        remaining=$(( recovery_deadline - $(date +%s) ))
+        ((remaining > 0)) && backup_start_mattermost "${remaining}" || recovery_failed=true
+    fi
+    remaining=$(( recovery_deadline - $(date +%s) ))
+    if ((remaining < 1)) || ! backup_health_before_deadline "${remaining}"; then
+        recovery_failed=true
     fi
     if [[ "${recovery_failed}" == true ]]; then
         service_recovery_result=failed
@@ -657,20 +667,22 @@ trap 'exit 130' INT
 trap 'exit 143' TERM
 
 downtime_started="$(date +%s)"
-backup_stop_mattermost    # compose stop --timeout 60 mattermost
 mattermost_stopped=true
-backup_stop_mailer        # compose stop --timeout 60 threadhub-mailer
+writer_deadline=$(( downtime_started + 300 ))
+backup_stop_mattermost "$(( writer_deadline - $(date +%s) ))"
 mailer_stopped=true
-backup_snapshot "${set_dir}"
-backup_start_mailer
-mailer_stopped=false
-backup_start_mattermost
-mattermost_stopped=false
-backup_health
+backup_stop_mailer "$(( writer_deadline - $(date +%s) ))"
+backup_snapshot "${set_dir}" "$(( writer_deadline - $(date +%s) ))"
+backup_start_mailer "$(( writer_deadline - $(date +%s) ))"
+backup_start_mattermost "$(( writer_deadline - $(date +%s) ))"
+backup_health_before_deadline "$(( writer_deadline - $(date +%s) ))"
 service_downtime_seconds=$(( $(date +%s) - downtime_started ))
+((service_downtime_seconds <= 300))
+mailer_stopped=false
+mattermost_stopped=false
 ```
 
-The EXIT/signal handler records the original exit status, clears its own traps, attempts Mailer and Mattermost recovery independently for every service whose flag is true, records any recovery failure, and then exits with the original failure unless service recovery failed. `backup_alert_once` is idempotent per run, including when called from this handler. If snapshot fails, leave no uploadable manifest, write `snapshot_result=failed`, and alert once. If restart fails, record `failure_class=service_recovery` while retaining the original snapshot result. Add a fault test where Mattermost stops but Mailer stop fails; Mattermost must still restart.
+Set each stopped flag before issuing its stop command so an ambiguous side-effect-then-error still triggers recovery. All stop, external snapshot child, start, and health commands consume one absolute 300-second writer deadline and are terminated by GNU `timeout`; timeout or overrun is a `service_recovery` failure and no manifest is uploaded. Keep both flags true until post-restart health succeeds. The EXIT/signal handler records the original exit status, clears its own traps, and attempts Mailer start, Mattermost start, and health under one separate absolute 300-second recovery deadline. It records any recovery failure and exits with the original failure unless service recovery failed. `backup_alert_once` is idempotent per run, including when called from this handler. If snapshot fails, leave no uploadable manifest, write `snapshot_result=failed`, and alert once. Add fault tests for a hung snapshot, a stop command that mutates then fails, Mattermost stopped before Mailer stop fails, and a deadline overrun.
 
 - [ ] **Step 5: Implement upload after service health and Sunday duplication**
 
@@ -817,6 +829,18 @@ test_invalid_manifest_never_creates_target_root() {
     ! run_restore "${valid_id}"
     [[ ! -e "${target_root}" ]]
 }
+
+test_concurrent_restore_is_rejected_before_preflight() {
+    hold_restore_lock
+    ! run_restore "${valid_id}"
+    assert_event_absent preflight oci-download target-claim compose-up
+}
+
+test_target_claim_is_atomic_and_no_clobber() {
+    inject_competing_target_after_validation
+    ! run_restore "${valid_id}"
+    assert_competing_target_unchanged
+}
 ```
 
 - [ ] **Step 2: Run restore tests and observe the missing command failure**
@@ -859,11 +883,11 @@ jq -e --arg digest "$(env_value MATTERMOST_IMAGE_DIGEST "${VERSIONS_FILE}")" '.i
 jq -e --arg digest "$(env_value POSTGRES_IMAGE_DIGEST "${VERSIONS_FILE}")" '.images.postgres.digest == $digest' manifest.json
 ```
 
-- [ ] **Step 5: Prepare the empty root, rebuild notifier, and verify the Mailer ID**
+- [ ] **Step 5: Acquire a host lock, atomically claim the empty root, rebuild notifier, and verify the Mailer ID**
 
-Call `prepare_threadhub_data_layout /srv/threadhub`, keep notifier disabled, build reviewed notifier artifacts, and require `/srv/threadhub/notifier/release/release.env` `NOTIFIER_MAILER_IMAGE_ID` to equal the manifest before restoring customer data. A mismatch stops with the partially prepared empty layout preserved for explicit cleanup.
+Acquire a fixed host-wide non-blocking `flock` before preflight. Immediately before mutation, recheck the new-or-empty target and publish a protected no-clobber claim marker so a concurrent process cannot win between validation and layout creation. Only then call `prepare_threadhub_data_layout /srv/threadhub`, keep notifier disabled, build reviewed notifier artifacts, and require `/srv/threadhub/notifier/release/release.env` `NOTIFIER_MAILER_IMAGE_ID` to equal the manifest before restoring customer data. Release the claim only after disabled readiness succeeds. A mismatch or later failure preserves the protected restore state and claim for explicit inspection and cleanup; it never auto-deletes partial data.
 
-Immediately before `prepare_threadhub_data_layout`, recheck that `/srv/threadhub` is still absent or empty, is not a symlink, and its parent identity has not changed since preflight.
+Immediately before the atomic claim, recheck that `/srv/threadhub` is still absent or empty and is not a symlink. A failing `find` or identity check is not equivalent to an empty directory and must fail closed.
 
 - [ ] **Step 6: Restore PostgreSQL and Mattermost attachments**
 
@@ -964,7 +988,9 @@ printf 'Backup failure recipient: '; read -r alert_email
 
 - [ ] **Step 4: Install OCI CLI from the pinned archive and zstd**
 
-Download `https://github.com/oracle/oci-cli/releases/download/v${OCI_CLI_VERSION}/oci-cli-${OCI_CLI_VERSION}.zip` to a root-only temporary directory, verify the exact SHA-256, require the single exact `oci_cli-${OCI_CLI_VERSION}-py3-none-any.whl` member, and install that wheel into a dedicated venv at `/opt/threadhub/oci-cli-${OCI_CLI_VERSION}` with executable link `/usr/local/bin/oci`. Reuse an exact installed version; refuse to overwrite a different `/usr/local/bin/oci`. Install Ubuntu `zstd`, `python3`, `python3-venv`, and `unzip` through apt.
+Download `https://github.com/oracle/oci-cli/releases/download/v${OCI_CLI_VERSION}/oci-cli-${OCI_CLI_VERSION}.zip` to a root-only temporary directory, verify the exact archive SHA-256, require the single exact `oci_cli-${OCI_CLI_VERSION}-py3-none-any.whl` member, and verify that wheel with its own pinned SHA-256. Download every transitive dependency as a binary wheel under `--require-hashes` from `deploy/oci-cli-requirements.lock`, then install dependencies from that temporary wheelhouse with `--no-index --require-hashes` and install the verified OCI CLI wheel with `--no-index --no-deps`. Use a dedicated venv at `/opt/threadhub/oci-cli-${OCI_CLI_VERSION}` with executable link `/usr/local/bin/oci`. Reuse an exact installed version; refuse to overwrite a different `/usr/local/bin/oci`. Install Ubuntu `zstd`, `python3`, `python3-venv`, and `unzip` through apt.
+
+Add `--prepare-restore-host` as a separate no-application bootstrap. It runs repository validation/preflight, installs pinned Docker/Compose and the backup dependencies, and verifies `/srv/threadhub` is new or empty before and after. It must not run the normal wizard resume/deploy path, register units, or populate `/srv/threadhub`.
 
 - [ ] **Step 5: Add hardened units with a rendered exact repository path**
 
@@ -1009,7 +1035,9 @@ Render only an absolute canonical Git worktree path with no newline or systemd m
 
 - [ ] **Step 6: Implement explicit activation after acceptance**
 
-`--enable-after-acceptance BACKUP_ID` requires a TTY, valid protected config, `latest-success.json` with the same ID and remote verification success, and exact input `ENABLE BACKUP TIMER`. It then runs `systemctl enable --now threadhub-backup.timer` and verifies active/enabled. It does not claim a restore test occurred; the operator must follow the documented disposable-VM evidence checklist before typing the phrase.
+`--enable-after-acceptance BACKUP_ID` requires a TTY, valid protected config, `latest-success.json` with the same ID and remote verification success, backup-ID creation-time freshness, and exact input `ENABLE BACKUP TIMER`. Before prompting it paginates the approved remote prefix and requires exactly the five fixed object names, validates manifest/hash compatibility, and heads the three data artifacts plus manifest/hash for exact size/checksum. It then runs `systemctl enable --now threadhub-backup.timer` and verifies active/enabled. It does not claim a restore test occurred; the operator must follow the documented disposable-VM evidence checklist before typing the phrase.
+
+`--register` must refuse an already active or enabled timer rather than silently replace units under a running schedule.
 
 - [ ] **Step 7: Integrate registration without broadening base `[READY]`**
 
@@ -1206,11 +1234,13 @@ Include this policy template while labeling every value as a placeholder:
 ```text
 ALL {instance.id = '<project-threadhub-instance-ocid>'}
 
-Allow dynamic-group '<identity-domain>'/'<project-backup-dynamic-group>' to inspect buckets in compartment <project-compartment> where target.bucket.name = '<project-backup-bucket>'
+Allow dynamic-group '<identity-domain>'/'<project-backup-dynamic-group>' to read buckets in compartment <project-compartment> where target.bucket.name = '<project-backup-bucket>'
 Allow dynamic-group '<identity-domain>'/'<project-backup-dynamic-group>' to manage objects in compartment <project-compartment> where all {target.bucket.name = '<project-backup-bucket>', any {request.permission = 'OBJECT_CREATE', request.permission = 'OBJECT_INSPECT', request.permission = 'OBJECT_READ'}}
 ```
 
 State that lifecycle service authorization is separate from the VM policy and must be generated/reviewed against current Oracle documentation before an approved live change.
+Explain that `GetBucket` requires `BUCKET_READ`; `inspect buckets` provides only
+`BUCKET_INSPECT` and is insufficient for the implemented preflight.
 
 - [ ] **Step 4: Add the backup-specific AGENTS.md contract**
 

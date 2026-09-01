@@ -25,6 +25,22 @@ RESTORE_MATTERMOST_STAGING=''
 RESTORE_QUEUE_QUARANTINE=''
 RESTORE_TARGET_PARENT_IDENTITY=''
 RESTORE_POSTGRES_STARTED=false
+RESTORE_LOCK_FILE=${THREADHUB_RESTORE_LOCK_FILE:-/run/lock/threadhub-restore.lock}
+RESTORE_TARGET_CLAIM=''
+
+restore_acquire_lock() {
+    local uid gid
+
+    command -v flock >/dev/null 2>&1 || return 20
+    [[ "${RESTORE_LOCK_FILE}" == /* && ! -L "${RESTORE_LOCK_FILE}" ]] || return 20
+    umask 077
+    exec 8>"${RESTORE_LOCK_FILE}" || return 20
+    chmod 0600 "${RESTORE_LOCK_FILE}" || return 20
+    uid="$(backup_expected_uid)"
+    gid="$(backup_expected_gid)"
+    backup_require_regular_mode_owner "${RESTORE_LOCK_FILE}" 600 "${uid}" "${gid}" || return 20
+    flock -n 8 || return 75
+}
 
 restore_private_diagnostic() {
     local phase="$1"
@@ -149,6 +165,45 @@ restore_recheck_target() {
         && "$(backup_path_identity "${RESTORE_TARGET_PARENT}")" == "${RESTORE_TARGET_PARENT_IDENTITY}" ]] \
         || return 20
     backup_assert_empty_target "${RESTORE_TARGET_ROOT}"
+}
+
+restore_claim_target() {
+    local claim entries temporary uid gid
+
+    restore_recheck_target || return 20
+    if [[ ! -e "${RESTORE_TARGET_ROOT}" && ! -L "${RESTORE_TARGET_ROOT}" ]]; then
+        mkdir -m 0700 -- "${RESTORE_TARGET_ROOT}" || return 20
+    fi
+    [[ -d "${RESTORE_TARGET_ROOT}" && ! -L "${RESTORE_TARGET_ROOT}" ]] || return 20
+    claim="${RESTORE_TARGET_ROOT}/.threadhub-restore-claim"
+    [[ ! -e "${claim}" && ! -L "${claim}" ]] || return 20
+    umask 077
+    temporary="$(mktemp "${RESTORE_TARGET_ROOT}/.restore-claim.tmp.XXXXXX")" || return 20
+    if ! chmod 0600 "${temporary}" \
+        || ! backup_link_no_clobber "${temporary}" "${claim}"; then
+        rm -f -- "${temporary}"
+        return 20
+    fi
+    rm -f -- "${temporary}" || return 20
+    uid="$(backup_expected_uid)"
+    gid="$(backup_expected_gid)"
+    backup_require_regular_mode_owner "${claim}" 600 "${uid}" "${gid}" || return 20
+    entries="$(find -P "${RESTORE_TARGET_ROOT}" -mindepth 1 -maxdepth 1 -print)" || return 20
+    [[ "${entries}" == "${claim}" ]] || return 20
+    RESTORE_TARGET_CLAIM="${claim}"
+}
+
+restore_release_claim() {
+    local uid gid
+
+    [[ -n "${RESTORE_TARGET_CLAIM}" \
+        && "${RESTORE_TARGET_CLAIM}" == "${RESTORE_TARGET_ROOT}/.threadhub-restore-claim" ]] \
+        || return 20
+    uid="$(backup_expected_uid)"
+    gid="$(backup_expected_gid)"
+    backup_require_regular_mode_owner "${RESTORE_TARGET_CLAIM}" 600 "${uid}" "${gid}" || return 20
+    rm -f -- "${RESTORE_TARGET_CLAIM}" || return 20
+    [[ ! -e "${RESTORE_TARGET_CLAIM}" && ! -L "${RESTORE_TARGET_CLAIM}" ]]
 }
 
 restore_prepare_target() {
@@ -326,7 +381,7 @@ restore_main() {
     restore_download_manifest_artifacts "${prefix}" "${RESTORE_DOWNLOAD_DIR}" || return $?
     restore_validate_downloaded_set "${RESTORE_DOWNLOAD_DIR}" "${backup_id}" || return $?
     restore_extract_archives_to_staging || return $?
-    restore_recheck_target || return $?
+    restore_claim_target || return $?
     restore_prepare_target || return $?
     restore_build_notifier || return $?
     restore_verify_built_mailer || return $?
@@ -337,6 +392,7 @@ restore_main() {
     restore_publish_mattermost || return $?
     restore_start_application || return $?
     restore_verify_disabled_readiness || return $?
+    restore_release_claim || return $?
     RESTORE_POSTGRES_STARTED=false
 }
 
@@ -360,6 +416,16 @@ restore_entry() {
         return 20
     fi
     RESTORE_BACKUP_ID="$1"
+    result=0
+    restore_acquire_lock || result=$?
+    if [[ "${result}" != 0 ]]; then
+        if [[ "${result}" == 75 ]]; then
+            printf '[ACTION REQUIRED] Another restore owns the restore lock; no target change was made.\n' >&2
+        else
+            printf '[ACTION REQUIRED] Restore lock is unavailable or unsafe; no target change was made.\n' >&2
+        fi
+        return "${result}"
+    fi
     if restore_main "${RESTORE_BACKUP_ID}"; then
         printf '[READY] Restore completed with notifier delivery disabled.\n'
         printf '[MANUAL] Complete HTTPS, administrator, email, permissions, CJK, mobile, and notifier acceptance tests.\n'

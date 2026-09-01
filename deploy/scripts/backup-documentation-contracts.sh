@@ -63,10 +63,14 @@ validate_backup_documentation_contracts() {
         'RPO' '24시간' 'RTO' '4시간' '5분' 'HA' 'PITR' '리전 간 복제' || return 1
     notifier_docs_require_terms "${guide}" 'exact OCI least-privilege boundary' \
         'ap-singapore-1' 'Public Access' 'AES-256' 'Instance Principal' \
-        'OBJECT_CREATE' 'OBJECT_INSPECT' 'OBJECT_READ' 'OBJECT_DELETE' \
+        'read buckets' 'BUCKET_READ' 'OBJECT_CREATE' 'OBJECT_INSPECT' 'OBJECT_READ' 'OBJECT_DELETE' \
         'explicit user authorization' || return 1
     notifier_docs_require_terms "${guide}" 'retention and lifecycle boundary' \
         'daily/' '7일' 'weekly/' '28일' 'Lifecycle service authorization' || return 1
+    notifier_docs_require_terms "${guide}" 'enforced backup safety boundaries' \
+        'BACKUP_ID' '--resume-upload' '절대 300초 deadline' 'oci-cli-requirements.lock' \
+        '--no-index' 'host-wide non-blocking lock' '원자적으로 claim' '정확한 5개 객체' \
+        || return 1
     # Backticks below are required literal Markdown delimiters.
     # shellcheck disable=SC2016
     notifier_docs_require_terms "${guide}" 'safe restore and notifier quarantine' \
@@ -79,6 +83,11 @@ validate_backup_documentation_contracts() {
         '## 8. 증거 검토 후 타이머 활성화' 'acceptance-gated activation' \
         '최초 원격 검증 성공' '폐기 가능한 VM 복구 증거' \
         'install-backup.sh --enable-after-acceptance' 'ENABLE BACKUP TIMER' || return 1
+    notifier_docs_require_section_order "${guide}" \
+        '## 7. 폐기 가능한 신규 VM 복구 시험' 'fresh restore host bootstrap' \
+        'validate.sh' 'install-backup.sh --prepare-restore-host' \
+        'setup-wizard.sh --configure-only' 'configure-backup.sh' \
+        'restore.sh <BACKUP_ID>' || return 1
 
     local configure_line register_line manual_line restore_line activate_line
     configure_line="$(grep -n -m1 'configure-backup\.sh' "${guide}" | cut -d: -f1)"
@@ -113,7 +122,8 @@ validate_backup_documentation_contracts() {
     # shellcheck disable=SC2016
     notifier_docs_require_terms "${repository_root}/AGENTS.md" \
         'backup agent safety contract' 'explicit user authorization' \
-        'timer remains disabled' 'new or empty `/srv/threadhub`' 'queue quarantine' || return 1
+        'validate.sh' 'built-in non-writer' 'timer remains disabled' 'new or empty `/srv/threadhub`' \
+        'queue quarantine' || return 1
     notifier_docs_require_terms "${repository_root}/SECURITY.md" \
         'backup privacy boundary' 'backup manifest' 'backup status' 'diagnostic' \
         'Object Storage' 'public' || return 1

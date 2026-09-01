@@ -146,6 +146,33 @@ backup_validate_id() {
     [[ "${1:-}" =~ ^[0-9]{8}T[0-9]{6}Z-[a-f0-9]{32}$ ]]
 }
 
+backup_id_epoch() {
+    local backup_id="$1" compact iso parsed epoch
+
+    backup_validate_id "${backup_id}" || return 20
+    compact="${backup_id%%-*}"
+    iso="${compact:0:4}-${compact:4:2}-${compact:6:2}T${compact:9:2}:${compact:11:2}:${compact:13:2}Z"
+    if epoch="$(date -u -d "${iso}" +%s 2>/dev/null)" \
+        && parsed="$(date -u -d "@${epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then
+        :
+    elif epoch="$(date -j -u -f '%Y%m%dT%H%M%SZ' "${compact}" +%s 2>/dev/null)" \
+        && parsed="$(date -j -u -f '%s' "${epoch}" +%Y-%m-%dT%H:%M:%SZ 2>/dev/null)"; then
+        :
+    else
+        return 20
+    fi
+    [[ "${parsed}" == "${iso}" && "${epoch}" =~ ^[0-9]+$ ]] || return 20
+    printf '%s\n' "${epoch}"
+}
+
+backup_directory_is_empty() {
+    local target="$1" first
+
+    [[ -d "${target}" && ! -L "${target}" ]] || return 20
+    first="$(find -P "${target}" -mindepth 1 -maxdepth 1 -print -quit)" || return 20
+    [[ -z "${first}" ]]
+}
+
 backup_assert_empty_target() {
     local target="$1"
 
@@ -155,7 +182,7 @@ backup_assert_empty_target() {
         return 0
     fi
     [[ -d "${target}" ]] || return 20
-    ! find "${target}" -mindepth 1 -print -quit | grep -q .
+    backup_directory_is_empty "${target}"
 }
 
 backup_prepare_state_root() {

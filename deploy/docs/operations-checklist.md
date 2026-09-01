@@ -34,7 +34,7 @@
 [백업 및 복구 운영 가이드](./backup-restore.md)를 활성화한 인스턴스는 매일 다음을
 확인합니다.
 
-- [ ] `backup-status.sh`의 마지막 원격 검증 성공이 24시간 이내
+- [ ] `backup-status.sh`의 마지막 원격 검증 성공 세트가 backup ID 생성시각 기준 24시간 이내
 - [ ] daily 세트가 정확히 5개이며 일요일 weekly 세트도 정확히 5개
 - [ ] 원격 객체 크기와 SHA-256 metadata가 manifest와 일치
 - [ ] `/var/lib/threadhub-backup/staging`에는 실패 세트만 제한적으로 존재

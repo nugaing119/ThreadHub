@@ -78,17 +78,21 @@ load_fixture() {
     BACKUP_TEST_HEALTH_ATTEMPTS="${fixture}/health-attempts"
     BACKUP_TEST_UPLOAD_WEEKLY="${fixture}/upload-weekly"
     BACKUP_TEST_VERIFY_WEEKLY="${fixture}/verify-weekly"
+    BACKUP_TEST_NOW_FILE="${fixture}/now"
     export BACKUP_TEST_EVENTS BACKUP_TEST_STATUS BACKUP_TEST_FAIL_AT BACKUP_TEST_WEEKLY
     export BACKUP_TEST_ALERT_FAIL BACKUP_TEST_RESUME_VALID
     : > "${BACKUP_TEST_EVENTS}"
     printf '0\n' > "${BACKUP_TEST_START_MAILER_ATTEMPTS}"
     printf '0\n' > "${BACKUP_TEST_START_MATTERMOST_ATTEMPTS}"
     printf '0\n' > "${BACKUP_TEST_HEALTH_ATTEMPTS}"
+    printf '1000\n' > "${BACKUP_TEST_NOW_FILE}"
     SUDO_COMMAND=(test_privileged)
     backup_expected_uid() { id -u; }
     backup_expected_gid() { id -g; }
 
     backup_generate_id() { printf '%s\n' '20260901T030000Z-0123456789abcdef0123456789abcdef'; }
+    backup_now_epoch() { command cat "${BACKUP_TEST_NOW_FILE}"; }
+    backup_test_advance_time() { printf '%s\n' "$(( $(<"${BACKUP_TEST_NOW_FILE}") + $1 ))" > "${BACKUP_TEST_NOW_FILE}"; }
     backup_acquire_lock() { event lock; [[ "${BACKUP_TEST_FAIL_AT}" != lock-busy ]] || return 75; }
     backup_preflight() { event preflight; [[ "${BACKUP_TEST_FAIL_AT}" != preflight ]]; }
     backup_health() {
@@ -98,6 +102,11 @@ load_fixture() {
         printf '%s\n' "${attempts}" > "${BACKUP_TEST_HEALTH_ATTEMPTS}"
         [[ "${BACKUP_TEST_FAIL_AT}" != health ]]
         [[ "${BACKUP_TEST_FAIL_AT}" != health-after-restart || "${attempts}" -eq 1 ]]
+    }
+    backup_health_before_deadline() {
+        event health
+        [[ "${BACKUP_TEST_FAIL_AT}" != deadline-overrun ]] || backup_test_advance_time 301
+        [[ "${BACKUP_TEST_FAIL_AT}" != health-after-restart ]]
     }
     backup_create_set_dir() { install -d -m 0700 "$1"; }
     backup_stop_mattermost() { event stop:mattermost; [[ "${BACKUP_TEST_FAIL_AT}" != stop-mattermost ]]; }
@@ -212,12 +221,39 @@ test_restart_commands_wait_for_container_health() (
     export calls
     # shellcheck source=/dev/null
     source "${BACKUP_COMMAND}"
-    compose() { printf '%s\n' "$*" >> "${calls}"; }
+    backup_compose_with_timeout() {
+        local timeout_seconds="$1"
+        shift
+        printf '%s|%s\n' "${timeout_seconds}" "$*" >> "${calls}"
+    }
 
-    backup_start_mailer
-    backup_start_mattermost
+    backup_start_mailer 120
+    backup_start_mattermost 90
 
-    [[ "$(<"${calls}")" == $'up -d --no-deps --wait --wait-timeout 240 threadhub-mailer\nup -d --no-deps --wait --wait-timeout 240 mattermost' ]]
+    [[ "$(<"${calls}")" == $'120|up -d --no-deps --wait --wait-timeout 120 threadhub-mailer\n90|up -d --no-deps --wait --wait-timeout 90 mattermost' ]]
+)
+
+test_snapshot_command_is_bounded_by_remaining_deadline() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    calls="${fixture}/calls"
+    export calls
+    # shellcheck source=/dev/null
+    source "${BACKUP_COMMAND}"
+    backup_run_with_timeout() { printf '%s|%s|%s\n' "$1" "$2" "$3" > "${calls}"; }
+
+    backup_snapshot /var/lib/threadhub-backup/staging/20260901T030000Z-0123456789abcdef0123456789abcdef 75
+    [[ "$(<"${calls}")" == "75|${DEPLOY_DIR}/scripts/backup-snapshot.sh|/var/lib/threadhub-backup/staging/20260901T030000Z-0123456789abcdef0123456789abcdef" ]]
+)
+
+test_timeout_wrapper_terminates_a_hung_snapshot_on_linux() (
+    [[ "$(uname -s)" != Linux ]] && return 0
+    # shellcheck source=/dev/null
+    source "${BACKUP_COMMAND}"
+    start="$(date +%s)"
+    ! backup_run_with_timeout 1 sh -c 'sleep 30'
+    elapsed=$(( $(date +%s) - start ))
+    ((elapsed < 10))
 )
 
 test_preflight_failure_never_stops_services() (
@@ -242,8 +278,34 @@ test_mailer_stop_failure_recovers_mattermost() (
     export BACKUP_TEST_FAIL_AT
 
     run_expect_failure
-    assert_events 'lock preflight health stop:mattermost stop:threadhub-mailer start:mattermost health alert status:failed cleanup'
+    assert_events 'lock preflight health stop:mattermost stop:threadhub-mailer start:threadhub-mailer start:mattermost health alert status:failed cleanup'
     jq -e '.failure_class == "snapshot" and .service_recovery_result == "ok"' \
+        "${BACKUP_TEST_STATUS}" >/dev/null
+)
+
+test_ambiguous_mattermost_stop_failure_still_attempts_recovery() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    BACKUP_TEST_FAIL_AT=stop-mattermost
+    export BACKUP_TEST_FAIL_AT
+
+    run_expect_failure
+    assert_events 'lock preflight health stop:mattermost start:mattermost health alert status:failed cleanup'
+    jq -e '.failure_class == "snapshot" and .service_recovery_result == "ok"' \
+        "${BACKUP_TEST_STATUS}" >/dev/null
+)
+
+test_downtime_overrun_is_service_recovery_failure() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    BACKUP_TEST_FAIL_AT=deadline-overrun
+    export BACKUP_TEST_FAIL_AT
+
+    run_expect_failure
+    ! grep -E '^(manifest|upload|verify)$' "${BACKUP_TEST_EVENTS}"
+    jq -e '.failure_class == "service_recovery" and .service_recovery_result == "failed"' \
         "${BACKUP_TEST_STATUS}" >/dev/null
 )
 
@@ -281,7 +343,7 @@ test_restart_failure_is_retried_and_classified() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
     load_fixture "${fixture}"
-    BACKUP_TEST_FAIL_AT=start-mailer-once
+    BACKUP_TEST_FAIL_AT='start-mailer-once'
     export BACKUP_TEST_FAIL_AT
 
     run_expect_failure
@@ -295,7 +357,7 @@ test_unrecoverable_mailer_restart_still_attempts_mattermost() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
     load_fixture "${fixture}"
-    BACKUP_TEST_FAIL_AT=start-mailer-always
+    BACKUP_TEST_FAIL_AT='start-mailer-always'
     export BACKUP_TEST_FAIL_AT
 
     run_expect_failure
@@ -435,8 +497,12 @@ test_sunday_policy_reaches_both_upload_and_verification() (
 
 run_test 'happy backup restarts before manifest and upload' test_happy_path_restarts_before_manifest_and_upload
 run_test 'backup restart commands wait for container health' test_restart_commands_wait_for_container_health
+run_test 'snapshot command is bounded by the remaining deadline' test_snapshot_command_is_bounded_by_remaining_deadline
+run_test 'timeout wrapper terminates a hung snapshot on Linux' test_timeout_wrapper_terminates_a_hung_snapshot_on_linux
 run_test 'preflight failure never stops services' test_preflight_failure_never_stops_services
 run_test 'Mailer stop failure recovers Mattermost' test_mailer_stop_failure_recovers_mattermost
+run_test 'ambiguous Mattermost stop failure still attempts recovery' test_ambiguous_mattermost_stop_failure_still_attempts_recovery
+run_test 'downtime overrun is a service-recovery failure' test_downtime_overrun_is_service_recovery_failure
 run_test 'snapshot failure recovers both and alerts once' test_snapshot_failure_recovers_both_and_alerts_once
 run_test 'signal during snapshot recovers both writers' test_signal_during_snapshot_recovers_writers
 run_test 'restart failure is retried and classified' test_restart_failure_is_retried_and_classified

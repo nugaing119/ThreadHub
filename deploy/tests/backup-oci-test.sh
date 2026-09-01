@@ -51,7 +51,7 @@ arg_value() {
 }
 
 oci_stub() {
-    local destination
+    local destination object_name
 
     printf '%q ' "$@" >> "${OCI_STUB_TRACE}"
     printf '\n' >> "${OCI_STUB_TRACE}"
@@ -83,7 +83,12 @@ oci_stub() {
             ;;
         'os object get')
             destination="$(arg_value --file "$@")"
-            cp "${OCI_STUB_DOWNLOAD_SOURCE}" "${destination}"
+            if [[ -n "${OCI_STUB_DOWNLOAD_ROOT:-}" ]]; then
+                object_name="$(arg_value --name "$@")"
+                cp "${OCI_STUB_DOWNLOAD_ROOT}/${object_name##*/}" "${destination}"
+            else
+                cp "${OCI_STUB_DOWNLOAD_SOURCE}" "${destination}"
+            fi
             printf '{}\n'
             ;;
         *) return 43 ;;
@@ -109,6 +114,19 @@ oci_stub_list() {
             ;;
         duplicate:daily/:)
             printf '{"data":[{"name":"daily/2026/09/01/%s/manifest.json"},{"name":"daily/2026/09/02/%s/manifest.json"}]}\n' "${VALID_ID}" "${VALID_ID}"
+            ;;
+        "exact:daily/2026/09/01/${VALID_ID}/:")
+            printf '{"data":['
+            printf '{"name":"daily/2026/09/01/%s/database.dump"},' "${VALID_ID}"
+            printf '{"name":"daily/2026/09/01/%s/manifest.json"},' "${VALID_ID}"
+            printf '{"name":"daily/2026/09/01/%s/manifest.sha256"},' "${VALID_ID}"
+            printf '{"name":"daily/2026/09/01/%s/mattermost-data.tar.zst"},' "${VALID_ID}"
+            printf '{"name":"daily/2026/09/01/%s/notifier-queue.tar.zst"}' "${VALID_ID}"
+            printf ']}\n'
+            ;;
+        "extra:daily/2026/09/01/${VALID_ID}/:")
+            printf '{"data":[{"name":"daily/2026/09/01/%s/database.dump"},{"name":"daily/2026/09/01/%s/unexpected.txt"}]}\n' \
+                "${VALID_ID}" "${VALID_ID}"
             ;;
         *)
             printf '{"data":[]}\n'
@@ -262,12 +280,42 @@ test_namespace_mismatch_is_rejected_without_diagnostics() (
     [[ ! -s "${fixture}/stdout" && ! -s "${fixture}/stderr" ]]
 )
 
+test_remote_set_reverification_requires_exact_names_manifest_and_heads() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    OCI_STUB_LIST_MODE=exact
+    OCI_STUB_DOWNLOAD_ROOT="${fixture}/remote"
+    export OCI_STUB_LIST_MODE OCI_STUB_DOWNLOAD_ROOT
+    mkdir -p "${OCI_STUB_DOWNLOAD_ROOT}"
+    printf '%s\n' \
+        "{\"backup_id\":\"${VALID_ID}\",\"artifacts\":[{\"name\":\"database.dump\",\"bytes\":10,\"sha256\":\"$(printf 'a%.0s' {1..64})\"},{\"name\":\"mattermost-data.tar.zst\",\"bytes\":20,\"sha256\":\"$(printf 'b%.0s' {1..64})\"},{\"name\":\"notifier-queue.tar.zst\",\"bytes\":30,\"sha256\":\"$(printf 'c%.0s' {1..64})\"}]}" \
+        > "${OCI_STUB_DOWNLOAD_ROOT}/manifest.json"
+    printf '%s  manifest.json\n' "$(sha256_file "${OCI_STUB_DOWNLOAD_ROOT}/manifest.json")" \
+        > "${OCI_STUB_DOWNLOAD_ROOT}/manifest.sha256"
+    chmod 0600 "${OCI_STUB_DOWNLOAD_ROOT}/manifest.json" \
+        "${OCI_STUB_DOWNLOAD_ROOT}/manifest.sha256"
+    backup_validate_manifest_compatibility() {
+        jq -e --arg id "${VALID_ID}" '.backup_id == $id and (.artifacts | length == 3)' \
+            "$1/manifest.json" >/dev/null
+    }
+    backup_oci_verify() { printf '%s|%s|%s\n' "$1" "$2" "$3" >> "${fixture}/heads"; }
+
+    backup_oci_verify_remote_set "daily/2026/09/01/${VALID_ID}" "${VALID_ID}"
+    [[ "$(wc -l < "${fixture}/heads" | tr -d ' ')" == 5 ]]
+
+    OCI_STUB_LIST_MODE=extra
+    ! backup_oci_verify_remote_set "daily/2026/09/01/${VALID_ID}" "${VALID_ID}"
+)
+
 run_test 'OCI preflight uses only the configured Instance Principal target' test_preflight_uses_only_fixed_instance_principal_target
 run_test 'OCI upload is immutable checksummed and exact-bucket' test_upload_is_immutable_checksummed_and_exact_bucket
 run_test 'OCI head verification rejects size and metadata mismatch' test_head_verification_rejects_size_or_metadata_mismatch
 run_test 'OCI set discovery paginates and falls back to weekly' test_set_discovery_paginates_and_falls_back_to_weekly
 run_test 'OCI download is no-clobber and diagnostics stay private' test_download_is_no_clobber_and_failures_are_private
 run_test 'OCI preflight rejects a namespace mismatch privately' test_namespace_mismatch_is_rejected_without_diagnostics
+run_test 'remote set reverification requires exact names manifest and heads' \
+    test_remote_set_reverification_requires_exact_names_manifest_and_heads
 
 if ((failures > 0)); then
     printf '%d OCI backup transport test(s) failed\n' "${failures}" >&2
