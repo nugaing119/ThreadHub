@@ -29,7 +29,16 @@ portable_hash() {
     fi
 }
 
+portable_mode() {
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
+        stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
+    fi
+}
+
 prepare_fixture() {
+    umask 022
     fixture="$(mktemp -d)"
     project_dir="${fixture}/existing"
     compose_file="${project_dir}/compose.yml"
@@ -158,6 +167,17 @@ assert_action_required_result() {
 test_preflight_exists() {
     [[ -f "${PREFLIGHT}" ]]
 }
+
+test_fixture_normalizes_caller_umask() (
+    umask 0002
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+
+    [[ "$(portable_mode "${project_dir}")" == 755 ]] \
+        && [[ "$(portable_mode "${compose_file}")" == 644 ]] \
+        && [[ "$(portable_mode "${plugins_root}")" == 755 ]] \
+        && [[ "$(portable_mode "${data_root}")" == 755 ]]
+)
 
 test_supported_model_is_read_only() (
     prepare_fixture
@@ -385,6 +405,7 @@ test_uid_owned_bind_roots_are_inspected_with_privilege() (
 
 run_test 'existing notifier preflight script exists' test_preflight_exists
 if [[ -f "${PREFLIGHT}" ]]; then
+    run_test 'preflight fixture normalizes caller umask' test_fixture_normalizes_caller_umask
     run_test 'supported preflight is read-only and PII-free' test_supported_model_is_read_only
     run_test 'unsupported Mattermost version stops before writes' test_unsupported_version_exits_twenty_before_writes
     run_test 'multiple Mattermost replicas are rejected' test_multiple_replicas_are_rejected
