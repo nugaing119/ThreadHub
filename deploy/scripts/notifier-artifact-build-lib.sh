@@ -163,6 +163,7 @@ notifier_build_artifacts() (
         --provenance=false \
         --platform linux/amd64 \
         --build-arg "SOURCE_DATE_EPOCH=${source_epoch}" \
+        --build-arg "THREADHUB_ROOTFS_EPOCH=${source_epoch}" \
         --build-arg "GO_BUILDER_IMAGE=${builder_image}" \
         --target plugin-bundle --tag "${bundle_image}" "${tmp_dir}/context"
     bundle_container="$("${DOCKER_COMMAND[@]}" create "${bundle_image}" /unused)"
@@ -181,6 +182,7 @@ notifier_build_artifacts() (
         --provenance=false \
         --platform linux/amd64 \
         --build-arg "SOURCE_DATE_EPOCH=${source_epoch}" \
+        --build-arg "THREADHUB_ROOTFS_EPOCH=${source_epoch}" \
         --build-arg "GO_BUILDER_IMAGE=${builder_image}" \
         --target mailer --tag "${mailer_image}" "${tmp_dir}/context"
 

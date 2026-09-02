@@ -328,12 +328,19 @@ done
 [[ "$(grep -F -c -- '--build-arg "SOURCE_DATE_EPOCH=${source_epoch}"' \
     "${SCRIPT_DIR}/notifier-artifact-build-lib.sh")" == 2 ]] \
     || die "Both notifier builds must consume the reviewed source timestamp"
+# Match the literal build-library expression; expansion is not intended.
+# shellcheck disable=SC2016
+[[ "$(grep -F -c -- '--build-arg "THREADHUB_ROOTFS_EPOCH=${source_epoch}"' \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh")" == 2 ]] \
+    || die "Both notifier builds must bind rootfs timestamps into the cache key"
 # Match literal Dockerfile expressions; expansion is not intended.
 # shellcheck disable=SC2016
 for reproducible_rootfs_contract in \
     'ARG SOURCE_DATE_EPOCH=1577836800' \
+    'ARG THREADHUB_ROOTFS_EPOCH=1577836800' \
     '/out/mailer-rootfs/etc/ssl/certs' \
-    'touch -h -d "@${SOURCE_DATE_EPOCH}"' \
+    '"${SOURCE_DATE_EPOCH}" == "${THREADHUB_ROOTFS_EPOCH}"' \
+    'touch -h -d "@${THREADHUB_ROOTFS_EPOCH}"' \
     'COPY --from=build /out/mailer-rootfs/ /'; do
     grep -F -- "${reproducible_rootfs_contract}" \
         "${REPOSITORY_ROOT}/notifier/Dockerfile" >/dev/null \
