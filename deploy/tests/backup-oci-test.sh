@@ -257,6 +257,9 @@ test_download_is_no_clobber_and_failures_are_private() (
 
     backup_oci_download "${VALID_KEY}" "${destination}"
     [[ "$(<"${destination}")" == remote-data ]]
+    if grep -Fq -- '--force' "${OCI_STUB_TRACE}"; then
+        return 1
+    fi
     printf 'sentinel\n' > "${destination}"
     ! backup_oci_download "${VALID_KEY}" "${destination}"
     [[ "$(<"${destination}")" == sentinel ]]

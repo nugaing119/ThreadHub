@@ -277,7 +277,7 @@ object_get() {
     require_target || fail
     validate_key "${object_name}" || fail
     [[ "${file}" == /* && -f "${file}" && ! -L "${file}" \
-        && "${force}" == true && "${no_overwrite}" == false \
+        && "${force}" == false && "${no_overwrite}" == false \
         && "${verify_checksum}" == false \
         && -z "${prefix}${page}${metadata}${content_sha}${checksum_algorithm}" ]] || fail
     source="$(object_path "${DATA_ROOT}" "${object_name}")"

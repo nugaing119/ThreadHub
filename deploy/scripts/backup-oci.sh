@@ -342,7 +342,7 @@ backup_oci_download() {
     if ! backup_oci_capture "${response}" os object get \
         --namespace-name "$(backup_env_value BACKUP_NAMESPACE)" \
         --bucket-name "$(backup_env_value BACKUP_BUCKET)" \
-        --name "${key}" --file "${temporary}" --force \
+        --name "${key}" --file "${temporary}" \
         || ! chmod 0600 "${temporary}" \
         || ! backup_require_regular_mode_owner "${temporary}" 600 "${uid}" "${gid}" \
         || ! backup_link_no_clobber "${temporary}" "${destination}"; then

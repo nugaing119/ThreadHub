@@ -155,8 +155,15 @@ test_oci_stub_round_trip_and_rejections() (
     chmod 0600 "${fixture}/download"
     "${OCI_STUB}" os object get --namespace-name integrationnamespace \
         --bucket-name integration-project-backups --name "${key}" \
-        --file "${fixture}/download" --force "${common[@]}" >/dev/null
+        --file "${fixture}/download" "${common[@]}" >/dev/null
     cmp -s "${fixture}/source" "${fixture}/download"
+    : > "${fixture}/rejected-download"
+    chmod 0600 "${fixture}/rejected-download"
+    if "${OCI_STUB}" os object get --namespace-name integrationnamespace \
+        --bucket-name integration-project-backups --name "${key}" \
+        --file "${fixture}/rejected-download" --force "${common[@]}" >/dev/null 2>&1; then
+        return 1
+    fi
 
     ! "${OCI_STUB}" os object delete --namespace-name integrationnamespace \
         --bucket-name integration-project-backups --name "${key}" "${common[@]}" >/dev/null 2>&1
