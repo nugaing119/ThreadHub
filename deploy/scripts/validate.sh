@@ -35,7 +35,10 @@ for variable in \
     DOCKER_CE_VERSION \
     DOCKER_CLI_VERSION \
     CONTAINERD_VERSION \
-    DOCKER_COMPOSE_PLUGIN_VERSION; do
+    DOCKER_COMPOSE_PLUGIN_VERSION \
+    OCI_CLI_VERSION \
+    OCI_CLI_ARCHIVE_SHA256 \
+    OCI_CLI_WHEEL_SHA256; do
     env_value "${variable}" "${VERSIONS_FILE}" >/dev/null
 done
 
@@ -70,6 +73,23 @@ fi
     || die "GO_BUILDER_IMAGE_INDEX_DIGEST is invalid"
 [[ "${notifier_created_by_history_pin}" =~ ^[a-f0-9]{64}$ ]] \
     || die "NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256 is invalid"
+oci_cli_version="$(env_value OCI_CLI_VERSION "${VERSIONS_FILE}")"
+oci_cli_archive_sha="$(env_value OCI_CLI_ARCHIVE_SHA256 "${VERSIONS_FILE}")"
+oci_cli_wheel_sha="$(env_value OCI_CLI_WHEEL_SHA256 "${VERSIONS_FILE}")"
+[[ "${oci_cli_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] \
+    || die "OCI_CLI_VERSION is invalid"
+[[ "${oci_cli_archive_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || die "OCI_CLI_ARCHIVE_SHA256 is invalid"
+[[ "${oci_cli_wheel_sha}" =~ ^[a-f0-9]{64}$ ]] \
+    || die "OCI_CLI_WHEEL_SHA256 is invalid"
+oci_cli_requirements_lock="${DEPLOY_DIR}/oci-cli-requirements.lock"
+require_file "${oci_cli_requirements_lock}"
+[[ ! -L "${oci_cli_requirements_lock}" ]] \
+    || die "OCI CLI requirements lock must not be a symlink"
+grep -Eq '^oci==[0-9]+\.[0-9]+\.[0-9]+ [\\]$' "${oci_cli_requirements_lock}" \
+    || die "OCI CLI requirements lock must pin the OCI SDK"
+grep -Eq '^[[:space:]]+--hash=sha256:[a-f0-9]{64}( \\)?$' "${oci_cli_requirements_lock}" \
+    || die "OCI CLI requirements lock must include SHA-256 hashes"
 
 validation_tmp_dir="$(mktemp -d)"
 cleanup() {
@@ -476,11 +496,15 @@ validate_runtime_env
 ENV_FILE="${original_env_file}"
 log "Runtime environment validation accepts a complete non-placeholder configuration"
 
-# Match the literal deployment-script expression; expansion is not intended.
+# Match the literal shared-layout expressions; expansion is not intended.
 # shellcheck disable=SC2016
 grep -F 'install -d -m 0755 "${data_root}/postgres"' \
-    "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    "${SCRIPT_DIR}/data-layout.sh" >/dev/null \
     || die "PostgreSQL bind-mount root permission regression detected"
+# shellcheck disable=SC2016
+grep -F 'prepare_threadhub_data_layout "${data_root}"' \
+    "${SCRIPT_DIR}/deploy.sh" >/dev/null \
+    || die "Deployment must use the canonical ThreadHub data layout"
 log "PostgreSQL bind-mount root remains traversable after the entrypoint drops privileges"
 
 grep -F 'ensure_tcp_input_rule 80' "${SCRIPT_DIR}/configure-nginx.sh" >/dev/null \
@@ -525,6 +549,41 @@ grep -F './deploy/scripts/setup-wizard.sh' "${REPOSITORY_ROOT}/README.md" >/dev/
 grep -F 'exit code `20`' "${DEPLOY_DIR}/docs/quick-install.md" >/dev/null \
     || die "Quick-install guide must document action-required exit behavior"
 log "Guided installation entry point and OCI setup guides are present"
+
+for script in \
+    "${SCRIPT_DIR}/backup-common.sh" \
+    "${SCRIPT_DIR}/backup-oci.sh" \
+    "${SCRIPT_DIR}/backup-artifacts.sh" \
+    "${SCRIPT_DIR}/configure-backup.sh" \
+    "${SCRIPT_DIR}/install-backup.sh" \
+    "${SCRIPT_DIR}/backup.sh" \
+    "${SCRIPT_DIR}/backup-snapshot.sh" \
+    "${SCRIPT_DIR}/backup-status.sh" \
+    "${SCRIPT_DIR}/restore.sh"; do
+    require_file "${script}"
+    [[ -x "${script}" ]] || die "Backup operation script must be executable: ${script}"
+done
+for artifact in \
+    "${DEPLOY_DIR}/backup.env.example" \
+    "${DEPLOY_DIR}/systemd/threadhub-backup.service.template" \
+    "${DEPLOY_DIR}/systemd/threadhub-backup.timer"; do
+    require_file "${artifact}"
+done
+for backup_test in \
+    "${DEPLOY_DIR}/tests/backup-config-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-oci-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-artifacts-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-orchestration-test.sh" \
+    "${DEPLOY_DIR}/tests/data-layout-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-restore-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-installer-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-documentation-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-integration-contract-test.sh"; do
+    require_file "${backup_test}"
+    [[ -x "${backup_test}" ]] || die "Backup contract test must be executable: ${backup_test}"
+    "${backup_test}"
+done
+log "Backup configuration, transport, artifact, restore, scheduling and integration contracts are valid"
 
 # The notifier’s operational and isolation guarantees are intentionally
 # documented in the public runbooks. Keep these assertions tolerant of normal

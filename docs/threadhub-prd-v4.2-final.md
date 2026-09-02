@@ -1,10 +1,10 @@
 # ThreadHub 제품 요구사항 정의서
 
 > 문서 유형: Product Requirements Document<br>
-> 문서 버전: v4.1 Final<br>
-> 기준일: 2026년 7월 21일<br>
+> 문서 버전: v4.2 Final<br>
+> 기준일: 2026년 9월 1일<br>
 > 상태: MVP 요구사항 기준선<br>
-> 이전 기준선: v4.0 Final<br>
+> 이전 기준선: v4.1 Final<br>
 > 관련 문서: [ThreadHub MVP 구축 및 검증 계획서](./threadhub-mvp-build-validation-plan.md)
 
 ---
@@ -65,7 +65,7 @@
 | 지원 클라이언트 | 웹, 데스크톱, iOS, Android |
 | 인증 | 이메일 또는 사용자명과 비밀번호 |
 | 모바일 푸시 | MVP 기본 비활성화 |
-| 백업·복구 | MVP 미제공 |
+| 백업·복구 | 일일 OCI Object Storage 백업, 수동 복구 |
 | 가용성 | 단일 VM, 별도 SLA 없음 |
 | 데이터 범위 | 일반 프로젝트 대화와 공유가 승인된 자료 |
 | 목표 상태 | 내부 기술 파일럿과 제한된 고객 파일럿 운영 가능 |
@@ -229,6 +229,12 @@ Mattermost Professional·Enterprise 기능, 유료 Guest, SSO, 유료 고급 접
 
 서로 신뢰하지 않는 사용자 집단을 Team 또는 비공개 채널만으로 격리하지 않고 정보 공유 경계별 독립 인스턴스로 분리해야 한다.
 
+## G-12. 검증 가능한 백업과 수동 복구
+
+PostgreSQL 논리 덤프, Mattermost 첨부파일과 notifier queue를 매일 프로젝트 전용
+OCI Object Storage 버킷에 백업하고, 원격 객체 검증과 폐기 가능한 신규 VM
+복구시험을 통해 최근 성공 백업까지의 수동 복구 경로를 유지해야 한다.
+
 ---
 
 # 6. 비목표와 명시적 제외 범위
@@ -246,10 +252,10 @@ Mattermost Professional·Enterprise 기능, 유료 Guest, SSO, 유료 고급 접
 | NG-09 | 이슈 추적 시스템 |
 | NG-10 | 전자결재 |
 | NG-11 | 채널·Team 데이터 Export |
-| NG-12 | 자동 PostgreSQL 백업 |
-| NG-13 | 자동 첨부파일 백업 |
-| NG-14 | OCI Object Storage 백업 |
-| NG-15 | 장애·삭제 후 복구 보장 |
+| NG-12 | 무중단 백업과 온라인 정합성 snapshot |
+| NG-13 | PostgreSQL 시점 복구(PITR) |
+| NG-14 | 리전 간 백업 복제와 자동 재해복구 |
+| NG-15 | RPO·RTO 목표를 초과하지 않는다는 SLA 보장 |
 | NG-16 | OCI Logging |
 | NG-17 | OCI Monitoring |
 | NG-18 | 자동 장애 알림 |
@@ -263,7 +269,9 @@ Mattermost Professional·Enterprise 기능, 유료 Guest, SSO, 유료 고급 접
 | NG-26 | 고위험·규제 데이터 처리 |
 | NG-27 | 고객 기기에 저장된 파일의 원격 삭제 |
 
-백업, 중앙 로깅, 모니터링과 장애 알림은 MVP 안정화 이후 별도 제품 결정으로 검토한다.
+중앙 로깅, 통합 모니터링, 고가용성과 자동 장애조치는 MVP 안정화 이후 별도 제품
+결정으로 검토한다. 백업은 최근 원격 검증 성공 시점까지의 수동 복구 경로이며
+무중단·무손실 또는 자동 복구를 의미하지 않는다.
 
 ---
 
@@ -431,7 +439,10 @@ Team과 비공개 채널은 동일 신뢰 경계 내부의 정보 구성 수단�
 7. System Scheme과 가입정책을 적용한다.
 8. Internal·Project Team과 기본 채널을 생성한다.
 9. 내부 담당자와 고객을 이메일로 초대한다.
-10. 내부 기술 검증 후 고객 파일럿 Go/No-Go를 판정한다.
+10. 프로젝트 전용 백업을 비활성 상태로 등록한다.
+11. 최초 수동 백업의 원격 검증과 폐기 가능한 신규 VM 복구시험을 완료한다.
+12. 증거 승인 후 일일 백업 타이머를 활성화한다.
+13. 내부 기술 검증 후 고객 파일럿 Go/No-Go를 판정한다.
 
 ## 9.2 프로젝트 진행
 
@@ -450,9 +461,11 @@ Team과 비공개 채널은 동일 신뢰 경계 내부의 정보 구성 수단�
 3. 고객 계정을 비활성화한다.
 4. 프로젝트 채널을 보관한다.
 5. DNS와 SMTP 상태를 확인한다.
-6. VM 또는 Boot Volume을 유지한다.
+6. VM 또는 Boot Volume과 승인된 Object Storage 백업을 유지한다.
 
-기록 유지 방식은 백업이나 장애 복구를 의미하지 않는다. 유지 중인 VM과 Boot Volume에 장애가 발생하면 복구하지 못할 수 있다.
+기록 유지 방식은 최근 원격 검증 성공 백업까지의 수동 복구 경로를 유지한다.
+마지막 성공 이후 최대 24시간의 데이터 손실과 수동 복구 4시간 목표를 수용하며,
+HA·PITR·복구시간 SLA는 제공하지 않는다.
 
 ## 9.4 프로젝트 종료 방식 B: 완전 폐기
 
@@ -463,9 +476,11 @@ Team과 비공개 채널은 동일 신뢰 경계 내부의 정보 구성 수단�
 5. OCI VM을 삭제한다.
 6. Boot Volume을 삭제한다.
 7. 예약 공인 IP를 해제하거나 재사용한다.
-8. 대상·실행자·실행시각과 결과를 기록한다.
+8. 별도 승인 후 Object Storage 백업과 전용 IAM 리소스를 삭제한다.
+9. 대상·실행자·실행시각과 결과를 기록한다.
 
-VM과 Boot Volume을 삭제한 이후 프로젝트 메시지와 첨부파일은 복구되지 않는다.
+VM과 Boot Volume만 삭제해도 Object Storage 백업은 자동 삭제되지 않는다. 승인된
+완전 폐기 절차로 백업까지 삭제한 이후에는 프로젝트 메시지와 첨부파일을 복구할 수 없다.
 
 ## 9.5 다음 프로젝트 재배포
 
@@ -846,12 +861,20 @@ MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
 | NFR-DATA-004 | 채널 보관과 사용자 비활성화 후 기존 이력이 유지되어야 한다. |
 | NFR-DATA-005 | 모든 중요 저장 경로가 예상한 bind mount인지 검사해야 한다. |
 | NFR-DATA-006 | 중요 경로에 의도하지 않은 anonymous volume이 없어야 한다. |
-| NFR-DATA-007 | 영구 경로 수동 삭제, Boot Volume 손상 또는 VM과 Boot Volume 동시 삭제 후 복구를 보장하지 않는다. |
-| NFR-DATA-008 | 자동 백업, 정기 백업과 복구시험을 MVP 완료조건으로 요구하지 않는다. |
-| NFR-DATA-009 | 데이터 삭제 시험은 폐기 가능한 기술 시험 인스턴스에서만 수행해야 한다. |
-| NFR-DATA-010 | 프로젝트 완전 폐기 후 데이터가 복구되지 않음을 안내해야 한다. |
+| NFR-DATA-007 | PostgreSQL 논리 덤프, Mattermost 첨부파일과 notifier queue를 하나의 검증 가능한 backup set으로 매일 생성해야 한다. |
+| NFR-DATA-008 | 마지막 원격 검증 성공 세트의 변경 불가능한 backup ID 생성시각을 기준으로 RPO 24시간, 수동 복구 RTO 4시간을 목표로 해야 한다. |
+| NFR-DATA-009 | 백업 중 Mattermost와 notifier의 쓰기 중단 단계 전체에 절대 300초 deadline을 적용하고 timeout·초과 세트를 업로드하지 않아야 한다. |
+| NFR-DATA-010 | 프로젝트 전용 비공개 OCI Object Storage 버킷에서 원격 객체 크기와 SHA-256을 검증해야 한다. |
+| NFR-DATA-011 | 최근 daily 백업을 7일, 일요일 weekly 백업을 28일 보존해야 한다. |
+| NFR-DATA-012 | 복구는 동일 커밋·고정 이미지의 신규 VM과 new or empty `/srv/threadhub`에서만 허용하고 host lock과 원자적 no-clobber target claim을 적용해야 한다. |
+| NFR-DATA-013 | 복구한 notifier queue는 격리하고 새 live queue와 delivery를 비활성 상태로 시작해야 한다. |
+| NFR-DATA-014 | 최초 타이머 활성화 전에 원격 수동 백업과 폐기 가능한 신규 VM 복구시험을 통과하고 승인 ID의 정확한 5개 원격 객체를 다시 검증해야 한다. |
+| NFR-DATA-015 | 데이터 삭제 시험과 복구시험은 폐기 가능한 기술 시험 인스턴스에서만 수행해야 한다. |
+| NFR-DATA-016 | 프로젝트 완전 폐기 후 데이터가 복구되지 않음을 안내해야 한다. |
 
-ThreadHub의 “이력 유지”는 영구 저장 경로가 정상 유지되는 동안의 영속성을 의미한다. 장애·오삭제·보안사고 이후의 복구 보장과 동일한 의미가 아니다.
+ThreadHub의 “이력 유지”는 정상 영속성과 최근 검증 성공 backup set까지의 수동
+복구를 의미한다. 마지막 성공 이후 데이터, 자동 장애조치, 무손실 복구, PITR와
+법적 보존은 보장하지 않는다.
 
 ## 12.5 유지보수성과 재현성
 
@@ -879,7 +902,7 @@ ThreadHub의 “이력 유지”는 영구 저장 경로가 정상 유지되는 
 | NFR-UX-003 | 사용자는 채널 목적과 스레드 사용 규칙을 쉽게 확인할 수 있어야 한다. |
 | NFR-UX-004 | 모바일 푸시가 없다는 사실과 긴급 연락 대안을 온보딩 시 안내해야 한다. |
 | NFR-UX-005 | 파일 크기 제한과 금지 데이터 정책을 사용자가 확인할 수 있어야 한다. |
-| NFR-UX-006 | 서비스 중단·복구 미보장과 프로젝트 종료 정책을 고객 파일럿 전에 안내해야 한다. |
+| NFR-UX-006 | 단일 VM 중단, RPO 24시간·수동 RTO 4시간 목표와 프로젝트 종료 정책을 고객 파일럿 전에 안내해야 한다. |
 
 ---
 
@@ -906,7 +929,7 @@ ThreadHub의 “이력 유지”는 영구 저장 경로가 정상 유지되는 
 | 데이터베이스 배치 | Mattermost와 동일 VM의 컨테이너 |
 | 데이터 저장 | Boot Volume의 `/srv/threadhub` bind mount |
 | 모바일 푸시 | 비활성화 |
-| 백업·복구 | 미구성·미보장 |
+| 백업·복구 | 일일 OCI Object Storage backup set, 수동 신규 VM 복구 |
 | 중앙 로깅·모니터링 | 미구성 |
 | 고가용성 | 미구성 |
 
@@ -1145,10 +1168,11 @@ services:
 | VM 재부팅 | 자동 시작 및 유지 |
 | 채널 보관 | 기존 기록 유지, 새 메시지 작성 중지 |
 | 사용자 비활성화 | 기존 메시지 유지, 로그인 차단 |
-| VM 삭제·Boot Volume 유지 | 자동 복구 보장 없음, 별도 재연결 절차 필요 |
-| 영구 bind mount 경로 수동 삭제 | 삭제, 복구 미보장 |
-| Boot Volume 손상 | 손실 가능, 복구 미보장 |
-| VM과 Boot Volume 모두 삭제 | 삭제, 복구 불가 |
+| VM 삭제·Boot Volume 유지 | Boot Volume 재연결 또는 최근 검증 backup set으로 수동 복구 |
+| 영구 bind mount 경로 수동 삭제 | 최근 검증 backup set까지만 신규 VM 수동 복구 가능 |
+| Boot Volume 손상 | 최근 검증 backup set까지만 신규 VM 수동 복구 가능 |
+| VM과 Boot Volume 모두 삭제 | Object Storage backup set이 유지된 경우에만 수동 복구 가능 |
+| VM·Boot Volume·Object Storage 백업 완전 삭제 | 복구 불가 |
 
 ## 15.5 `docker compose down -v` 정책
 
@@ -1166,11 +1190,14 @@ ThreadHub는 다음 통제를 적용한다.
 
 ## 15.6 보존과 폐기의 의미
 
-채널 메시지와 첨부파일은 VM과 영구 저장 경로가 정상 유지되는 동안 보존된다. ThreadHub는 영구 기록보관 시스템이 아니며 다음을 보장하지 않는다.
+채널 메시지와 첨부파일은 VM과 영구 저장 경로가 정상 유지되는 동안 보존되고,
+원격 검증된 backup set이 있으면 해당 시점까지 신규 VM에서 수동 복구할 수 있다.
+ThreadHub는 영구 기록보관 시스템이 아니며 다음을 보장하지 않는다.
 
-- 하드웨어·클라우드 장애 후 복구
-- 운영자 오삭제 후 복구
-- 악성 행위나 보안사고 후 원상복구
+- 마지막 검증 성공 이후 데이터의 복구
+- 무중단·무손실 복구와 자동 장애조치
+- 임의 시점 복구(PITR)와 리전 장애 시 자동 전환
+- 악성 행위나 보안사고 이전의 안전한 상태 판별
 - 프로젝트 완전 폐기 후 복구
 - 고객 기기로 내려받은 파일의 원격 회수
 
@@ -1257,7 +1284,7 @@ ThreadHub의 접근 통제는 다음 계층으로 구성한다.
 1. 모바일 푸시는 제공되지 않는다.
 2. 긴급 연락에는 전화·이메일 등 별도 수단을 사용한다.
 3. 단일 VM 서비스이며 별도 SLA와 자동 장애조치가 없다.
-4. 백업과 장애·오삭제 후 복구를 보장하지 않는다.
+4. 백업 RPO는 24시간, 수동 복구 RTO는 4시간 목표이며 HA·PITR·SLA가 아니다.
 5. 고위험·규제 데이터와 비밀정보를 업로드하지 않는다.
 6. 고객에게 관리자 권한과 임의 초대·Team·채널 생성 권한을 부여하지 않는다.
 7. 고객 기기에 저장한 파일은 계정 비활성화나 서버 폐기로 회수되지 않는다.
@@ -1275,7 +1302,7 @@ ThreadHub의 접근 통제는 다음 계층으로 구성한다.
 | DB·SMTP 자격 증명 유출 | `.env` Git 제외, 파일 권한, 프로젝트별 자격 증명 | 호스트 관리자 계정 침해 시 노출 가능 |
 | 내부 포트 노출 | NSG, loopback, DB host port 미설정, 외부 스캔 | 설정 변경 시 노출 가능 |
 | 악성 또는 민감 파일 업로드 | 사용정책과 허용 데이터 제한 | 악성코드 자동 검사가 없음 |
-| 데이터 손실 | bind mount와 재생성 시험 | 백업·DR이 없어 장애·오삭제 복구 불가 |
+| 데이터 손실 | bind mount, 일일 원격 검증 백업과 신규 VM 복구시험 | 마지막 성공 이후 최대 24시간 손실, 수동 복구와 단일 리전 한계 |
 
 ---
 
@@ -1309,6 +1336,10 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | SMTP 실패 로그 | 초대 작업 후, 주 1회 | 발송 실패·반송 | 자격 증명·Approved Sender 확인 |
 | OCI suppression 목록 | 메일 실패 시, 주 1회 | 대상 주소 억제 | 원인 확인 후 정책에 따라 해제 |
 | 로그 크기·회전 | 주 1회 | 무제한 증가 | 로그 회전 설정과 보존량 조정 |
+| 마지막 원격 백업 검증 | 매일 | 24시간 초과 | 신규 변경 중지, 수동 백업·원격 검증 복구 |
+| daily·weekly 객체 세트 | 매일·일요일 | prefix별 5개 미만·초과 | 불완전 세트를 성공 처리하지 않고 원인 확인 |
+| 백업 staging | 매일 | 실패 세트 무제한 증가 | 실패 원인·보존시간 확인 후 안전한 정리 |
+| 백업 실패 이메일 | 매일 | 미수신 또는 민감정보 포함 | SMTP·redaction 확인, 상태를 서버에서 직접 점검 |
 
 ## 17.3 변경과 업데이트
 
@@ -1323,7 +1354,9 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 7. 컨테이너, HTTPS, WebSocket, 로그인, 메시지와 데이터 유지 여부를 확인한다.
 8. 변경 결과와 발견된 제한을 기록한다.
 
-백업이 없는 상태에서 변경 전 완전 복구를 보장하지 않는다. 데이터 이전이 필요한 변경은 일반 패치와 분리해 별도 계획으로 승인한다.
+변경 전 수동 backup set을 생성하고 원격 검증을 확인한다. 이는 마지막 성공 이후
+데이터의 무손실 복구를 보장하지 않는다. 데이터 이전이 필요한 변경은 일반 패치와
+분리해 별도 계획으로 승인한다.
 
 ## 17.4 장애 대응
 
@@ -1335,20 +1368,37 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | SMTP 발송 실패 | OCI 설정·suppression·로그 확인 | 계정 메일 동작 전까지 신규 초대 중지 |
 | 디스크 고갈 위험 | 로그·파일 점검과 볼륨 확장 | 수동 점검·확장 |
 | 보안 자격 증명 노출 | 자격 증명 폐기·교체, 접근 차단 | 수동 대응 |
-| Boot Volume 손상·데이터 삭제 | 영향 확인과 고객 안내 | 데이터 복구 미보장 |
+| Boot Volume 손상·데이터 삭제 | 영향 확인, 마지막 성공 확인, 신규 VM 수동 복구 | RPO 24시간·RTO 4시간 목표, SLA 없음 |
 
 보안사고 또는 데이터 손실이 의심되면 신규 사용자 초대와 변경 작업을 중지하고, 접근 차단과 자격 증명 교체를 우선한다.
 
 ## 17.5 백업과 복구 정책
 
-- 자동 PostgreSQL 백업을 구성하지 않는다.
-- 자동 첨부파일 백업을 구성하지 않는다.
-- OCI Object Storage 또는 정기 Boot Volume 백업을 구성하지 않는다.
-- 정기 복구시험을 MVP 완료조건으로 두지 않는다.
-- 백업이 없다는 사실을 내부 책임자와 고객 파일럿 참여자에게 고지한다.
-- 백업이 필요한 프로젝트는 본 MVP 기준선의 대상이 아니며 별도 제품·운영 결정을 거쳐야 한다.
+- 매일 KST 새벽 PostgreSQL 논리 덤프, Mattermost 첨부파일과 notifier queue의
+  애플리케이션 정합성 backup set을 생성한다.
+- Mattermost와 notifier 쓰기 중단의 정지·snapshot·재시작·health 전체에 하나의 절대
+  300초 deadline을 적용하고, timeout이나 초과 시 artifact를 업로드하지 않는다.
+- backup set은 `database.dump`, `mattermost-data.tar.zst`,
+  `notifier-queue.tar.zst`, `manifest.json`, `manifest.sha256`의 정확한 5개 객체다.
+- `ap-singapore-1`의 프로젝트별 전용 비공개 OCI Object Storage 버킷을 사용하고
+  기본 AES-256 서버 암호화와 TLS를 적용한다.
+- VM은 Instance Principal로 정확한 버킷의 object create·inspect·read만 수행하며
+  delete 권한을 갖지 않는다.
+- daily 백업은 7일, 일요일 weekly 백업은 28일 보존한다.
+- RPO는 마지막 원격 검증 성공 세트의 backup ID 생성시각으로부터 최대 24시간,
+  수동 RTO는 필요한 승인과 백업 ID가 준비된 뒤 새 HTTPS 인수 완료까지 4시간을
+  목표로 한다. 지연된 resume upload의 완료시각으로 RPO를 연장하지 않는다.
+- unit은 비활성 상태로 등록하고, 최초 수동 원격 백업과 폐기 가능한 신규 VM
+  복구시험의 증거를 검토한 뒤에만 타이머를 활성화한다.
+- 복구 VM은 일반 배포 전에 전용 restore-host bootstrap으로 의존성만 설치한다. 복구
+  대상은 동일 commit·고정 이미지의 new or empty `/srv/threadhub`로 제한하고,
+  host-wide lock과 원자적 no-clobber claim으로 동시 실행·선점 race를 거부한다.
+- 복구한 notifier queue는 격리하고 live delivery를 비활성화해 과거 이메일 재발송을 막는다.
+- Dynamic Group, IAM policy, 실제 버킷·lifecycle 생성·변경·삭제는 대상 compartment와
+  리전을 명시한 별도 사용자 승인 후 수행한다.
 
-향후 백업을 추가할 때에는 PostgreSQL, Mattermost 설정과 파일 데이터의 일관된 복구 단위를 정의하고 복구시험까지 포함해야 한다.
+이 정책은 HA, PITR, 무중단·무손실 백업, 리전 간 복제, 자동 장애조치, 법적 보존과
+복구시간 SLA를 제공하지 않는다.
 
 ## 17.6 지원과 긴급 연락
 
@@ -1374,8 +1424,9 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | Phase 6. 기본 설정 | 가입, MFA, 권한, 파일, 검색, 푸시와 제외 기능 설정 | 정확한 이미지에서 설정 동작 시험 통과 |
 | Phase 7. 프로젝트 구조 | Team, 채널, 관리자·Member 구성, 정책 공지 | 고객 권한과 기본 채널 구조 확인 |
 | Phase 8. 내부 파일럿 | 기능·권한·검색·영속성·모바일·재부팅 시험 | 내부 파일럿 인수조건 통과 |
-| Phase 9. 제한 고객 파일럿 | 고객 1~2명, 1~2주 권장 운영 | 고객 파일럿 Go 조건 충족 후 시작, 결과 기록 |
-| Phase 10. 종료·재배포 | 보관 또는 폐기, 새 VM 재배포 시험 | 종료 기록과 재배포 시험 통과 |
+| Phase 9. 백업·복구 인수 | 비활성 등록, 수동 원격 백업, 폐기 VM 복구, 증거 승인 | RPO·RTO·5분 중단·queue 격리 검증 후 타이머 활성화 |
+| Phase 10. 제한 고객 파일럿 | 고객 1~2명, 1~2주 권장 운영 | 고객 파일럿 Go 조건 충족 후 시작, 결과 기록 |
+| Phase 11. 종료·재배포 | 보관 또는 폐기, 새 VM 재배포 시험 | 종료 기록과 재배포 시험 통과 |
 
 ## 18.2 내부 기술 파일럿
 
@@ -1529,7 +1580,23 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-DATA-009 | 사용자 비활성화와 채널 보관 후 기존 기록이 유지된다. |
 | AC-DATA-010 | 영구 경로 삭제와 완전 폐기 시 복구되지 않는다는 제약이 문서화된다. |
 
-## 19.8 모바일·푸시 인수조건
+## 19.8 백업·복구 인수조건
+
+| ID | 인수조건 |
+| --- | --- |
+| AC-BK-001 | 전용 OCI 버킷은 Public Access가 차단되고 `ap-singapore-1`에 있다. |
+| AC-BK-002 | 정확한 프로젝트 VM의 Instance Principal만 대상 버킷 object create·inspect·read를 수행한다. |
+| AC-BK-003 | 교차 버킷 접근, object delete와 bucket delete가 거부된다. |
+| AC-BK-004 | backup set이 정확한 5개 객체로 업로드되고 크기와 SHA-256 원격 검증을 통과한다. |
+| AC-BK-005 | Mattermost와 notifier 중단 단계가 절대 300초 deadline 안에 완료되고, timeout·초과 시 업로드가 차단되며 제한된 실패 복구가 시도된다. |
+| AC-BK-006 | 폐기 가능한 신규 VM에서 PostgreSQL, 공개·비공개 채널, 스레드와 첨부파일이 복구된다. |
+| AC-BK-007 | 복구 전후 소스 데이터 hash가 같고 운영 소스는 변경되지 않는다. |
+| AC-BK-008 | 복구 notifier queue는 quarantine에 있고 새 live queue와 delivery는 비활성 상태다. |
+| AC-BK-009 | 최초 수동 백업과 복구 증거 승인 전에는 timer가 disabled 상태이며, 활성화 직전 승인 ID의 정확한 5개 원격 객체가 다시 검증된다. |
+| AC-BK-010 | 승인 후 24시간 이내 일일 실행과 실패 이메일의 개인정보 비포함을 확인한다. |
+| AC-BK-011 | daily 7일·weekly 28일 lifecycle과 실제 객체 보존 결과를 확인한다. |
+
+## 19.9 모바일·푸시 인수조건
 
 | ID | 인수조건 |
 | --- | --- |
@@ -1542,7 +1609,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-MOB-007 | 앱을 다시 열면 최신 메시지가 동기화된다. |
 | AC-MOB-008 | 계정 비활성화 후 모바일 재로그인이 실패한다. |
 
-## 19.9 이메일 인수조건
+## 19.10 이메일 인수조건
 
 | ID | 인수조건 |
 | --- | --- |
@@ -1555,7 +1622,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-MAIL-007 | 일반 메시지 이메일 알림은 기본 비활성화다. |
 | AC-MAIL-008 | 수신 위치와 OCI suppression 상태를 시험 결과에 기록한다. |
 
-## 19.10 라이선스·재배포 인수조건
+## 19.11 라이선스·재배포 인수조건
 
 | ID | 인수조건 |
 | --- | --- |
@@ -1569,7 +1636,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-REP-004 | 새 프로젝트는 이전 프로젝트 데이터 없이 시작한다. |
 | AC-REP-005 | 기록 유지와 완전 폐기 절차가 문서화되어 있다. |
 
-## 19.11 제한된 고객 파일럿 Go 조건
+## 19.12 제한된 고객 파일럿 Go 조건
 
 다음 조건을 모두 충족해야 한다.
 
@@ -1589,9 +1656,11 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 14. HTTPS와 WebSocket이 정상 동작한다.
 15. VM 재부팅 후 서비스가 자동 시작된다.
 16. 디스크·컨테이너·인증서·SMTP 점검 절차가 준비된다.
-17. 고객에게 모바일 푸시, 복구 미보장과 데이터 취급 제한을 안내한다.
+17. 최초 원격 백업과 폐기 가능한 신규 VM 복구시험을 통과하고 증거 승인 후 타이머를 활성화한다.
+18. 마지막 원격 검증 성공 세트가 backup ID 생성시각 기준 24시간 이내이고 daily 세트가 정확히 5개다.
+19. 고객에게 모바일 푸시, RPO 24시간·수동 RTO 4시간 목표와 데이터 취급 제한을 안내한다.
 
-## 19.12 고객 파일럿 No-Go 조건
+## 19.13 고객 파일럿 No-Go 조건
 
 다음 중 하나라도 해당하면 고객 파일럿을 시작하거나 계속하지 않는다.
 
@@ -1609,6 +1678,9 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 - 유효한 HTTPS 없이 서비스가 공개되어 있다.
 - 모바일 푸시가 의도하지 않게 활성화되어 있다.
 - 초대·확인·재설정 메일이 동작하지 않거나 SPF·DKIM 검증에 실패한다.
+- 원격 backup set이 정확한 5개 객체가 아니거나 크기·SHA-256 검증에 실패한다.
+- 폐기 가능한 신규 VM 복구시험이 실패하거나 과거 notifier 이메일이 재발송된다.
+- 마지막 원격 검증 성공 세트가 backup ID 생성시각 기준 24시간을 초과한다.
 
 ---
 
@@ -1664,7 +1736,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | R-07 | PostgreSQL 18 mount 경로 오류 | 신규 초기화 또는 데이터 손실 | `/var/lib/postgresql` 확인과 재생성 시험 | 예 |
 | R-08 | Mattermost bind mount 누락 | 상태 손실·anonymous volume 생성 | 공식 6개 경로 명시, `docker inspect` 검사 | 예 |
 | R-09 | Mattermost 호스트 경로 권한 오류 | 컨테이너 시작·파일 쓰기 실패 | 고정 이미지 UID/GID와 `2000:2000` 소유권·쓰기 시험 | 예 |
-| R-10 | 백업 부재 | 장애·오삭제 시 전체 데이터 손실 | 범위 제한, 명시적 위험 수용, 고객 고지 | 아니오 |
+| R-10 | 백업 실패·복구 불가 | RPO 초과 또는 전체 데이터 손실 | 원격 SHA-256 검증, 일일 상태 점검, 신규 VM 복구시험, 타이머 인수 gate | 예 |
 | R-11 | System Admin 계정 탈취 | 전체 인스턴스 장악 | 계정 1~2개, 강한 비밀번호, 사용자별 MFA와 복구시험 | 예 |
 | R-12 | 모바일 푸시 부재 | 메시지 확인 지연 | 사전 안내, 앱 재실행 동기화 시험, 별도 긴급 연락 | 아니오 |
 | R-13 | SMTP 발송·전달 실패 | 가입·확인·재설정 불가 | SPF·DKIM, 3개 메일 서비스 시험, suppression 확인 | 예 |
@@ -1703,6 +1775,7 @@ threadhub-deploy/
     ├── setup.md
     ├── admin-guide.md
     ├── operations-checklist.md
+    ├── backup-restore.md
     ├── test-plan.md
     └── project-close.md
 ```
@@ -1741,6 +1814,7 @@ threadhub-deploy/
 | `setup.md` | 사전조건, 인프라, 배포, DNS, HTTPS, 이메일과 초기 설정 |
 | `admin-guide.md` | 사용자 초대·비활성화, MFA, System Scheme, Team·채널 운영 |
 | `operations-checklist.md` | 디스크, 컨테이너, health, 인증서, SMTP와 로그 점검 |
+| `backup-restore.md` | OCI 최소권한, 백업·원격 검증, 복구, 타이머 인수와 보존·폐기 |
 | `test-plan.md` | 시험 ID, 절차, 기대 결과, 실제 결과, 증거와 판정 |
 | `project-close.md` | 기록 유지와 완전 폐기, 대상 식별, 결과 기록 |
 | 배포 기록 | 버전, 이미지 Digest, 도메인, 배포일, 변경 이력 |
@@ -1789,13 +1863,17 @@ threadhub-deploy/
 36. Mattermost Team Edition 무료 기능만 사용하고 유료 라이선스·Enterprise Trial이 없다.
 37. Calls, SSO, 유료 Guest, 무료 TPNS, 진단 텔레메트리와 채널·Team Export가 사용되지 않는다.
 38. 디스크, 컨테이너, health, 인증서, SMTP와 로그의 최소 운영점검 절차가 준비되어 있다.
-39. 고객에게 모바일 푸시 부재, 긴급 연락, 복구 미보장과 데이터 제한이 안내되어 있다.
+39. 고객에게 모바일 푸시 부재, 긴급 연락, RPO 24시간·수동 RTO 4시간 목표와 데이터 제한이 안내되어 있다.
 40. 사용자 초대, 계정 비활성화, System Scheme, MFA와 채널 보관 절차가 문서화되어 있다.
 41. 프로젝트 기록 유지와 완전 폐기 절차가 문서화되어 있다.
 42. 배포 패키지로 데이터가 없는 새 VM에 ThreadHub를 재구성할 수 있다.
 43. 실제 `.env`, 비밀번호, 키와 고객 데이터가 Git 저장소에 포함되어 있지 않다.
-44. 고객 파일럿 No-Go 조건이 남아 있지 않고 최종 시험 결과가 기록되어 있다.
-45. 백업, 중앙 로깅, 모니터링, 고가용성과 모바일 푸시는 후속 검토 대상으로 유지되어 있다.
+44. 백업 unit은 비활성으로 등록되고 최초 수동 backup set의 정확한 5개 원격 객체와 SHA-256이 검증되어 있다.
+45. 폐기 가능한 신규 VM에서 PostgreSQL, 공개·비공개 채널, 스레드, 첨부파일과 notifier queue quarantine 복구시험을 통과한다.
+46. 승인된 성공 백업 ID의 정확한 5개 원격 객체를 재검증한 뒤에만 타이머를 활성화하고, 해당 ID 생성시각이 24시간 이내다.
+47. daily 7일·weekly 28일 lifecycle, 실패 이메일과 프로젝트 종료 시 보존·삭제 절차가 검증되어 있다.
+48. 고객 파일럿 No-Go 조건이 남아 있지 않고 최종 시험 결과가 기록되어 있다.
+49. 중앙 로깅, 통합 모니터링, 고가용성과 모바일 푸시는 후속 검토 대상으로 유지되어 있다.
 
 ---
 
@@ -1816,6 +1894,7 @@ threadhub-deploy/
 | G-09 반복 배포 | NFR-MNT, FR-ADM | AC-REP | 11장 Phase 1, 16장 |
 | G-10 무료 기능 | FR-PERM-012, FR-PUSH-003~005 | AC-LIC | 9.7, 15장 |
 | G-11 명시적 보안 경계 | 8장, NFR-SEC-019 | AC-PERM-009 | 5장, 14.2 |
+| G-12 검증 가능한 백업·복구 | NFR-DATA-007~016, 17.5 | AC-BK | 백업·복구 구현 계획과 `backup-restore.md` |
 
 상세 시험 절차와 시험 ID는 [ThreadHub MVP 구축 및 검증 계획서](./threadhub-mvp-build-validation-plan.md)를 따른다.
 
@@ -1864,25 +1943,19 @@ threadhub-deploy/
 - [Ubuntu 24.04 LTS 릴리스 정보](https://documentation.ubuntu.com/release-notes/24.04/)
 - [OCI Email Delivery 개요](https://docs.oracle.com/en-us/iaas/Content/Email/Concepts/overview.htm)
 
-## 24.4 v4.0 대비 주요 변경
+## 24.4 v4.1 대비 주요 변경
 
-| 영역 | v4.1 변경 내용 |
+| 영역 | v4.2 변경 내용 |
 | --- | --- |
-| 인스턴스 기준 | “프로젝트당”을 기본값으로 유지하되 실제 기준을 정보 공유 경계로 명확화 |
-| VM 사양 | AMD 기반 x86_64, 2 OCPU, 16GB RAM으로 상향 |
-| 모바일 푸시 | 무료 TPNS 미사용과 `SENDPUSHNOTIFICATIONS=false`를 명시 |
-| 푸시 내용 제한 | `generic_no_channel`은 향후 푸시 활성화 시에만 적용하는 조건부 설정으로 정정 |
-| 가입 | 초대 없는 직접 가입과 유효한 Team InviteId 경로를 구분 |
-| 초대 URL | bearer invitation으로 취급하고 비배포·코드 재생성·이전 URL 무효화 시험 추가 |
-| MFA | Team Edition의 사용자별 MFA 지원을 반영하고 System Admin 등록을 필수 운영정책으로 변경 |
-| 권한 | Team Edition의 System Scheme을 1순위 기술 통제로 확정 |
-| CJK 검색 | v11.7.7의 `LIKE '%검색어%'` 구현과 런타임·성능 시험을 반영 |
-| PostgreSQL | 18의 `/var/lib/postgresql` mount 기준과 메이저 업그레이드 제약 추가 |
-| Mattermost 저장 | 공식 6개 경로 bind mount와 UID/GID `2000:2000` 검증 추가 |
-| `down -v` | bind mount와 named·anonymous volume의 동작 차이를 정정 |
-| 이메일 | SPF와 DKIM을 필수화하고 Gmail·네이버·다음 계정 메일 시험 추가 |
-| 운영 | 중앙 모니터링과 구분되는 최소 로컬 점검을 필수 운영 절차로 추가 |
-| 데이터 보존 | 정상 영속성과 장애·오삭제 복구 미보장을 명확히 분리 |
+| 백업 목표 | backup ID 생성시각 기준 RPO 24시간·수동 RTO 4시간·강제된 일일 중단 deadline 5분 추가 |
+| 백업 범위 | PostgreSQL 논리 dump, Mattermost 첨부파일과 notifier queue를 단일 set으로 정의 |
+| 원격 저장 | `ap-singapore-1` 프로젝트별 Private OCI Object Storage와 AES-256 적용 |
+| OCI 권한 | exact-instance Instance Principal과 exact-bucket create·inspect·read, no-delete 확정 |
+| 보존 | daily 7일·weekly 28일 lifecycle 기준 추가 |
+| 복구 안전 | 동일 commit·고정 이미지, new or empty 데이터 경로, `--force` 미제공 |
+| notifier | 복구 queue quarantine과 새 live delivery 비활성 요구 추가 |
+| 활성화 gate | 수동 원격 검증과 폐기 VM 복구 증거 승인 전 timer 비활성 |
+| 종료 | VM 삭제와 백업 삭제를 분리하고 Object Storage 삭제를 별도 승인으로 변경 |
 
 ## 24.5 변경 통제
 
@@ -1935,8 +2008,11 @@ Mattermost Calls, SSO, 유료 Guest와 Export 미사용
 PostgreSQL은 Mattermost와 동일 VM
 PostgreSQL과 Mattermost 중요 데이터는 명시적 bind mount
 정상 컨테이너 재생성·VM 재부팅 중 데이터 유지
-백업과 장애·오삭제 후 복구는 미보장
-자동 백업·중앙 로깅·모니터링·고가용성은 초기 미구성
+일일 백업은 프로젝트 전용 Private OCI Object Storage에 저장·원격 검증
+backup ID 생성시각 기준 RPO 24시간·수동 RTO 4시간·백업 중단 deadline 5분
+복구는 동일 기준의 신규 VM과 비어 있는 데이터 경로에서만 수행
+HA·PITR·리전 간 복제·무손실 복구·SLA는 미제공
+중앙 로깅·통합 모니터링·고가용성은 초기 미구성
 VM과 Boot Volume 삭제 시 프로젝트 데이터 완전 폐기
 배포 구성은 다음 프로젝트에 재사용하되 데이터와 비밀정보는 재사용하지 않음
 ```

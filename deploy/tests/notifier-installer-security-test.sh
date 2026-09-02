@@ -561,7 +561,9 @@ printf '%s\n' '192.0.2.10 STREAM threadhub.internal'
 EOF
     chmod 0700 "${fake_bin}/docker" "${fake_bin}/getent"
 
-    for child in deploy.sh configure-nginx.sh reload-nginx.sh notifier-control.sh readiness-check.sh; do
+    for child in \
+        deploy.sh configure-nginx.sh reload-nginx.sh notifier-control.sh \
+        readiness-check.sh install-backup.sh; do
         cat > "${fixture_scripts}/${child}" <<'EOF'
 #!/usr/bin/env bash
 exit 0
@@ -652,7 +654,7 @@ EOF
         chmod 0700 "${fake_bin}/docker" "${fake_bin}/getent"
         for child in \
             install-docker.sh deploy.sh configure-nginx.sh reload-nginx.sh \
-            notifier-control.sh readiness-check.sh install-status.sh \
+            notifier-control.sh readiness-check.sh install-backup.sh install-status.sh \
             notifier-smtp-test.sh; do
             cat > "${fixture_scripts}/${child}" <<'EOF'
 #!/usr/bin/env bash

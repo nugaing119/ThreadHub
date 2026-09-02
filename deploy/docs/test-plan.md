@@ -3,7 +3,7 @@
 상세 시험 ID, 말뭉치와 기대 결과는 다음 기준문서를 사용합니다.
 
 - [ThreadHub MVP 구축 및 검증 계획서](../../docs/threadhub-mvp-build-validation-plan.md)
-- [ThreadHub PRD v4.1 Final](../../docs/threadhub-prd-v4.1-final.md)
+- [ThreadHub PRD v4.2 Final](../../docs/threadhub-prd-v4.2-final.md)
 
 ## 자동·반자동 시험
 
@@ -20,6 +20,26 @@
 | notifier artifact·history secret gate | pinned Gitleaks 8.30.1과 `verify-notifier-artifacts.sh` |
 | notifier real-image integration | `cd notifier && make integration` (로컬/CI Docker 환경) |
 | 기존 Mattermost notifier 채택 real-image integration | `./notifier/integration/run-existing-adoption.sh` (Linux Docker CI 환경) |
+| 백업 unit·보안 계약 | `./deploy/tests/backup-*.sh`와 `validate.sh` |
+| 백업 real-image integration | `sudo ./deploy/integration/backup/run.sh` (폐기 가능한 Ubuntu 24.04 AMD64 Docker 환경) |
+
+## Backup test families
+
+| ID | 분류 | 계획된 증거 |
+| --- | --- | --- |
+| BK-UNIT-01 | 자동 | 설정·상태·manifest·transport·restore·installer fail-closed 계약 |
+| BK-UNIT-02 | 자동 | 문서 승인·인수·복구 순서 mutation 계약 |
+| BK-INT-01 | 자동/전용 Linux | 실제 Mattermost·PostgreSQL 이미지의 백업·복구와 queue quarantine |
+| BK-INT-02 | 자동/전용 Linux | 소스 hash 불변, 5분 downtime, 4시간 RTO와 개인정보 출력 검사 |
+| BK-LIVE-01 | 라이브 승인 필요 | 정확한 Instance Principal의 대상 버킷 create/inspect/read 성공 |
+| BK-LIVE-02 | 라이브 승인 필요 | 교차 버킷, object delete와 bucket delete 거부 |
+| BK-LIVE-03 | 라이브 승인 필요 | 최초 수동 daily 5개 객체와 SHA-256 원격 검증 |
+| BK-LIVE-04 | 라이브 승인 필요 | 폐기 가능한 신규 VM 복구와 notifier 재발송 없음 |
+| BK-LIVE-05 | 라이브 승인 필요 | 인수 증거 검토 후 타이머 활성화와 다음 일일 실행 |
+
+백업 시험의 상세 순서, 개인정보 제한과 Go/No-Go 기준은
+[백업 및 복구 운영 가이드](./backup-restore.md)를 따릅니다. `BK-LIVE-*`는 대상
+compartment와 `ap-singapore-1`을 명시한 신규 승인 없이는 실행하지 않습니다.
 
 ## notifier 시험 ID와 실행 경계
 

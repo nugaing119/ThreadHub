@@ -4,10 +4,11 @@
 
 프로젝트 책임자는 다음 중 하나를 선택하고 기록합니다.
 
-- 기록 유지: VM 또는 Boot Volume 유지
-- 완전 폐기: VM과 Boot Volume 삭제
+- 기록 유지: VM 또는 Boot Volume과 승인된 Object Storage 백업 유지
+- 완전 폐기: VM, Boot Volume과 승인된 백업 리소스 삭제
 
-어느 방식도 별도 백업이나 복구 보장을 의미하지 않습니다.
+백업을 활성화한 경우에도 RPO 24시간·수동 RTO 4시간 목표이며 HA·PITR·복구시간
+SLA를 의미하지 않습니다.
 
 ## 2. 공통 절차
 
@@ -33,13 +34,22 @@ queue backup 범위는 `queue.db`와 SQLite sidecar뿐이지만 recipient addres
 합니다. 원시 backup이 남아 있으면 email scrub 완료라고 기록하지 않습니다. 정확한
 retry/cancel 명령은 [운영 점검표](./operations-checklist.md)를 따릅니다.
 
+### 백업 보존·삭제 gate
+
+1. 위 notifier 종료 gate를 먼저 통과합니다.
+2. 마지막 수동 백업을 실행하고 원격 검증 성공을 확인합니다.
+3. [백업 및 복구 운영 가이드](./backup-restore.md)의 보존 또는 완전 삭제 중 하나를 선택합니다.
+4. 보존 기간, 책임자, 버킷과 복구 접근 경로를 비공개 종료 기록에 남깁니다.
+5. 삭제는 대상 compartment와 `ap-singapore-1`을 다시 확인하고 explicit user authorization을 받은 뒤 진행합니다.
+6. Object Storage 객체·lifecycle·IAM·Dynamic Group·버킷은 다른 프로젝트와 공유 여부를 확인한 뒤 별도 관리자 절차로 제거합니다.
+
 ## 3. 기록 유지
 
 1. 프로젝트 채널을 보관합니다.
 2. 기존 메시지와 파일을 열람할 수 있는지 확인합니다.
 3. 고객 계정의 로그인이 차단되는지 확인합니다.
 4. 유지할 VM 또는 Boot Volume과 비용 책임자를 기록합니다.
-5. 유지 중에도 장애 복구가 보장되지 않음을 기록합니다.
+5. 마지막 검증 성공 시각, RPO·RTO 목표와 복구 제한을 기록합니다.
 
 ## 4. 컨테이너만 중지
 
@@ -70,7 +80,7 @@ retry/cancel 명령은 [운영 점검표](./operations-checklist.md)를 따릅�
 target Compartment와 region을 기록합니다. 상세 격리 정책은
 [OCI Email Delivery 설정](./oci-email-delivery.md)을 따릅니다.
 
-완전 폐기 후 PostgreSQL, 메시지와 첨부파일은 복구되지 않습니다.
+완전 폐기 후 PostgreSQL, 메시지, 첨부파일과 Object Storage 백업은 복구되지 않습니다.
 
 ## 6. 종료 기록
 
@@ -88,5 +98,9 @@ target Compartment와 region을 기록합니다. 상세 격리 정책은
 | VM 결과 |  |
 | Boot Volume 결과 |  |
 | 공인 IP 결과 |  |
+| 마지막 원격 검증 성공 |  |
+| 백업 보존 또는 삭제 |  |
+| Object Storage 결과 |  |
+| Dynamic Group·IAM 결과 |  |
 
 실제 값이 입력된 종료 기록은 공개 GitHub 저장소에 커밋하지 않습니다.

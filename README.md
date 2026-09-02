@@ -23,11 +23,12 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - 인스턴스당 활성 사용자 최대 50명
 - 웹, 데스크톱, 공식 iOS·Android 앱 지원
 - 모바일 푸시 기본 비활성화
-- 자동 백업, 중앙 로깅, 모니터링과 고가용성 미구성
+- 일일 OCI Object Storage 백업과 수동 복구(선택적·별도 인수 gate)
+- 중앙 로깅, 모니터링과 고가용성 미구성
 
 ## 문서
 
-- [ThreadHub 제품 요구사항 정의서 v4.1 Final](./docs/threadhub-prd-v4.1-final.md)
+- [ThreadHub 제품 요구사항 정의서 v4.2 Final](./docs/threadhub-prd-v4.2-final.md)
 - [ThreadHub MVP 구축 및 검증 계획서](./docs/threadhub-mvp-build-validation-plan.md)
 
 제품 범위와 인수조건은 PRD를 기준으로 하며, 배포 단계와 시험 절차는 구축·검증 계획서를 따릅니다.
@@ -77,6 +78,11 @@ DNS 또는 OCI Email Delivery가 아직 준비되지 않았다면 기존 작업�
 즉시 채널 이메일 알림의 설치, 운영, 개인정보와 종료 절차는
 [빠른 설치](./deploy/docs/quick-install.md), [운영 점검표](./deploy/docs/operations-checklist.md),
 [프로젝트 종료](./deploy/docs/project-close.md), [시험계획](./deploy/docs/test-plan.md)를 함께 따릅니다.
+
+백업은 기본 서비스 설치와 분리된 승인 단계입니다. 최초 수동 백업의 원격 검증과
+폐기 가능한 새 VM 복구시험을 마치기 전에는 예약 타이머를 활성화하지 않습니다.
+전체 절차와 RPO·RTO 한계는 [백업 및 복구 운영 가이드](./deploy/docs/backup-restore.md)를
+따릅니다.
 
 ```bash
 ./deploy/scripts/validate.sh

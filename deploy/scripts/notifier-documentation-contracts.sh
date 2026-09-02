@@ -279,4 +279,11 @@ validate_notifier_documentation_contracts() {
     notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \
         'no[[:space:]]+unauthorized[[:space:]]+OCI[[:space:]]+automation' \
         'no unauthorized OCI automation' || return 1
+
+    if ! declare -F validate_backup_documentation_contracts >/dev/null 2>&1; then
+        # shellcheck source=backup-documentation-contracts.sh
+        # shellcheck disable=SC1091
+        source "${deploy_dir}/scripts/backup-documentation-contracts.sh"
+    fi
+    validate_backup_documentation_contracts "${repository_root}" || return 1
 }

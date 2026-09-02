@@ -112,6 +112,33 @@ if [[ "${containers_ready}" == "true" && "${dns_ready}" == "true" \
     fi
 fi
 
+init_sudo
+backup_service_unit=/etc/systemd/system/threadhub-backup.service
+backup_timer_unit=/etc/systemd/system/threadhub-backup.timer
+backup_config=/etc/threadhub/backup.env
+if "${SUDO_COMMAND[@]}" test -f "${backup_service_unit}" \
+    && "${SUDO_COMMAND[@]}" test ! -L "${backup_service_unit}" \
+    && "${SUDO_COMMAND[@]}" test -f "${backup_timer_unit}" \
+    && "${SUDO_COMMAND[@]}" test ! -L "${backup_timer_unit}"; then
+    if "${SUDO_COMMAND[@]}" systemctl is-enabled --quiet threadhub-backup.timer \
+        && "${SUDO_COMMAND[@]}" systemctl is-active --quiet threadhub-backup.timer; then
+        if "${SUDO_COMMAND[@]}" test -f "${backup_config}" \
+            && "${SUDO_COMMAND[@]}" "${SCRIPT_DIR}/backup-status.sh" --json >/dev/null 2>&1; then
+            ok "Backup configuration, verified freshness and active timer"
+        else
+            fail "Backup timer is active but configuration or verified freshness is invalid"
+        fi
+    elif ! "${SUDO_COMMAND[@]}" systemctl is-enabled --quiet threadhub-backup.timer \
+        && ! "${SUDO_COMMAND[@]}" systemctl is-active --quiet threadhub-backup.timer; then
+        ok "Backup systemd units are installed and disabled pending acceptance"
+        printf '[MANUAL] Configure the exact project bucket and complete backup/restore acceptance before enabling the timer.\n'
+    else
+        fail "Backup timer enabled and active states are inconsistent"
+    fi
+else
+    printf '[MANUAL] Register optional backup dependencies and disabled units with sudo ./deploy/scripts/install-backup.sh --register.\n'
+fi
+
 printf '[MANUAL] Create or verify the first System Admin and enable MFA.\n'
 printf '[MANUAL] Verify the SMTP test message arrives and every message link opens correctly.\n'
 printf '[MANUAL] Verify SPF and DKIM results for the approved sender.\n'

@@ -16,11 +16,21 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 
 정확한 이미지 Digest는 [`deploy/versions.env`](../versions.env)를 기준으로 합니다.
 
+`backup-restore-integration` 표는 실제로 통과한 커밋만 기록합니다. 허용된 필드 외에
+버킷, namespace, OCID, 도메인, 이메일, backup ID, object key, 데이터 크기,
+사용자 수와 파일명을 공개하지 않습니다.
+
 ## notifier 공개 자동 증거
 
 | test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | plugin bundle SHA-256 | NF scenario count | result |
 | --- | --- | --- | --- | --- | --- | ---: | --- |
 | 2026-08-28 | `0cbb3c35927a7cc5b3cd0f07d8cdfbfbc98e072e` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | 15 | pass |
+
+## backup·restore 공개 자동 증거
+
+| test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | backup scenario count | result |
+| --- | --- | --- | --- | --- | ---: | --- |
+| 2026-09-01 | `f867f91eb46c2b68643cdf011c336307a8f68548` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | 4 | pass |
 
 ## existing-adoption 자동 증거 계약
 
