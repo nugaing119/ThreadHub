@@ -293,7 +293,26 @@ if [[ "$1" == -m && "$2" == pip ]]; then
 fi
 exit 2
 EOF
-    chmod 0755 "${fixture}/bin/curl" "${fixture}/bin/python3"
+    cat > "${fixture}/bin/unzip" <<'EOF'
+#!/usr/bin/env bash
+set -Eeuo pipefail
+"${OCI_INSTALLER_TEST_REAL_PYTHON}" - "$@" <<'PY'
+import sys
+import zipfile
+
+arguments = sys.argv[1:]
+if len(arguments) == 2 and arguments[0] == "-Z1":
+    with zipfile.ZipFile(arguments[1]) as bundle:
+        print("\n".join(bundle.namelist()))
+elif len(arguments) == 5 and arguments[0] == "-q" and arguments[3] == "-d":
+    with zipfile.ZipFile(arguments[1]) as bundle:
+        bundle.extract(arguments[2], arguments[4])
+else:
+    raise SystemExit(2)
+PY
+EOF
+    chmod 0755 "${fixture}/bin/curl" "${fixture}/bin/python3" \
+        "${fixture}/bin/unzip"
 
     # shellcheck source=/dev/null
     source "${INSTALLER}"
@@ -310,7 +329,9 @@ EOF
     OCI_INSTALLER_TEST_ARCHIVE="${fixture}/oci.zip"
     OCI_INSTALLER_TEST_VERSION=3.90.3
     OCI_INSTALLER_TEST_PIP_TRACE="${fixture}/pip.trace"
-    export OCI_INSTALLER_TEST_ARCHIVE OCI_INSTALLER_TEST_VERSION OCI_INSTALLER_TEST_PIP_TRACE
+    OCI_INSTALLER_TEST_REAL_PYTHON="${real_python}"
+    export OCI_INSTALLER_TEST_ARCHIVE OCI_INSTALLER_TEST_VERSION \
+        OCI_INSTALLER_TEST_PIP_TRACE OCI_INSTALLER_TEST_REAL_PYTHON
 
     PATH="${fixture}/bin:${PATH}" backup_installer_install_oci_cli
     [[ -L "${BACKUP_OCI_LINK}" ]]
