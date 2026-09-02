@@ -607,6 +607,8 @@ init_docker() {
 }
 
 compose() {
+    ((${#DOCKER_COMMAND[@]} > 0)) \
+        || die "Docker command is not initialized; call init_docker before compose"
     "${DOCKER_COMMAND[@]}" compose \
         --env-file "${ENV_FILE}" \
         --env-file "${VERSIONS_FILE}" \
