@@ -122,10 +122,7 @@ notifier_build_artifacts() (
 
     source_commit="$(notifier_require_clean_source_commit)" \
         || die "Refusing to build notifier artifacts from dirty, untracked, or unversioned source"
-    source_epoch="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" show -s --format=%ct "${source_commit}")" \
-        || die "Unable to derive the notifier source timestamp"
-    [[ "${source_epoch}" =~ ^[0-9]{1,12}$ && "${source_epoch}" -gt 0 ]] \
-        || die "Notifier source timestamp is invalid"
+    image_epoch=1577836800
     builder_image="${builder_repository}:${builder_tag}@${builder_digest}"
     bundle_relative="notifier/dist/${plugin_id}-${notifier_version}.tar.gz"
     bundle_path="${REPOSITORY_ROOT}/${bundle_relative}"
@@ -162,8 +159,7 @@ notifier_build_artifacts() (
     "${DOCKER_COMMAND[@]}" build \
         --provenance=false \
         --platform linux/amd64 \
-        --build-arg "SOURCE_DATE_EPOCH=${source_epoch}" \
-        --build-arg "THREADHUB_ROOTFS_EPOCH=${source_epoch}" \
+        --build-arg "SOURCE_DATE_EPOCH=${image_epoch}" \
         --build-arg "GO_BUILDER_IMAGE=${builder_image}" \
         --target plugin-bundle --tag "${bundle_image}" "${tmp_dir}/context"
     bundle_container="$("${DOCKER_COMMAND[@]}" create "${bundle_image}" /unused)"
@@ -181,8 +177,7 @@ notifier_build_artifacts() (
     "${DOCKER_COMMAND[@]}" build \
         --provenance=false \
         --platform linux/amd64 \
-        --build-arg "SOURCE_DATE_EPOCH=${source_epoch}" \
-        --build-arg "THREADHUB_ROOTFS_EPOCH=${source_epoch}" \
+        --build-arg "SOURCE_DATE_EPOCH=${image_epoch}" \
         --build-arg "GO_BUILDER_IMAGE=${builder_image}" \
         --target mailer --tag "${mailer_image}" "${tmp_dir}/context"
 

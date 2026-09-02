@@ -316,36 +316,28 @@ grep -F -- '--build-arg "GO_BUILDER_IMAGE=${builder_image}"' \
     || die "Both notifier images must disable non-reproducible BuildKit provenance"
 # Match literal build-library expressions; expansion is not intended.
 # shellcheck disable=SC2016
-for reproducible_mailer_contract in \
-    'source_epoch="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" show -s --format=%ct "${source_commit}")"' \
-    '--build-arg "SOURCE_DATE_EPOCH=${source_epoch}"'; do
-    grep -F -- "${reproducible_mailer_contract}" \
-        "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
-        || die "Notifier builds must use the reviewed source timestamp"
-done
-# Match the literal build-library expression; expansion is not intended.
+grep -F -- 'image_epoch=1577836800' \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
+    || die "Notifier images must use the fixed reviewed image epoch"
 # shellcheck disable=SC2016
-[[ "$(grep -F -c -- '--build-arg "SOURCE_DATE_EPOCH=${source_epoch}"' \
+[[ "$(grep -F -c -- '--build-arg "SOURCE_DATE_EPOCH=${image_epoch}"' \
     "${SCRIPT_DIR}/notifier-artifact-build-lib.sh")" == 2 ]] \
-    || die "Both notifier builds must consume the reviewed source timestamp"
-# Match the literal build-library expression; expansion is not intended.
-# shellcheck disable=SC2016
-[[ "$(grep -F -c -- '--build-arg "THREADHUB_ROOTFS_EPOCH=${source_epoch}"' \
-    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh")" == 2 ]] \
-    || die "Both notifier builds must bind rootfs timestamps into the cache key"
+    || die "Both notifier images must consume the fixed reviewed image epoch"
 # Match literal Dockerfile expressions; expansion is not intended.
 # shellcheck disable=SC2016
 for reproducible_rootfs_contract in \
-    'ARG SOURCE_DATE_EPOCH=1577836800' \
-    'ARG THREADHUB_ROOTFS_EPOCH=1577836800' \
     '/out/mailer-rootfs/etc/ssl/certs' \
-    '"${SOURCE_DATE_EPOCH}" == "${THREADHUB_ROOTFS_EPOCH}"' \
-    'touch -h -d "@${THREADHUB_ROOTFS_EPOCH}"' \
-    'COPY --from=build /out/mailer-rootfs/ /'; do
+    "touch -h -d '@1577836800'" \
+    'COPY --chown=0:0 --from=build /out/mailer-rootfs/ /'; do
     grep -F -- "${reproducible_rootfs_contract}" \
         "${REPOSITORY_ROOT}/notifier/Dockerfile" >/dev/null \
         || die "Notifier Mailer rootfs timestamps must be normalized in the Dockerfile"
 done
+if grep -Eq 'show -s --format=%ct|THREADHUB_ROOTFS_EPOCH' \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" \
+    "${REPOSITORY_ROOT}/notifier/Dockerfile"; then
+    die "Notifier Mailer identity must not depend on a source commit timestamp"
+fi
 grep -F 'NOTIFIER_PLUGIN_BUNDLE_SHA256=' \
     "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
     || die "Notifier release identity must record the bundle SHA-256"

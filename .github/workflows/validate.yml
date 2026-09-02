@@ -342,6 +342,17 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  notifier-mailer-reproducibility:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+
+      - name: Verify cross-host Mailer image identity
+        run: ./deploy/tests/notifier-mailer-reproducibility-test.sh
+
   notifier-existing-adoption:
     needs: notifier-integration
     runs-on: ubuntu-24.04
