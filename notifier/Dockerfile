@@ -2,6 +2,7 @@ ARG GO_BUILDER_IMAGE
 FROM ${GO_BUILDER_IMAGE} AS build
 SHELL ["/bin/bash", "-o", "pipefail", "-c"]
 ARG SOURCE_DATE_EPOCH=1577836800
+ARG THREADHUB_ROOTFS_EPOCH=1577836800
 
 WORKDIR /src
 COPY go.mod go.sum ./
@@ -27,12 +28,13 @@ RUN install -m 0644 plugin/plugin.json \
         --owner=0 --group=0 --numeric-owner \
         -C /out/plugin -cf - com.threadhub.channel-email-notifier \
     | gzip -n -9 > /out/bundle/com.threadhub.channel-email-notifier-0.1.0.tar.gz
-RUN [[ "${SOURCE_DATE_EPOCH}" =~ ^[0-9]{1,12}$ ]] \
+RUN [[ "${SOURCE_DATE_EPOCH}" =~ ^[0-9]{1,12}$ \
+        && "${SOURCE_DATE_EPOCH}" == "${THREADHUB_ROOTFS_EPOCH}" ]] \
     && install -d -m 0755 /out/mailer-rootfs/etc/ssl/certs \
     && install -m 0644 /etc/ssl/certs/ca-certificates.crt \
         /out/mailer-rootfs/etc/ssl/certs/ca-certificates.crt \
     && install -m 0755 /out/threadhub-mailer /out/mailer-rootfs/threadhub-mailer \
-    && find /out/mailer-rootfs -exec touch -h -d "@${SOURCE_DATE_EPOCH}" {} +
+    && find /out/mailer-rootfs -exec touch -h -d "@${THREADHUB_ROOTFS_EPOCH}" {} +
 
 FROM scratch AS plugin-bundle
 COPY --from=build /out/bundle/ /
