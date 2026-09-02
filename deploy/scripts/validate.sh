@@ -311,6 +311,9 @@ require_file "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh"
 grep -F -- '--build-arg "GO_BUILDER_IMAGE=${builder_image}"' \
     "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
     || die "Notifier builds must consume the pinned builder digest"
+[[ "$(grep -F -c -- '--provenance=false' \
+    "${SCRIPT_DIR}/notifier-artifact-build-lib.sh")" == 2 ]] \
+    || die "Both notifier images must disable non-reproducible BuildKit provenance"
 grep -F 'NOTIFIER_PLUGIN_BUNDLE_SHA256=' \
     "${SCRIPT_DIR}/notifier-artifact-build-lib.sh" >/dev/null \
     || die "Notifier release identity must record the bundle SHA-256"
