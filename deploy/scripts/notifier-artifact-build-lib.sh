@@ -156,6 +156,7 @@ notifier_build_artifacts() (
 
     log "Building the reviewed linux/amd64 notifier plugin bundle"
     "${DOCKER_COMMAND[@]}" build \
+        --provenance=false \
         --platform linux/amd64 \
         --build-arg "GO_BUILDER_IMAGE=${builder_image}" \
         --target plugin-bundle --tag "${bundle_image}" "${tmp_dir}/context"
@@ -172,6 +173,7 @@ notifier_build_artifacts() (
 
     log "Building the reviewed linux/amd64 notifier Mailer image"
     "${DOCKER_COMMAND[@]}" build \
+        --provenance=false \
         --platform linux/amd64 \
         --build-arg "GO_BUILDER_IMAGE=${builder_image}" \
         --target mailer --tag "${mailer_image}" "${tmp_dir}/context"
