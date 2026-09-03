@@ -83,6 +83,9 @@ EOF
     fixture_version=11.7.7
     fixture_site_url=https://mattermost.valid.test
     fixture_plugin_json='{"active":[],"inactive":[]}'
+    fixture_plugin_list_available=true
+    fixture_plugins_enabled=true
+    fixture_plugin_states='{}'
 }
 
 write_supported_model() {
@@ -121,7 +124,14 @@ fake_compose() {
             printf '%s\n' "${fixture_site_url}"
             ;;
         'exec -T mattermost mmctl plugin list --local --suppress-warnings --json')
+            [[ "${fixture_plugin_list_available}" == true ]] || return 1
             printf '%s\n' "${fixture_plugin_json}"
+            ;;
+        'exec -T mattermost mmctl config get PluginSettings.Enable --local --suppress-warnings')
+            printf '%s\n' "${fixture_plugins_enabled}"
+            ;;
+        'exec -T mattermost mmctl config get PluginSettings.PluginStates --local --suppress-warnings')
+            printf '%s\n' "${fixture_plugin_states}"
             ;;
         *) return 2 ;;
     esac
@@ -356,6 +366,53 @@ test_existing_target_plugin_is_rejected() (
     assert_action_required_result "${result}" && assert_private_output
 )
 
+test_disabled_plugins_with_absent_target_are_accepted() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_plugin_list_available=false
+    fixture_plugins_enabled=false
+    fixture_plugin_states='{"com.mattermost.calls":{"Enable":true}}'
+
+    run_preflight > "${output}" 2>&1 || return 1
+
+    grep -F '[OK] Mattermost Site URL and notifier collision checks passed' "${output}" >/dev/null \
+        && assert_private_output
+)
+
+test_disabled_plugins_with_target_state_are_rejected() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_plugin_list_available=false
+    fixture_plugins_enabled=false
+    fixture_plugin_states='{"com.threadhub.channel-email-notifier":{"Enable":false}}'
+
+    set +e
+    run_preflight > "${output}" 2>&1
+    result=$?
+    set -e
+
+    assert_action_required_result "${result}" \
+        && [[ ! -e "${notifier_root}" ]] \
+        && assert_private_output
+)
+
+test_unavailable_plugin_list_while_enabled_is_rejected() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_plugin_list_available=false
+    fixture_plugins_enabled=true
+    fixture_plugin_states='{}'
+
+    set +e
+    run_preflight > "${output}" 2>&1
+    result=$?
+    set -e
+
+    assert_action_required_result "${result}" \
+        && [[ ! -e "${notifier_root}" ]] \
+        && assert_private_output
+)
+
 test_reviewed_installed_plugin_is_accepted_only_for_resume() (
     prepare_fixture
     trap 'rm -rf "${fixture}"' EXIT
@@ -420,6 +477,9 @@ if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'missing Mattermost data bind is rejected' test_missing_data_bind_is_rejected
     run_test 'notifier environment and network collisions are rejected' test_notifier_environment_and_network_collisions_are_rejected
     run_test 'existing target plugin requires manual review' test_existing_target_plugin_is_rejected
+    run_test 'globally disabled plugins accept an absent notifier target' test_disabled_plugins_with_absent_target_are_accepted
+    run_test 'disabled plugins reject an existing notifier target state' test_disabled_plugins_with_target_state_are_rejected
+    run_test 'unavailable plugin list fails closed while plugins are enabled' test_unavailable_plugin_list_while_enabled_is_rejected
     run_test 'reviewed installed plugin is accepted only for resume' test_reviewed_installed_plugin_is_accepted_only_for_resume
     run_test 'UID-owned bind roots are inspected with privilege' test_uid_owned_bind_roots_are_inspected_with_privilege
 fi
