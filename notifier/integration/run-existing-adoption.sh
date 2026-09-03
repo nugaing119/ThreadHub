@@ -1160,17 +1160,24 @@ private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-rollback.sh" || fail NF-ADOPT-09
 
 record_stage rollback-verify
+record_stage rollback-verify-compose
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-09
+record_stage rollback-verify-env
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-09
+record_stage rollback-verify-counts
 db_counts "${integration_root}/counts-after-rollback" || fail NF-ADOPT-09
 cmp -s "${integration_root}/counts-before-rollback" "${integration_root}/counts-after-rollback" || fail NF-ADOPT-09
+record_stage rollback-verify-queue
 [[ "$(sudo sha256sum "${runtime_parent}/notifier/mailer/queue.db" | awk '{print $1}')" == "$(<"${integration_root}/queue-before-rollback.sha256")" ]] || fail NF-ADOPT-09
+record_stage rollback-verify-baseline
 private acceptance verify-baseline || fail NF-ADOPT-09
+record_stage rollback-verify-plugin-enable
 private compose_base exec -T mattermost \
     mmctl config get PluginSettings.Enable --local --suppress-warnings \
     >"${integration_root}/plugin-enable-after-rollback" || fail NF-ADOPT-09
 [[ "$(tr -d '\r\n' <"${integration_root}/plugin-enable-after-rollback")" == false ]] \
     || fail NF-ADOPT-09
+record_stage rollback-verify-plugin-states
 private compose_base exec -T mattermost \
     mmctl config get PluginSettings.PluginStates --local --suppress-warnings \
     >"${integration_root}/plugin-states-after-rollback.json" || fail NF-ADOPT-09
@@ -1178,6 +1185,7 @@ jq -e --arg plugin_id com.threadhub.channel-email-notifier '
     type == "object" and
     (.[$plugin_id] | type == "object" and .Enable == false)
 ' "${integration_root}/plugin-states-after-rollback.json" >/dev/null 2>&1 || fail NF-ADOPT-09
+record_stage rollback-verify-quarantine
 if ! sudo test -d "${runtime_parent}/notifier/rollback/removed-runtime" \
     || ! sudo test -f "${runtime_parent}/notifier/rollback/removed-bundle.tar.gz"; then
     fail NF-ADOPT-09
