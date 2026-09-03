@@ -954,7 +954,7 @@ user_password="Bb2!$(openssl rand -hex 24)"
 mkdir -p \
     "${integration_root}/data/postgres" \
     "${integration_root}/data/mattermost/config" \
-    "${integration_root}/data/mattermost/data/plugins" \
+    "${integration_root}/data/mattermost/data" \
     "${integration_root}/data/mattermost/logs" \
     "${integration_root}/data/mattermost/plugins" \
     "${integration_root}/data/mattermost/client/plugins" \
@@ -967,8 +967,7 @@ sudo chown -R 2000:2000 "${integration_root}/data/mattermost" || fail NF-ADOPT-0
 sudo chown -R 65532:65532 "${integration_root}/data/smtp-private" "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 sudo chmod 0750 \
     "${integration_root}/data/mattermost/plugins" \
-    "${integration_root}/data/mattermost/data" \
-    "${integration_root}/data/mattermost/data/plugins" || fail NF-ADOPT-01
+    "${integration_root}/data/mattermost/data" || fail NF-ADOPT-01
 sudo install -d -o root -g root -m 0750 "${runtime_parent}" || fail NF-ADOPT-01
 runtime_touched=true
 
@@ -1072,6 +1071,8 @@ record_stage supported-preflight
 printf '%s\n' '[HARNESS] supported-preflight-start' >>"${diagnostic_file}"
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" || fail NF-ADOPT-01
+[[ ! -e "${integration_root}/data/mattermost/data/plugins" \
+    && ! -L "${integration_root}/data/mattermost/data/plugins" ]] || fail NF-ADOPT-03
 record_stage post-preflight-integrity
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-01
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-01
@@ -1159,13 +1160,34 @@ private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-rollback.sh" || fail NF-ADOPT-09
 
 record_stage rollback-verify
+record_stage rollback-verify-compose
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-09
+record_stage rollback-verify-env
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-09
+record_stage rollback-verify-counts
 db_counts "${integration_root}/counts-after-rollback" || fail NF-ADOPT-09
 cmp -s "${integration_root}/counts-before-rollback" "${integration_root}/counts-after-rollback" || fail NF-ADOPT-09
+record_stage rollback-verify-queue
 [[ "$(sudo sha256sum "${runtime_parent}/notifier/mailer/queue.db" | awk '{print $1}')" == "$(<"${integration_root}/queue-before-rollback.sha256")" ]] || fail NF-ADOPT-09
+record_stage rollback-verify-baseline
 private acceptance verify-baseline || fail NF-ADOPT-09
-private compose_base exec -T mattermost mmctl plugin list --local --suppress-warnings --json || fail NF-ADOPT-09
+record_stage rollback-verify-plugin-enable
+compose_base exec -T mattermost \
+    mmctl config get PluginSettings.Enable --local --suppress-warnings \
+    >"${integration_root}/plugin-enable-after-rollback" 2>>"${diagnostic_file}" \
+    || fail NF-ADOPT-09
+[[ "$(tr -d '\r\n' <"${integration_root}/plugin-enable-after-rollback")" == false ]] \
+    || fail NF-ADOPT-09
+record_stage rollback-verify-plugin-states
+compose_base exec -T mattermost \
+    mmctl config get PluginSettings.PluginStates --local --suppress-warnings \
+    >"${integration_root}/plugin-states-after-rollback.json" 2>>"${diagnostic_file}" \
+    || fail NF-ADOPT-09
+jq -e --arg plugin_id com.threadhub.channel-email-notifier '
+    type == "object" and
+    (.[$plugin_id] | type == "object" and .Enable == false)
+' "${integration_root}/plugin-states-after-rollback.json" >/dev/null 2>&1 || fail NF-ADOPT-09
+record_stage rollback-verify-quarantine
 if ! sudo test -d "${runtime_parent}/notifier/rollback/removed-runtime" \
     || ! sudo test -f "${runtime_parent}/notifier/rollback/removed-bundle.tar.gz"; then
     fail NF-ADOPT-09

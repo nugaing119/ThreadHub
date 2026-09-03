@@ -179,6 +179,40 @@ existing_notifier_target_plugin_is_absent() {
     ' "${states_file}" >/dev/null 2>&1
 }
 
+existing_notifier_target_plugin_is_inert_after_rollback() {
+    local service="$1"
+    local output_file="$2"
+    local enable_file="${output_file}.plugin-enable"
+    local states_file="${output_file}.plugin-states"
+    local state
+
+    [[ "$(existing_notifier_target_objects_presence)" == absent ]] || return 1
+    if existing_notifier_compose_base exec -T "${service}" \
+        mmctl plugin list --local --suppress-warnings --json > "${output_file}"; then
+        state="$(notifier_plugin_list_target_state \
+            "${output_file}" com.threadhub.channel-email-notifier)" || return 1
+        [[ "${state}" == $'missing\t-' ]] || return 1
+    else
+        existing_notifier_compose_base exec -T "${service}" \
+            mmctl config get PluginSettings.Enable --local --suppress-warnings > "${enable_file}" \
+            || return 1
+        [[ "$(tr -d '\r\n' < "${enable_file}")" == false ]] || return 1
+    fi
+
+    existing_notifier_compose_base exec -T "${service}" \
+        mmctl config get PluginSettings.PluginStates --local --suppress-warnings > "${states_file}" \
+        || return 1
+    # Mattermost deliberately keeps a disabled PluginStates entry when a plugin
+    # is removed so a later reinstall does not reactivate it. With the runtime
+    # globally disabled, accept only that inert marker or complete state absence.
+    jq -e --arg plugin_id com.threadhub.channel-email-notifier '
+        type == "object" and (
+          (has($plugin_id) | not) or
+          (.[$plugin_id] | type == "object" and .Enable == false)
+        )
+    ' "${states_file}" >/dev/null 2>&1
+}
+
 existing_notifier_installed_target_plugin_is_reviewed() {
     local service="$1"
     local scratch_root="$2"

@@ -320,6 +320,30 @@ existing_notifier_setup_verify_mailer() {
         /threadhub-mailer healthcheck >/dev/null
 }
 
+existing_notifier_setup_prepare_filestore_plugins_root() {
+    local data_root
+    local filestore_plugins_root
+
+    data_root="$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)"
+    filestore_plugins_root="${data_root}/plugins"
+    existing_notifier_setup_directory_is "${data_root}" 2000:2000:750 \
+        || die "Mattermost data directory must be 2000:2000 with mode 0750"
+    if "${SUDO_COMMAND[@]}" test -e "${filestore_plugins_root}" \
+        || "${SUDO_COMMAND[@]}" test -L "${filestore_plugins_root}"; then
+        existing_notifier_setup_directory_is \
+            "${filestore_plugins_root}" 2000:2000:750 \
+            || die "Existing Mattermost filestore plugin directory is unsafe"
+        return 0
+    fi
+    "${SUDO_COMMAND[@]}" mkdir -m 0750 -- "${filestore_plugins_root}" \
+        || die "Mattermost filestore plugin directory appeared and was not changed"
+    "${SUDO_COMMAND[@]}" chown 2000:2000 -- "${filestore_plugins_root}" \
+        || die "Mattermost filestore plugin directory ownership could not be set"
+    existing_notifier_setup_directory_is \
+        "${filestore_plugins_root}" 2000:2000:750 \
+        || die "Mattermost filestore plugin directory identity is invalid"
+}
+
 existing_notifier_setup_install_plugin() {
     local notifier_root
     local presence
@@ -329,12 +353,14 @@ existing_notifier_setup_install_plugin() {
         return 0
     fi
     notifier_root="$(existing_notifier_value THN_DATA_ROOT)"
+    existing_notifier_setup_prepare_filestore_plugins_root
     notifier_install_reviewed_pair \
         "${notifier_root}/release" \
         "$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)" \
         "$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)/plugins" \
         existing_notifier_compose_combined \
-        "$(existing_notifier_value THN_MATTERMOST_SERVICE)"
+        "$(existing_notifier_value THN_MATTERMOST_SERVICE)" \
+        existing_notifier_compose_base
 }
 
 existing_notifier_setup_verify_plugin() (

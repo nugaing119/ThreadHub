@@ -41,7 +41,8 @@ existing_notifier_install_plugin() {
     mattermost_service="$(existing_notifier_value THN_MATTERMOST_SERVICE)"
     notifier_install_reviewed_pair \
         "${release_dir}" "${plugins_root}" "${filestore_plugins_root}" \
-        existing_notifier_compose_combined "${mattermost_service}"
+        existing_notifier_compose_combined "${mattermost_service}" \
+        existing_notifier_compose_base
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

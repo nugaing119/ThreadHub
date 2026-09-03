@@ -179,7 +179,8 @@ existing_notifier_rollback_verify_base() (
     if ! existing_notifier_single_container_id "${service}" "${temporary_dir}/container-id" \
         || ! existing_notifier_live_version_is_supported "${service}" "${temporary_dir}/version" \
         || ! existing_notifier_live_site_url_matches "${service}" "${temporary_dir}/site-url" \
-        || ! existing_notifier_target_plugin_is_absent "${service}" "${temporary_dir}/plugins.json"; then
+        || ! existing_notifier_target_plugin_is_inert_after_rollback \
+            "${service}" "${temporary_dir}/plugins.json"; then
         die "Base Mattermost verification failed after rollback"
     fi
     log "Existing notifier was rolled back; queue and quarantined plugin evidence were preserved"

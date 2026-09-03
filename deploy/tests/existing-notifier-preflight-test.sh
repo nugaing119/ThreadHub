@@ -396,6 +396,54 @@ test_disabled_plugins_with_target_state_are_rejected() (
         && assert_private_output
 )
 
+test_disabled_target_marker_is_only_accepted_for_rollback() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_plugin_list_available=false
+    fixture_plugins_enabled=false
+    fixture_plugin_states='{"com.threadhub.channel-email-notifier":{"Enable":false}}'
+
+    set +e
+    run_preflight > "${output}" 2>&1
+    initial_result=$?
+    set -e
+
+    assert_action_required_result "${initial_result}" || return 1
+    SUDO_COMMAND=(env)
+    existing_notifier_target_plugin_is_inert_after_rollback \
+        mattermost "${fixture}/rollback-plugins.json" || return 1
+    [[ ! -e "${notifier_root}" ]] && assert_private_output
+)
+
+test_rollback_rejects_enabled_target_marker() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_plugin_list_available=false
+    fixture_plugins_enabled=false
+    fixture_plugin_states='{"com.threadhub.channel-email-notifier":{"Enable":true}}'
+
+    set +e
+    run_preflight > "${output}" 2>&1
+    set -e
+    SUDO_COMMAND=(env)
+    ! existing_notifier_target_plugin_is_inert_after_rollback \
+        mattermost "${fixture}/rollback-plugins.json"
+)
+
+test_rollback_rejects_enabled_marker_when_plugin_list_is_available() (
+    prepare_fixture
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_plugin_list_available=true
+    fixture_plugins_enabled=true
+    fixture_plugin_json='{"active":[],"inactive":[]}'
+    fixture_plugin_states='{"com.threadhub.channel-email-notifier":{"Enable":true}}'
+
+    run_preflight > "${output}" 2>&1 || return 1
+    SUDO_COMMAND=(env)
+    ! existing_notifier_target_plugin_is_inert_after_rollback \
+        mattermost "${fixture}/rollback-plugins.json"
+)
+
 test_unavailable_plugin_list_while_enabled_is_rejected() (
     prepare_fixture
     trap 'rm -rf "${fixture}"' EXIT
@@ -479,6 +527,9 @@ if [[ -f "${PREFLIGHT}" ]]; then
     run_test 'existing target plugin requires manual review' test_existing_target_plugin_is_rejected
     run_test 'globally disabled plugins accept an absent notifier target' test_disabled_plugins_with_absent_target_are_accepted
     run_test 'disabled plugins reject an existing notifier target state' test_disabled_plugins_with_target_state_are_rejected
+    run_test 'disabled target marker is accepted only for rollback' test_disabled_target_marker_is_only_accepted_for_rollback
+    run_test 'rollback rejects an enabled target marker' test_rollback_rejects_enabled_target_marker
+    run_test 'rollback checks the target marker even when plugin listing works' test_rollback_rejects_enabled_marker_when_plugin_list_is_available
     run_test 'unavailable plugin list fails closed while plugins are enabled' test_unavailable_plugin_list_while_enabled_is_rejected
     run_test 'reviewed installed plugin is accepted only for resume' test_reviewed_installed_plugin_is_accepted_only_for_resume
     run_test 'UID-owned bind roots are inspected with privilege' test_uid_owned_bind_roots_are_inspected_with_privilege

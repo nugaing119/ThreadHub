@@ -172,7 +172,12 @@ failed delivery가 있으면 rollback은 자동으로 선택하지 않고 멈춥
 `--retry-failed` 또는 `--cancel-failed`를 명시합니다. rollback은 base Compose와 base
 environment를 다시 사용해 Mattermost를 재생성하고 검토된 plugin pair를 운영 경로에서
 격리합니다. Mailer의 queue data와 격리된 plugin 증거는 삭제하지 않습니다. rollback
-후 기존 Team·채널·사용자·게시물·파일과 기준 글을 다시 확인합니다.
+후 기존 Team·채널·사용자·게시물·파일과 기준 글을 다시 확인합니다. Mattermost는
+플러그인을 제거할 때 재설치 후 자동 활성화를 막기 위한 비활성 `PluginStates` 표지를
+남길 수 있습니다. rollback은 실행 파일과 filestore bundle이 모두 격리되고, 이 표지가
+`Enable=false`인 경우만 안전한 비실행 상태로 인정합니다. 이 동작은 Mattermost v11.7.7의
+[`RemovePlugin`](https://github.com/mattermost/mattermost/blob/v11.7.7/server/channels/app/plugin_install.go#L521-L562)이
+제거 전에 플러그인을 명시적으로 비활성화하는 공식 구현과 일치합니다.
 
 rollback 중 실패하면 스크립트는 reviewed combined service를 disabled 상태로 복구하려고
 시도합니다. 자동 복구도 실패하면 Mattermost와 notifier 상태를 임의로 수정하지 말고
