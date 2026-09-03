@@ -954,7 +954,7 @@ user_password="Bb2!$(openssl rand -hex 24)"
 mkdir -p \
     "${integration_root}/data/postgres" \
     "${integration_root}/data/mattermost/config" \
-    "${integration_root}/data/mattermost/data/plugins" \
+    "${integration_root}/data/mattermost/data" \
     "${integration_root}/data/mattermost/logs" \
     "${integration_root}/data/mattermost/plugins" \
     "${integration_root}/data/mattermost/client/plugins" \
@@ -967,8 +967,7 @@ sudo chown -R 2000:2000 "${integration_root}/data/mattermost" || fail NF-ADOPT-0
 sudo chown -R 65532:65532 "${integration_root}/data/smtp-private" "${integration_root}/data/smtp-ca" || fail NF-ADOPT-01
 sudo chmod 0750 \
     "${integration_root}/data/mattermost/plugins" \
-    "${integration_root}/data/mattermost/data" \
-    "${integration_root}/data/mattermost/data/plugins" || fail NF-ADOPT-01
+    "${integration_root}/data/mattermost/data" || fail NF-ADOPT-01
 sudo install -d -o root -g root -m 0750 "${runtime_parent}" || fail NF-ADOPT-01
 runtime_touched=true
 
@@ -1072,6 +1071,8 @@ record_stage supported-preflight
 printf '%s\n' '[HARNESS] supported-preflight-start' >>"${diagnostic_file}"
 private env THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${adoption_env}" \
     "${repository_root}/deploy/scripts/existing-notifier-preflight.sh" || fail NF-ADOPT-01
+[[ ! -e "${integration_root}/data/mattermost/data/plugins" \
+    && ! -L "${integration_root}/data/mattermost/data/plugins" ]] || fail NF-ADOPT-03
 record_stage post-preflight-integrity
 [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]] || fail NF-ADOPT-01
 [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]] || fail NF-ADOPT-01

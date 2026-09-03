@@ -32,6 +32,7 @@ setup_fixture_privileged() {
         case "${path}" in
             */control) gid=3000 ;;
             */mailer) uid=65532; gid=65532 ;;
+            */mattermost-data|*/mattermost-data/plugins) uid=2000; gid=2000 ;;
         esac
         printf '%s:%s:%s\n' "${uid}" "${gid}" "$(portable_mode "${path}")"
         return
@@ -52,6 +53,9 @@ setup_fixture_privileged() {
         done
         command ln "${filtered[@]}"
         return
+    fi
+    if [[ "${command_name}" == chown ]]; then
+        return 0
     fi
     command "${command_name}" "$@"
 }
@@ -211,6 +215,66 @@ test_resume_skips_plugin_replacement_when_pair_is_already_present() (
     [[ "${install_called}" == false ]]
 )
 
+test_missing_filestore_plugin_directory_is_created_with_mattermost_policy() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_data_root="${fixture}/mattermost-data"
+    mkdir "${fixture_data_root}"
+    chmod 0750 "${fixture_data_root}"
+    existing_notifier_value() {
+        [[ "$1" == THN_MATTERMOST_DATA_ROOT ]] || return 1
+        printf '%s' "${fixture_data_root}"
+    }
+    SUDO_COMMAND=(setup_fixture_privileged)
+    existing_notifier_setup_prepare_filestore_plugins_root || return 1
+    [[ -d "${fixture_data_root}/plugins" && ! -L "${fixture_data_root}/plugins" ]] || return 1
+    [[ "$(portable_mode "${fixture_data_root}/plugins")" == 750 ]]
+)
+
+test_existing_unsafe_filestore_plugin_directory_is_not_changed() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_data_root="${fixture}/mattermost-data"
+    mkdir -p "${fixture_data_root}/plugins"
+    chmod 0750 "${fixture_data_root}"
+    chmod 0777 "${fixture_data_root}/plugins"
+    existing_notifier_value() {
+        [[ "$1" == THN_MATTERMOST_DATA_ROOT ]] || return 1
+        printf '%s' "${fixture_data_root}"
+    }
+    SUDO_COMMAND=(setup_fixture_privileged)
+    set +e
+    (existing_notifier_setup_prepare_filestore_plugins_root) >/dev/null 2>&1
+    result=$?
+    set -e
+    [[ "${result}" -ne 0 ]] || return 1
+    [[ "$(portable_mode "${fixture_data_root}/plugins")" == 777 ]]
+)
+
+test_filestore_plugin_symlink_is_rejected_without_target_mutation() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    fixture_data_root="${fixture}/mattermost-data"
+    target="${fixture}/target"
+    mkdir "${fixture_data_root}" "${target}"
+    chmod 0750 "${fixture_data_root}" "${target}"
+    printf 'must-survive\n' > "${target}/sentinel"
+    before="$(sha256_file "${target}/sentinel")"
+    ln -s "${target}" "${fixture_data_root}/plugins"
+    existing_notifier_value() {
+        [[ "$1" == THN_MATTERMOST_DATA_ROOT ]] || return 1
+        printf '%s' "${fixture_data_root}"
+    }
+    SUDO_COMMAND=(setup_fixture_privileged)
+    set +e
+    (existing_notifier_setup_prepare_filestore_plugins_root) >/dev/null 2>&1
+    result=$?
+    set -e
+    [[ "${result}" -ne 0 ]] || return 1
+    [[ -L "${fixture_data_root}/plugins" ]] || return 1
+    [[ "${before}" == "$(sha256_file "${target}/sentinel")" ]]
+)
+
 test_rollback_absence_capture_is_atomic_and_idempotent() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -270,6 +334,9 @@ if [[ -f "${SETUP_SCRIPT}" ]]; then
     run_test 'unknown runtime content is rejected without mutation' test_unknown_runtime_content_is_rejected_without_mutation
     run_test 'env writer preserves Compose-sensitive characters safely' test_env_writer_preserves_compose_sensitive_characters
     run_test 'resume skips replacement for an already present plugin pair' test_resume_skips_plugin_replacement_when_pair_is_already_present
+    run_test 'missing filestore plugin directory is created with Mattermost policy' test_missing_filestore_plugin_directory_is_created_with_mattermost_policy
+    run_test 'existing unsafe filestore plugin directory is not changed' test_existing_unsafe_filestore_plugin_directory_is_not_changed
+    run_test 'filestore plugin symlink is rejected without target mutation' test_filestore_plugin_symlink_is_rejected_without_target_mutation
     run_test 'pre-adoption absence capture is atomic and idempotent' test_rollback_absence_capture_is_atomic_and_idempotent
     run_test 'writable runtime parent is rejected before creation' test_writable_runtime_parent_is_rejected_before_creation
 fi

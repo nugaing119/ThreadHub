@@ -43,6 +43,7 @@ services:
     image: mattermost/mattermost-team-edition:11.7.7
     environment:
       EXISTING_VALUE: \${EXISTING_VALUE:?set EXISTING_VALUE}
+      MM_PLUGINSETTINGS_ENABLE: "false"
     ports:
       - 127.0.0.1:8065:8065
     volumes:
@@ -139,7 +140,10 @@ fixture_docker() {
               services: {
                 mattermost: {
                   image: "mattermost/mattermost-team-edition:11.7.7",
-                  environment: {EXISTING_VALUE: "preserved"},
+                  environment: {
+                    EXISTING_VALUE: "preserved",
+                    MM_PLUGINSETTINGS_ENABLE: "false"
+                  },
                   ports: [{target: 8065, published: "8065", host_ip: "127.0.0.1"}],
                   volumes: [
                     {type: "bind", source: $plugins_root, target: "/mattermost/plugins", read_only: false},
@@ -173,7 +177,8 @@ fixture_docker() {
                 NOTIFIER_MAILER_URL: "http://threadhub-mailer:8080",
                 NOTIFIER_HMAC_SECRET: $hmac,
                 NOTIFIER_CONTROL_FILE: "/run/threadhub-notifier/state.json",
-                NOTIFIER_POLL_EVERY: "1s"
+                NOTIFIER_POLL_EVERY: "1s",
+                MM_PLUGINSETTINGS_ENABLE: "true"
               },
               ports: [{target: 8065, published: "8065", host_ip: "127.0.0.1"}],
               volumes: [
@@ -247,6 +252,7 @@ test_generated_override_is_placeholder_only_and_hardened() (
     [[ "$(portable_mode "${destination}")" == 600 ]] || { printf 'stage: destination mode\n' >&2; return 1; }
     grep -F '${THN_HMAC_SECRET:?set THN_HMAC_SECRET}' "${destination}" >/dev/null || { printf 'stage: hmac placeholder\n' >&2; return 1; }
     grep -F '${THN_SMTP_PASSWORD:?set THN_SMTP_PASSWORD}' "${destination}" >/dev/null || { printf 'stage: smtp placeholder\n' >&2; return 1; }
+    grep -F 'MM_PLUGINSETTINGS_ENABLE: "true"' "${destination}" >/dev/null || { printf 'stage: plugin runtime enablement\n' >&2; return 1; }
     assert_no_private_output_or_file || { printf 'stage: private material\n' >&2; return 1; }
 )
 
@@ -267,6 +273,8 @@ test_combined_model_preserves_base_and_hardens_mailer() (
         ($mm.healthcheck == $base[0].services[$service].healthcheck) and
         ($mm.restart == $base[0].services[$service].restart) and
         ($mm.environment.EXISTING_VALUE == "preserved") and
+        ($base[0].services[$service].environment.MM_PLUGINSETTINGS_ENABLE == "false") and
+        ($mm.environment.MM_PLUGINSETTINGS_ENABLE == "true") and
         ($mm.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
         ([$mm.volumes[] | select(.target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
         (($mm.group_add | index("2001")) != null) and (($mm.group_add | index("3000")) != null) and

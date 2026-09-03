@@ -54,6 +54,7 @@ existing_notifier_render_override() {
         printf '%s\n' 'services:' "  ${service}:"
         cat <<'YAML'
     environment:
+      MM_PLUGINSETTINGS_ENABLE: "true"
       THREADHUB_DOMAIN: "${THN_DOMAIN:?set THN_DOMAIN}"
       NOTIFIER_MAILER_URL: http://threadhub-mailer:8080
       NOTIFIER_HMAC_SECRET: "${THN_HMAC_SECRET:?set THN_HMAC_SECRET}"
@@ -165,6 +166,7 @@ existing_notifier_verify_combined_model() {
         .services[$service] as $mm |
         .services["threadhub-mailer"] as $mailer |
         ($mm.environment.THREADHUB_DOMAIN == $domain) and
+        ($mm.environment.MM_PLUGINSETTINGS_ENABLE == "true") and
         ($mm.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
         ($mm.environment.NOTIFIER_HMAC_SECRET == $hmac) and
         ($mm.environment.NOTIFIER_CONTROL_FILE == "/run/threadhub-notifier/state.json") and
