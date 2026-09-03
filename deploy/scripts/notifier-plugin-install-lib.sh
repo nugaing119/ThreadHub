@@ -29,12 +29,13 @@ notifier_install_clean_absolute_path() {
 notifier_install_reviewed_pair() (
     set -Eeuo pipefail
 
-    [[ "$#" -eq 5 ]] || return 2
+    [[ "$#" -eq 5 || "$#" -eq 6 ]] || return 2
     release_dir="$1"
     plugins_root="$2"
     filestore_plugins_root="$3"
     compose_function="$4"
     mattermost_service="$5"
+    rollback_compose_function="${6:-${compose_function}}"
     plugin_id=com.threadhub.channel-email-notifier
     notifier_runtime_root="$(dirname "${release_dir}")"
     control_dir="${notifier_runtime_root}/control"
@@ -57,6 +58,10 @@ notifier_install_reviewed_pair() (
     if [[ ! "${compose_function}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
         || ! declare -F "${compose_function}" >/dev/null; then
         die "Notifier Compose function is invalid"
+    fi
+    if [[ ! "${rollback_compose_function}" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] \
+        || ! declare -F "${rollback_compose_function}" >/dev/null; then
+        die "Notifier rollback Compose function is invalid"
     fi
     [[ "${mattermost_service}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] \
         || die "Notifier Mattermost service is invalid"
@@ -212,6 +217,23 @@ notifier_install_reviewed_pair() (
             mmctl plugin list --local --suppress-warnings --json
     }
 
+    disabled_plugin_runtime_has_no_target() {
+        local enable_file="${tmp_dir}/plugin-runtime-enable"
+        local states_file="${tmp_dir}/plugin-runtime-states.json"
+
+        [[ "${previous_pair_present}" == false ]] || return 1
+        "${compose_function}" exec -T "${mattermost_service}" \
+            mmctl config get PluginSettings.Enable --local --suppress-warnings \
+            > "${enable_file}" || return 1
+        [[ "$(tr -d '\r\n' < "${enable_file}")" == false ]] || return 1
+        "${compose_function}" exec -T "${mattermost_service}" \
+            mmctl config get PluginSettings.PluginStates --local --suppress-warnings \
+            > "${states_file}" || return 1
+        jq -e --arg plugin_id "${plugin_id}" '
+            type == "object" and (has($plugin_id) | not)
+        ' "${states_file}" >/dev/null 2>&1
+    }
+
     enable_plugin_version() {
         local expected_version="$1"
         local state_file_path="$2"
@@ -259,11 +281,15 @@ notifier_install_reviewed_pair() (
     plugin_was_active=false
     previous_plugin_state=$'missing\t-'
     if [[ "${was_running}" == true ]]; then
-        plugin_list_json > "${tmp_dir}/plugin-list-before.json" \
-            || die "Mattermost plugin state could not be read"
-        previous_plugin_state="$(notifier_plugin_list_target_state \
-            "${tmp_dir}/plugin-list-before.json" "${plugin_id}")" \
-            || die "Mattermost returned ambiguous notifier plugin state"
+        if plugin_list_json > "${tmp_dir}/plugin-list-before.json"; then
+            previous_plugin_state="$(notifier_plugin_list_target_state \
+                "${tmp_dir}/plugin-list-before.json" "${plugin_id}")" \
+                || die "Mattermost returned ambiguous notifier plugin state"
+        elif disabled_plugin_runtime_has_no_target; then
+            previous_plugin_state=$'missing\t-'
+        else
+            die "Mattermost plugin state could not be read"
+        fi
         if [[ "${previous_pair_present}" == true ]]; then
             case "${previous_plugin_state}" in
                 $'active\t'"${previous_plugin_version}") plugin_was_active=true ;;
@@ -357,6 +383,10 @@ notifier_install_reviewed_pair() (
         "${compose_function}" up -d --no-deps --wait --wait-timeout 240 \
             "${mattermost_service}" >/dev/null
     }
+    plugin_tx_start_previous_service() {
+        "${rollback_compose_function}" up -d --no-deps --wait --wait-timeout 240 \
+            "${mattermost_service}" >/dev/null
+    }
     plugin_tx_enable_plugin() { enable_expected_plugin; }
     plugin_tx_enable_previous_plugin() {
         [[ "${previous_pair_present}" == true && "${plugin_was_active}" == true ]] || return 1
@@ -388,7 +418,11 @@ notifier_install_reviewed_pair() (
     }
     plugin_tx_verify_previous_plugin() {
         local state
-        plugin_list_json > "${tmp_dir}/plugin-list-rollback.json" || return 1
+        if ! plugin_list_json > "${tmp_dir}/plugin-list-rollback.json"; then
+            [[ "${previous_pair_present}" == false ]] \
+                && disabled_plugin_runtime_has_no_target
+            return
+        fi
         state="$(notifier_plugin_list_target_state \
             "${tmp_dir}/plugin-list-rollback.json" "${plugin_id}")" || return 1
         if [[ "${previous_pair_present}" != true ]]; then

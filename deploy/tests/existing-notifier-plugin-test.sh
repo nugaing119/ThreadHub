@@ -143,6 +143,50 @@ fixture_compose() {
     esac
 }
 
+fixture_disabled_compose() {
+    local config_key=""
+
+    if [[ "$1" == exec && "$2" == -T && "$3" == "${mattermost_service}" \
+        && "$4" == mmctl ]]; then
+        if [[ "$5" == plugin && "$6" == list \
+            && "$("${REAL_CAT}" "${plugin_runtime_state}")" == disabled ]]; then
+            printf '%s\n' 'exec -T existing-mm mmctl plugin list --local --suppress-warnings --json' \
+                >> "${compose_calls}"
+            return 92
+        fi
+        if [[ "$5" == config && "$6" == get ]]; then
+            config_key="$7"
+            printf '%s' "$1" >> "${compose_calls}"
+            shift
+            printf ' %s' "$@" >> "${compose_calls}"
+            printf '\n' >> "${compose_calls}"
+            case "${config_key}" in
+                PluginSettings.Enable)
+                    [[ "$("${REAL_CAT}" "${plugin_runtime_state}")" == enabled ]] \
+                        && printf 'true\n' || printf 'false\n'
+                    ;;
+                PluginSettings.PluginStates) printf '{}\n' ;;
+                *) return 1 ;;
+            esac
+            return
+        fi
+    fi
+    if [[ "$1" == up ]]; then
+        printf 'enabled\n' > "${plugin_runtime_state}"
+    fi
+    fixture_compose "$@"
+}
+
+fixture_base_compose() {
+    printf '%s' "$1" >> "${base_compose_calls}"
+    if (($# > 1)); then printf ' %s' "${@:2}" >> "${base_compose_calls}"; fi
+    printf '\n' >> "${base_compose_calls}"
+    if [[ "$1" == up ]]; then
+        printf 'disabled\n' > "${plugin_runtime_state}"
+    fi
+    fixture_compose "$@"
+}
+
 create_reviewed_tree() {
     local root="$1"
     local version="$2"
@@ -187,8 +231,10 @@ prepare_fixture() {
     bundle_target="${filestore_root}/com.threadhub.channel-email-notifier.tar.gz"
     mattermost_service=existing-mm
     compose_calls="${fixture}/compose.calls"
+    base_compose_calls="${fixture}/base-compose.calls"
     service_state="${fixture}/service.state"
     plugin_state="${fixture}/plugin.state"
+    plugin_runtime_state="${fixture}/plugin-runtime.state"
     reviewed_parent="${fixture}/reviewed"
     reviewed_root="${reviewed_parent}/com.threadhub.channel-email-notifier"
     repository_bundle="${REPOSITORY_ROOT}/notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz"
@@ -204,8 +250,10 @@ prepare_fixture() {
     git -C "${REPOSITORY_ROOT}" commit -qm fixture
     chmod 0750 "${notifier_root}" "${release_dir}" "${notifier_root}/control" "${plugins_root}" "${filestore_root}"
     : > "${compose_calls}"
+    : > "${base_compose_calls}"
     printf 'running\n' > "${service_state}"
     printf 'missing\n' > "${plugin_state}"
+    printf 'enabled\n' > "${plugin_runtime_state}"
     create_reviewed_tree "${reviewed_root}" 0.1.0
     create_reviewed_bundle "${reviewed_parent}" "${repository_bundle}"
     bundle_sha="$(sha256_file "${repository_bundle}")"
@@ -230,6 +278,40 @@ test_external_layout_installs_exact_pair_and_only_selected_service() (
     ! grep -E '(^| )mattermost($| )' "${compose_calls}" >/dev/null || return 1
     jq -e '.enabled == false and .delivery_enabled == false and .activated_at == 0' \
         "${notifier_root}/control/state.json" >/dev/null
+)
+
+test_disabled_plugin_runtime_accepts_only_verified_absence_before_install() (
+    prepare_fixture
+    trap cleanup_fixture EXIT
+    printf 'disabled\n' > "${plugin_runtime_state}"
+    notifier_install_reviewed_pair \
+        "${release_dir}" "${plugins_root}" "${filestore_root}" \
+        fixture_disabled_compose "${mattermost_service}" || return 1
+    [[ "$("${REAL_CAT}" "${plugin_runtime_state}")" == enabled ]] || return 1
+    notifier_plugin_tree_is_exact "${target_root}" "${reviewed_root}" "${fixture}" || return 1
+    notifier_plugin_bundle_is_exact "${bundle_target}" "${bundle_sha}"
+)
+
+test_failed_disabled_runtime_install_restores_base_plugin_setting() (
+    prepare_fixture
+    trap cleanup_fixture EXIT
+    printf 'disabled\n' > "${plugin_runtime_state}"
+    FIXTURE_FAIL_NEW_ENABLE=true
+    export FIXTURE_FAIL_NEW_ENABLE
+    set +e
+    notifier_install_reviewed_pair \
+        "${release_dir}" "${plugins_root}" "${filestore_root}" \
+        fixture_disabled_compose "${mattermost_service}" fixture_base_compose \
+        >/dev/null 2>&1
+    result=$?
+    set -e
+    unset FIXTURE_FAIL_NEW_ENABLE
+    [[ "${result}" -ne 0 ]] || return 1
+    [[ "$("${REAL_CAT}" "${service_state}")" == running ]] || return 1
+    [[ "$("${REAL_CAT}" "${plugin_runtime_state}")" == disabled ]] || return 1
+    [[ ! -e "${target_root}" && ! -e "${bundle_target}" ]]
+    grep -Fx 'up -d --no-deps --wait --wait-timeout 240 existing-mm' \
+        "${base_compose_calls}" >/dev/null
 )
 
 test_failed_activation_restores_previous_pair() (
@@ -350,6 +432,8 @@ if [[ -f "${INSTALL_LIBRARY}" ]]; then
         run_test 'current artifact release requires the exact bundle and image' test_current_artifact_release_requires_exact_bundle_and_image
     fi
     run_test 'external layout installs exact pair and only the selected service' test_external_layout_installs_exact_pair_and_only_selected_service
+    run_test 'disabled plugin runtime accepts only verified absence before install' test_disabled_plugin_runtime_accepts_only_verified_absence_before_install
+    run_test 'failed disabled-runtime install restores the base plugin setting' test_failed_disabled_runtime_install_restores_base_plugin_setting
     run_test 'failed activation restores the verified previous pair' test_failed_activation_restores_previous_pair
     run_test 'invalid filesystem identity fails before service mutation' test_invalid_device_identity_fails_before_service_mutation
     run_test 'exact plugin pair is rechecked after service synchronization' test_exact_pair_is_rechecked_after_service_synchronization

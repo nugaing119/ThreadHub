@@ -359,7 +359,8 @@ existing_notifier_setup_install_plugin() {
         "$(existing_notifier_value THN_MATTERMOST_PLUGINS_ROOT)" \
         "$(existing_notifier_value THN_MATTERMOST_DATA_ROOT)/plugins" \
         existing_notifier_compose_combined \
-        "$(existing_notifier_value THN_MATTERMOST_SERVICE)"
+        "$(existing_notifier_value THN_MATTERMOST_SERVICE)" \
+        existing_notifier_compose_base
 }
 
 existing_notifier_setup_verify_plugin() (

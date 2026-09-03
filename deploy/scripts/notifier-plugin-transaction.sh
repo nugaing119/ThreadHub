@@ -178,7 +178,11 @@ notifier_plugin_transaction() (
 
         if [[ "${was_running}" == true && "${object_restore_complete}" == true ]]; then
             rollback_service_start_attempted=true
-            if (plugin_tx_start_service); then
+            if declare -F plugin_tx_start_previous_service >/dev/null \
+                && (plugin_tx_start_previous_service); then
+                rollback_service_started=true
+            elif ! declare -F plugin_tx_start_previous_service >/dev/null \
+                && (plugin_tx_start_service); then
                 rollback_service_started=true
             else
                 rollback_recovery_failed=true
