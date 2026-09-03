@@ -1172,15 +1172,17 @@ record_stage rollback-verify-queue
 record_stage rollback-verify-baseline
 private acceptance verify-baseline || fail NF-ADOPT-09
 record_stage rollback-verify-plugin-enable
-private compose_base exec -T mattermost \
+compose_base exec -T mattermost \
     mmctl config get PluginSettings.Enable --local --suppress-warnings \
-    >"${integration_root}/plugin-enable-after-rollback" || fail NF-ADOPT-09
+    >"${integration_root}/plugin-enable-after-rollback" 2>>"${diagnostic_file}" \
+    || fail NF-ADOPT-09
 [[ "$(tr -d '\r\n' <"${integration_root}/plugin-enable-after-rollback")" == false ]] \
     || fail NF-ADOPT-09
 record_stage rollback-verify-plugin-states
-private compose_base exec -T mattermost \
+compose_base exec -T mattermost \
     mmctl config get PluginSettings.PluginStates --local --suppress-warnings \
-    >"${integration_root}/plugin-states-after-rollback.json" || fail NF-ADOPT-09
+    >"${integration_root}/plugin-states-after-rollback.json" 2>>"${diagnostic_file}" \
+    || fail NF-ADOPT-09
 jq -e --arg plugin_id com.threadhub.channel-email-notifier '
     type == "object" and
     (.[$plugin_id] | type == "object" and .Enable == false)
