@@ -153,15 +153,30 @@ existing_notifier_live_site_url_matches() {
 existing_notifier_target_plugin_is_absent() {
     local service="$1"
     local output_file="$2"
+    local enable_file="${output_file}.plugin-enable"
+    local states_file="${output_file}.plugin-states"
     local state
 
+    if existing_notifier_compose_base exec -T "${service}" \
+        mmctl plugin list --local --suppress-warnings --json > "${output_file}"; then
+        state="$(notifier_plugin_list_target_state \
+            "${output_file}" com.threadhub.channel-email-notifier)" || return 1
+        [[ "${state}" == $'missing\t-' \
+            && "$(existing_notifier_target_objects_presence)" == absent ]]
+        return
+    fi
+
+    [[ "$(existing_notifier_target_objects_presence)" == absent ]] || return 1
     existing_notifier_compose_base exec -T "${service}" \
-        mmctl plugin list --local --suppress-warnings --json > "${output_file}" \
+        mmctl config get PluginSettings.Enable --local --suppress-warnings > "${enable_file}" \
         || return 1
-    state="$(notifier_plugin_list_target_state \
-        "${output_file}" com.threadhub.channel-email-notifier)" || return 1
-    [[ "${state}" == $'missing\t-' \
-        && "$(existing_notifier_target_objects_presence)" == absent ]]
+    [[ "$(tr -d '\r\n' < "${enable_file}")" == false ]] || return 1
+    existing_notifier_compose_base exec -T "${service}" \
+        mmctl config get PluginSettings.PluginStates --local --suppress-warnings > "${states_file}" \
+        || return 1
+    jq -e --arg plugin_id com.threadhub.channel-email-notifier '
+        type == "object" and (has($plugin_id) | not)
+    ' "${states_file}" >/dev/null 2>&1
 }
 
 existing_notifier_installed_target_plugin_is_reviewed() {
