@@ -102,6 +102,32 @@ timer remains disabled 상태여야 하며, 백업이나 타이머를 자동 시
 timer가 active 또는 enabled이면 `--register`는 덮어쓰지 않고 중단한다. 기본 설치
 `[READY]`와 백업 준비 완료는 별도 gate다.
 
+이미 운영 중인 Mattermost에
+[기존 notifier 적용 절차](./existing-mattermost-notifier.md)로 Mailer를 추가한 배포는
+정규 신규 설치와 Compose·데이터 경로가 다르다. 이 경우 기존
+`deploy/existing-notifier.env` 검증이 통과한 뒤 아래 명령을 사용한다.
+
+```bash
+sudo ./deploy/scripts/configure-backup.sh --source-mode existing-notifier
+sudo ./deploy/scripts/install-backup.sh --register
+```
+
+첫 명령은 기존 `/etc/threadhub/backup.env`를 그대로 재사용하고, 별도
+`/etc/threadhub/backup-source.env`를 root 전용 mode 0600으로 no-clobber 생성한다.
+이 파일에는 비밀값이 아니라 검증된 기존 notifier 설정의 절대 경로와
+`existing_notifier` source mode만 기록된다. 이후 일반 `backup.sh`가 자동으로 기존
+base+override Compose, 실제 Mattermost data bind mount와 `/srv/threadhub-notifier`
+queue·release를 사용한다. base Compose, base environment, `/srv/threadhub`와
+`/srv/threadhub-notifier`를 이동·덮어쓰기하거나 정규 `/srv/threadhub/notifier` 구조로
+마이그레이션하지 않는다. source 설정이 누락·변조됐거나 실제 경로와 맞지 않으면
+writer 정지 전에 preflight로 실패한다.
+
+기존 notifier 적용형 백업의 manifest `source_commit`은 현재 운영 binary와 Mailer
+image를 만든 검증된 `release.env` commit이다. 백업 어댑터를 추가한 저장소 HEAD와
+다를 수 있으며, 복구 VM은 manifest의 정확한 release commit을 checkout하는 기존
+원칙을 그대로 따른다. 복구 결과는 정규 신규 설치 레이아웃의 new or empty
+`/srv/threadhub`에만 배치한다.
+
 ## 6. 최초 수동 백업과 검증
 
 Instance Principal의 namespace·정확한 버킷 권한을 먼저 읽기 전용으로 확인한

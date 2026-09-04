@@ -210,6 +210,91 @@ test_configurator_creates_reuses_and_refuses_unsafe_state() (
         "${fixture}/stdout" "${fixture}/stderr"
 )
 
+test_configurator_adds_existing_source_without_replacing_backup_config() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    mkdir -p "${fixture}/etc/threadhub"
+    printf '%s\n' \
+        'BACKUP_REGION=ap-singapore-1' \
+        'BACKUP_NAMESPACE=namespace1' \
+        'BACKUP_BUCKET=project-backups' \
+        'BACKUP_ALERT_EMAIL=admin@threadhub.invalid' \
+        'BACKUP_SCHEDULE=03:00' \
+        'BACKUP_DAILY_RETENTION_DAYS=7' \
+        'BACKUP_WEEKLY_RETENTION_DAYS=28' > "${fixture}/etc/threadhub/backup.env"
+    chmod 0600 "${fixture}/etc/threadhub/backup.env"
+    printf '%s\n' \
+        "THN_COMPOSE_PROJECT_DIR=${fixture}/project" \
+        "THN_COMPOSE_FILE=${fixture}/project/compose.yml" \
+        "THN_COMPOSE_ENV_FILE=${fixture}/project/base.env" \
+        'THN_MATTERMOST_SERVICE=mattermost' \
+        "THN_MATTERMOST_PLUGINS_ROOT=${fixture}/mattermost/plugins" \
+        "THN_MATTERMOST_DATA_ROOT=${fixture}/mattermost/data" \
+        "THN_DATA_ROOT=${fixture}/notifier" \
+        'THN_DOMAIN=threadhub.example.test' \
+        'THN_SMTP_SERVER=smtp.example.test' \
+        'THN_SMTP_PORT=587' \
+        'THN_SMTP_CA_FILE=/etc/ssl/certs/ca-certificates.crt' \
+        'THN_SMTP_USERNAME=protected-user' \
+        'THN_SMTP_PASSWORD=protected-password' \
+        'THN_SMTP_FROM_ADDRESS=no-reply@example.test' \
+        'THN_SMTP_REPLY_TO_ADDRESS=reply@example.test' \
+        'THN_SMTP_FEEDBACK_NAME=ThreadHub' \
+        'THN_HMAC_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
+        'THN_RATE_PER_MINUTE=10' > "${fixture}/existing-notifier.env"
+    chmod 0600 "${fixture}/existing-notifier.env"
+
+    [[ -f "${CONFIGURATOR}" ]]
+    # shellcheck source=/dev/null
+    source "${CONFIGURATOR}"
+    BACKUP_ENV_FILE="${fixture}/etc/threadhub/backup.env"
+    BACKUP_SOURCE_ENV_FILE="${fixture}/etc/threadhub/backup-source.env"
+    THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${fixture}/existing-notifier.env"
+    export THREADHUB_EXISTING_NOTIFIER_ENV_FILE
+    backup_expected_uid() { id -u; }
+    backup_expected_gid() { id -g; }
+    backup_configuration_is_privileged() { :; }
+    backup_configuration_platform_is_supported() { :; }
+    backup_configuration_path_is_supported() { :; }
+    backup_configuration_publish_no_clobber() {
+        [[ ! -e "$2" && ! -L "$2" ]] || return 1
+        ln "$1" "$2"
+    }
+
+    before="$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')"
+    if ! configure_backup_entry --source-mode existing-notifier \
+        >"${fixture}/stdout" 2>"${fixture}/stderr"; then
+        printf 'existing-source diagnostic: initial configure failed\n' >&2
+        return 1
+    fi
+    [[ "${before}" == "$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')" ]] || {
+        printf 'existing-source diagnostic: backup config changed\n' >&2
+        return 1
+    }
+    backup_validate_source_config || {
+        printf 'existing-source diagnostic: source config validation failed\n' >&2
+        return 1
+    }
+    [[ "$(portable_mode "${BACKUP_SOURCE_ENV_FILE}")" == 600 ]] || {
+        printf 'existing-source diagnostic: source config mode is invalid\n' >&2
+        return 1
+    }
+    source_before="$(openssl dgst -sha256 "${BACKUP_SOURCE_ENV_FILE}" | awk '{print $NF}')"
+    if ! configure_backup_entry --source-mode existing-notifier \
+        >>"${fixture}/stdout" 2>>"${fixture}/stderr"; then
+        printf 'existing-source diagnostic: idempotent configure failed\n' >&2
+        return 1
+    fi
+    [[ "${source_before}" == "$(openssl dgst -sha256 "${BACKUP_SOURCE_ENV_FILE}" | awk '{print $NF}')" ]] || {
+        printf 'existing-source diagnostic: source config changed\n' >&2
+        return 1
+    }
+    if grep -F 'protected-password' "${fixture}/stdout" "${fixture}/stderr" >/dev/null; then
+        printf 'existing-source diagnostic: protected value was disclosed\n' >&2
+        return 1
+    fi
+)
+
 test_unit_publication_is_idempotent_and_never_overwrites_differences() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -372,6 +457,8 @@ run_test 'activation requires exact interactive confirmation' test_enable_requir
 run_test 'backup units are hardened and registration-safe' test_units_are_hardened_and_disabled_by_registration_contract
 run_test 'installer and configurator preserve no-clobber contracts' test_installer_and_configurator_are_no_clobber_and_value_safe
 run_test 'configurator creates, reuses and refuses unsafe state' test_configurator_creates_reuses_and_refuses_unsafe_state
+run_test 'configurator adds existing source without replacing backup config' \
+    test_configurator_adds_existing_source_without_replacing_backup_config
 run_test 'unit publication is idempotent and no-clobber' test_unit_publication_is_idempotent_and_never_overwrites_differences
 run_test 'OCI installer verifies the archive and exact wheel' test_oci_installer_verifies_archive_and_exact_wheel_before_linking
 run_test 'wizard and status keep backup readiness separate' test_wizard_registers_and_status_separates_backup_readiness

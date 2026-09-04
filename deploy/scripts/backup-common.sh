@@ -16,6 +16,7 @@ BACKUP_STATUS_ROOT=${BACKUP_STATE_ROOT}/status
 BACKUP_STATUS_FILE=${BACKUP_STATUS_ROOT}/latest.json
 BACKUP_LATEST_SUCCESS_FILE=${BACKUP_STATUS_ROOT}/latest-success.json
 BACKUP_LOCK_FILE=${BACKUP_STATE_ROOT}/backup.lock
+BACKUP_SOURCE_ENV_FILE="${THREADHUB_BACKUP_SOURCE_ENV_FILE:-/etc/threadhub/backup-source.env}"
 
 backup_expected_uid() {
     printf '0\n'
@@ -140,6 +141,65 @@ backup_validate_config() {
     backup_validate_namespace "$(backup_env_value BACKUP_NAMESPACE)" || return 20
     backup_validate_bucket "$(backup_env_value BACKUP_BUCKET)" || return 20
     backup_validate_email "$(backup_env_value BACKUP_ALERT_EMAIL)" || return 20
+}
+
+backup_source_config_is_present() {
+    [[ -e "${BACKUP_SOURCE_ENV_FILE}" || -L "${BACKUP_SOURCE_ENV_FILE}" ]]
+}
+
+backup_validate_source_config() {
+    local uid gid source_mode existing_env
+
+    uid="$(backup_expected_uid)"
+    gid="$(backup_expected_gid)"
+    backup_require_regular_mode_owner "${BACKUP_SOURCE_ENV_FILE}" 600 "${uid}" "${gid}" \
+        || return 20
+    backup_require_exact_keys "${BACKUP_SOURCE_ENV_FILE}" \
+        BACKUP_SOURCE_MODE BACKUP_EXISTING_NOTIFIER_ENV_FILE || return 20
+    source_mode="$(backup_env_value_from_file BACKUP_SOURCE_MODE "${BACKUP_SOURCE_ENV_FILE}")" \
+        || return 20
+    existing_env="$(backup_env_value_from_file \
+        BACKUP_EXISTING_NOTIFIER_ENV_FILE "${BACKUP_SOURCE_ENV_FILE}")" || return 20
+    [[ "${source_mode}" == existing_notifier \
+        && "${existing_env}" == /* \
+        && "${existing_env}" != / \
+        && "${existing_env}" != *'//'* \
+        && "${existing_env}" != */./* \
+        && "${existing_env}" != */../* \
+        && "${existing_env}" != */. \
+        && "${existing_env}" != */.. \
+        && "${existing_env}" != */ ]] || return 20
+    [[ -f "${existing_env}" && ! -L "${existing_env}" ]] || return 20
+}
+
+backup_env_value_from_file() {
+    local key="$1" path="$2"
+
+    LC_ALL=C awk -v key="${key}" '
+        index($0, key "=") == 1 {
+            count++
+            value = substr($0, length(key) + 2)
+        }
+        END {
+            if (count != 1 || value == "") exit 1
+            print value
+        }
+    ' "${path}"
+}
+
+backup_source_mode() {
+    if ! backup_source_config_is_present; then
+        printf 'canonical\n'
+        return 0
+    fi
+    backup_validate_source_config || return 20
+    backup_env_value_from_file BACKUP_SOURCE_MODE "${BACKUP_SOURCE_ENV_FILE}"
+}
+
+backup_existing_notifier_env_file() {
+    backup_validate_source_config || return 20
+    backup_env_value_from_file BACKUP_EXISTING_NOTIFIER_ENV_FILE \
+        "${BACKUP_SOURCE_ENV_FILE}"
 }
 
 backup_validate_id() {
