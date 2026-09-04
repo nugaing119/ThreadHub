@@ -262,16 +262,37 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
     }
 
     before="$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')"
-    configure_backup_entry --source-mode existing-notifier \
-        >"${fixture}/stdout" 2>"${fixture}/stderr"
-    [[ "${before}" == "$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')" ]]
-    backup_validate_source_config
-    [[ "$(portable_mode "${BACKUP_SOURCE_ENV_FILE}")" == 600 ]]
+    if ! configure_backup_entry --source-mode existing-notifier \
+        >"${fixture}/stdout" 2>"${fixture}/stderr"; then
+        printf 'existing-source diagnostic: initial configure failed\n' >&2
+        return 1
+    fi
+    [[ "${before}" == "$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')" ]] || {
+        printf 'existing-source diagnostic: backup config changed\n' >&2
+        return 1
+    }
+    backup_validate_source_config || {
+        printf 'existing-source diagnostic: source config validation failed\n' >&2
+        return 1
+    }
+    [[ "$(portable_mode "${BACKUP_SOURCE_ENV_FILE}")" == 600 ]] || {
+        printf 'existing-source diagnostic: source config mode is invalid\n' >&2
+        return 1
+    }
     source_before="$(openssl dgst -sha256 "${BACKUP_SOURCE_ENV_FILE}" | awk '{print $NF}')"
-    configure_backup_entry --source-mode existing-notifier \
-        >>"${fixture}/stdout" 2>>"${fixture}/stderr"
-    [[ "${source_before}" == "$(openssl dgst -sha256 "${BACKUP_SOURCE_ENV_FILE}" | awk '{print $NF}')" ]]
-    ! grep -F 'protected-password' "${fixture}/stdout" "${fixture}/stderr"
+    if ! configure_backup_entry --source-mode existing-notifier \
+        >>"${fixture}/stdout" 2>>"${fixture}/stderr"; then
+        printf 'existing-source diagnostic: idempotent configure failed\n' >&2
+        return 1
+    fi
+    [[ "${source_before}" == "$(openssl dgst -sha256 "${BACKUP_SOURCE_ENV_FILE}" | awk '{print $NF}')" ]] || {
+        printf 'existing-source diagnostic: source config changed\n' >&2
+        return 1
+    }
+    if grep -F 'protected-password' "${fixture}/stdout" "${fixture}/stderr" >/dev/null; then
+        printf 'existing-source diagnostic: protected value was disclosed\n' >&2
+        return 1
+    fi
 )
 
 test_unit_publication_is_idempotent_and_never_overwrites_differences() (
