@@ -130,6 +130,8 @@ notifier_docs_validate_nf_matrix() {
 validate_notifier_documentation_contracts() {
     local repository_root="$1"
     local deploy_dir="${repository_root}/deploy"
+    local architecture="${deploy_dir}/docs/notifier-architecture.md"
+    local prd="${repository_root}/docs/threadhub-prd-v4.3-final.md"
     local documents=(
         "${repository_root}/README.md"
         "${repository_root}/SECURITY.md"
@@ -143,6 +145,8 @@ validate_notifier_documentation_contracts() {
         "${deploy_dir}/docs/project-close.md"
         "${deploy_dir}/docs/test-plan.md"
         "${deploy_dir}/docs/test-results-public.md"
+        "${architecture}"
+        "${prd}"
     )
     local document
 
@@ -151,12 +155,21 @@ validate_notifier_documentation_contracts() {
     done
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/quick-install.md' || return 1
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/existing-mattermost-notifier.md' || return 1
+    notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/notifier-architecture.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" './docs/quick-install.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" './docs/existing-mattermost-notifier.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/README.md" './docs/notifier-architecture.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './oci-email-delivery.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './admin-guide.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './existing-mattermost-notifier.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/admin-guide.md" './existing-mattermost-notifier.md' || return 1
+    for document in \
+        "${deploy_dir}/docs/quick-install.md" \
+        "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        "${deploy_dir}/docs/setup.md" \
+        "${deploy_dir}/docs/admin-guide.md"; do
+        notifier_docs_require_link "${document}" './notifier-architecture.md' || return 1
+    done
     notifier_docs_require_link "${deploy_dir}/docs/setup.md" './oci-email-delivery.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/admin-guide.md" './operations-checklist.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/operations-checklist.md" './project-close.md' || return 1
@@ -275,6 +288,17 @@ validate_notifier_documentation_contracts() {
         'Team Edition plugin and license boundary' 'Mattermost Team Edition' '공개 플러그인 API' \
         '유료 기능' '라이선스 검사를 우회하지 않습니다' \
         '../../notifier/THIRD_PARTY_NOTICES.md' || return 1
+    notifier_docs_require_terms "${architecture}" \
+        'plugin and Mailer architecture boundary' \
+        'MessageHasBeenPosted' 'plugin KV outbox' 'HMAC' 'SQLite' 'STARTTLS' \
+        'Mattermost 본체와 Mailer에는 같은' '커스텀 플러그인 구현은 SMTP 자격 증명을 읽거나' \
+        'SMTP 또는 Mailer가 일시 중단돼도 Mattermost의 글 작성은 계속 성공' \
+        '메시지 본문, 채널명, Team명과 작성자명' 'MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false' \
+        'Persistent Notification' '라이선스 검사를 활성화·우회하지 않는다' \
+        '../../notifier/THIRD_PARTY_NOTICES.md' || return 1
+    notifier_docs_require_terms "${prd}" \
+        'notifier PRD baseline' 'v4.3 Final' 'G-13' 'FR-NOT-001' 'FR-NOT-012' \
+        'AC-NOT-001' 'AC-NOT-010' 'notifier-architecture.md' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/setup.md" \
         'safe project DNS A-record isolation' 'DNS A record' 'unrelated RRsets' 'two independent VM' || return 1
     notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \

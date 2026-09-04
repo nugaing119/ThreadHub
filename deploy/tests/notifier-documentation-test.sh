@@ -40,13 +40,22 @@ reset_fixture() {
     cp "${DEPLOY_DIR}/scripts/backup-documentation-contracts.sh" \
         "${fixture_root}/deploy/scripts/backup-documentation-contracts.sh"
     cp -R "${DEPLOY_DIR}/docs" "${fixture_root}/deploy/docs"
-    cp "${REPOSITORY_ROOT}/docs/threadhub-prd-v4.2-final.md" \
-        "${fixture_root}/docs/threadhub-prd-v4.2-final.md"
+    cp "${REPOSITORY_ROOT}/docs/threadhub-prd-v4.3-final.md" \
+        "${fixture_root}/docs/threadhub-prd-v4.3-final.md"
 }
 
 reset_fixture
 validate_notifier_documentation_contracts "${fixture_root}" \
     || fail 'real notifier documentation does not satisfy the production contract helper'
+
+rm -f "${fixture_root}/deploy/docs/notifier-architecture.md"
+assert_contract_failure 'missing notifier architecture guide was accepted'
+
+reset_fixture
+sed -i.bak 's/커스텀 플러그인 구현은 SMTP 자격 증명을 읽거나/custom plugin reads SMTP credentials and/g' \
+    "${fixture_root}/deploy/docs/notifier-architecture.md"
+rm -f "${fixture_root}/deploy/docs/notifier-architecture.md.bak"
+assert_contract_failure 'plugin and Mailer SMTP secret boundary was removed'
 
 rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
 assert_contract_failure 'missing existing Mattermost adoption guide was accepted'

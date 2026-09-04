@@ -28,7 +28,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 
 ## 문서
 
-- [ThreadHub 제품 요구사항 정의서 v4.2 Final](./docs/threadhub-prd-v4.2-final.md)
+- [ThreadHub 제품 요구사항 정의서 v4.3 Final](./docs/threadhub-prd-v4.3-final.md)
 - [ThreadHub MVP 구축 및 검증 계획서](./docs/threadhub-mvp-build-validation-plan.md)
 
 제품 범위와 인수조건은 PRD를 기준으로 하며, 배포 단계와 시험 절차는 구축·검증 계획서를 따릅니다.
@@ -76,8 +76,16 @@ DNS 또는 OCI Email Delivery가 아직 준비되지 않았다면 기존 작업�
 
 프로젝트 Team의 사용자 운영 절차는 [프로젝트 Team 운영 절차](./deploy/docs/project-team-runbook.md)를 사용합니다.
 즉시 채널 이메일 알림의 설치, 운영, 개인정보와 종료 절차는
+[알림 아키텍처](./deploy/docs/notifier-architecture.md),
 [빠른 설치](./deploy/docs/quick-install.md), [운영 점검표](./deploy/docs/operations-checklist.md),
 [프로젝트 종료](./deploy/docs/project-close.md), [시험계획](./deploy/docs/test-plan.md)를 함께 따릅니다.
+
+Mattermost 플러그인은 새 글·스레드 이벤트와 채널 멤버십을 판단하고, 별도 Mailer는
+HMAC으로 인증된 최소 이벤트를 영구 큐에 저장한 뒤 OCI Email Delivery로 발송합니다.
+커스텀 플러그인은 SMTP 자격 증명을 읽거나 전달하지 않으며, Mailer 분리는 알림 발송
+큐·재시도·장애를 Mattermost의 글 작성 경로에서 격리합니다. 계정 메일을 보내는
+Mattermost 본체와 Mailer는 같은 프로젝트 SMTP 설정을 사용합니다. Mattermost 기본
+일반 메시지 이메일 알림은 중복을 막기 위해 비활성화합니다.
 
 백업은 기본 서비스 설치와 분리된 승인 단계입니다. 최초 수동 백업의 원격 검증과
 폐기 가능한 새 VM 복구시험을 마치기 전에는 예약 타이머를 활성화하지 않습니다.

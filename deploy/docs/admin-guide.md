@@ -110,6 +110,14 @@ Mattermost에 notifier를 채택할 때는 base Compose를 수정하지 않는
 [기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)를 먼저
 따릅니다.
 
+플러그인은 Mattermost의 새 글·스레드 이벤트와 채널 멤버십을 판단하고 plugin KV
+outbox에 기록합니다. 별도 Mailer는 HMAC 서명 입력을 검증하고 SQLite 영구 큐,
+재시도·속도 제한과 OCI SMTP 발송을 담당합니다. 커스텀 플러그인은 SMTP 자격 증명을
+읽거나 전달하지 않으며, 발송 큐·재시도·장애가 Mattermost의 글 작성 경로에서
+분리됩니다. 계정 메일을 보내는 Mattermost 본체와 Mailer는 같은 프로젝트 SMTP 설정을
+사용합니다. 상세 흐름과 Mattermost 기본 이메일 알림과의 차이는
+[알림 아키텍처](./notifier-architecture.md)를 따릅니다.
+
 이 notifier는 Mattermost Team Edition에서 공식 지원하는 공개 플러그인 API만
 사용합니다. 유료 기능을 활성화하거나 라이선스 검사를 우회하지 않습니다. 구현 기준,
 제3자 모듈 목록과 라이선스 원문은

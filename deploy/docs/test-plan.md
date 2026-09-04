@@ -3,7 +3,7 @@
 상세 시험 ID, 말뭉치와 기대 결과는 다음 기준문서를 사용합니다.
 
 - [ThreadHub MVP 구축 및 검증 계획서](../../docs/threadhub-mvp-build-validation-plan.md)
-- [ThreadHub PRD v4.2 Final](../../docs/threadhub-prd-v4.2-final.md)
+- [ThreadHub PRD v4.3 Final](../../docs/threadhub-prd-v4.3-final.md)
 
 ## 자동·반자동 시험
 

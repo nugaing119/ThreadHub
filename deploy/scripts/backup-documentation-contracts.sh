@@ -36,7 +36,7 @@ validate_backup_documentation_contracts() {
     local repository_root="$1"
     local deploy_dir="${repository_root}/deploy"
     local guide="${deploy_dir}/docs/backup-restore.md"
-    local prd="${repository_root}/docs/threadhub-prd-v4.2-final.md"
+    local prd="${repository_root}/docs/threadhub-prd-v4.3-final.md"
     local documents=(
         "${repository_root}/README.md"
         "${repository_root}/AGENTS.md"
@@ -141,6 +141,6 @@ validate_backup_documentation_contracts() {
         'backup test families' 'BK-UNIT-' 'BK-INT-' 'BK-LIVE-' || return 1
     backup_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
     notifier_docs_require_terms "${prd}" 'PRD backup baseline' \
-        'v4.2 Final' 'G-12' 'RPO 24시간' 'RTO 4시간' \
+        'v4.3 Final' 'G-12' 'RPO 24시간' 'RTO 4시간' \
         'OCI Object Storage' '복구시험' 'R-10' || return 1
 }
