@@ -211,9 +211,13 @@ test_configurator_creates_reuses_and_refuses_unsafe_state() (
 )
 
 test_configurator_adds_existing_source_without_replacing_backup_config() (
+    stage=fixture
+    trap 'printf "existing-source diagnostic: preconfigure stage=%s failed\n" "${stage}" >&2' ERR
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
+    stage=directory
     mkdir -p "${fixture}/etc/threadhub"
+    stage=backup-fixture
     printf '%s\n' \
         'BACKUP_REGION=ap-singapore-1' \
         'BACKUP_NAMESPACE=namespace1' \
@@ -223,6 +227,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         'BACKUP_DAILY_RETENTION_DAYS=7' \
         'BACKUP_WEEKLY_RETENTION_DAYS=28' > "${fixture}/etc/threadhub/backup.env"
     chmod 0600 "${fixture}/etc/threadhub/backup.env"
+    stage=existing-fixture
     printf '%s\n' \
         "THN_COMPOSE_PROJECT_DIR=${fixture}/project" \
         "THN_COMPOSE_FILE=${fixture}/project/compose.yml" \
@@ -244,6 +249,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         'THN_RATE_PER_MINUTE=10' > "${fixture}/existing-notifier.env"
     chmod 0600 "${fixture}/existing-notifier.env"
 
+    stage=source-configurator
     [[ -f "${CONFIGURATOR}" ]]
     # shellcheck source=/dev/null
     source "${CONFIGURATOR}"
@@ -261,6 +267,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         ln "$1" "$2"
     }
 
+    stage=backup-hash
     before="$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')"
     if ! configure_backup_entry --source-mode existing-notifier \
         >"${fixture}/stdout" 2>"${fixture}/stderr"; then
