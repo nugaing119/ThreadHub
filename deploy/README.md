@@ -45,6 +45,7 @@ deploy/
     ├── existing-mattermost-notifier.md
     ├── oci-provisioning.md
     ├── oci-email-delivery.md
+    ├── notifier-architecture.md
     ├── setup.md
     ├── admin-guide.md
     ├── operations-checklist.md
@@ -63,9 +64,13 @@ deploy/
 - PostgreSQL은 host port를 갖지 않습니다.
 - Docker json-file 로그와 Mattermost 파일 로그의 크기 증가를 제한합니다.
 - NGINX 접근 로그는 query string을 기록하지 않으며 access/error 로그를 `0640 www-data:adm`으로 제한합니다.
-- 모바일 푸시, 플러그인, Webhook, 공개 파일 링크와 진단 텔레메트리를 비활성화합니다.
+- 모바일 푸시, 사용자 플러그인 업로드, ThreadHub notifier 외 플러그인, Webhook,
+  공개 파일 링크와 진단 텔레메트리를 비활성화합니다.
 - 채널 이메일 notifier만 Mattermost Team Edition의 일반 plugin API로 실행하며,
   제어 파일이 없거나 안전하지 않으면 수집과 SMTP 발송을 fail-closed로 중지합니다.
+- plugin은 Mattermost 이벤트·멤버십과 KV outbox를, 별도 Mailer는 HMAC 입력 검증,
+  SQLite 영구 큐, 재시도·속도 제한과 OCI SMTP 전송을 담당합니다. 분리 이유와 데이터·
+  라이선스 경계는 [알림 아키텍처](./docs/notifier-architecture.md)를 따릅니다.
 - `destroy.sh`는 컨테이너만 내리며 bind mount 데이터를 삭제하지 않습니다.
 
 ## 로컬 정적 검증

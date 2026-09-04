@@ -44,8 +44,8 @@ reset_fixture() {
     cp "${REPOSITORY_ROOT}/SECURITY.md" "${fixture_root}/SECURITY.md"
     cp "${DEPLOY_DIR}/README.md" "${fixture_root}/deploy/README.md"
     cp -R "${DEPLOY_DIR}/docs" "${fixture_root}/deploy/docs"
-    cp "${REPOSITORY_ROOT}/docs/threadhub-prd-v4.2-final.md" \
-        "${fixture_root}/docs/threadhub-prd-v4.2-final.md"
+    cp "${REPOSITORY_ROOT}/docs/threadhub-prd-v4.3-final.md" \
+        "${fixture_root}/docs/threadhub-prd-v4.3-final.md"
 }
 
 reset_fixture

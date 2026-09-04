@@ -4,6 +4,9 @@
 `setup-wizard.sh`를 사용하는 것입니다. 이 문서는 각 단계를 수동으로 수행하거나
 문제를 진단해야 할 때 사용합니다.
 
+즉시 채널 이메일 알림의 plugin·Mailer 책임 분리와 개인정보·장애·라이선스 경계는
+[알림 아키텍처](./notifier-architecture.md)를 따릅니다.
+
 ## 1. 사전조건
 
 - OCI 계정과 Compute VM 생성 권한
@@ -191,7 +194,7 @@ OCI Ubuntu 이미지의 host iptables가 외부 연결을 거부할 수 있으�
 
 ## 11. 완료 기준
 
-- [PRD의 고객 파일럿 Go 조건](../../docs/threadhub-prd-v4.2-final.md#1912-제한된-고객-파일럿-go-조건)을 충족해야 합니다.
+- [PRD의 고객 파일럿 Go 조건](../../docs/threadhub-prd-v4.3-final.md#1913-제한된-고객-파일럿-go-조건)을 충족해야 합니다.
 - [상세 구축·검증 계획](../../docs/threadhub-mvp-build-validation-plan.md)을 시험 결과와 함께 완료해야 합니다.
 - 실제 고객을 초대하기 전에 No-Go 조건이 남아 있지 않아야 합니다.
 

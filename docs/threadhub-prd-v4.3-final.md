@@ -1,14 +1,10 @@
 # ThreadHub 제품 요구사항 정의서
 
-> **대체됨:** 현재 제품 요구사항 기준선은
-> [ThreadHub PRD v4.3 Final](./threadhub-prd-v4.3-final.md)이다. 이 파일은 v4.2
-> 백업 기준선의 변경 이력을 보존하기 위한 이전 문서다.
-
 > 문서 유형: Product Requirements Document<br>
-> 문서 버전: v4.2 Final<br>
-> 기준일: 2026년 9월 1일<br>
+> 문서 버전: v4.3 Final<br>
+> 기준일: 2026년 9월 4일<br>
 > 상태: MVP 요구사항 기준선<br>
-> 이전 기준선: v4.1 Final<br>
+> 이전 기준선: v4.2 Final<br>
 > 관련 문서: [ThreadHub MVP 구축 및 검증 계획서](./threadhub-mvp-build-validation-plan.md)
 
 ---
@@ -69,6 +65,7 @@
 | 지원 클라이언트 | 웹, 데스크톱, iOS, Android |
 | 인증 | 이메일 또는 사용자명과 비밀번호 |
 | 모바일 푸시 | MVP 기본 비활성화 |
+| 채널 이메일 알림 | 별도 ThreadHub notifier로 즉시 일반 안내문 발송 |
 | 백업·복구 | 일일 OCI Object Storage 백업, 수동 복구 |
 | 가용성 | 단일 VM, 별도 SLA 없음 |
 | 데이터 범위 | 일반 프로젝트 대화와 공유가 승인된 자료 |
@@ -239,6 +236,13 @@ PostgreSQL 논리 덤프, Mattermost 첨부파일과 notifier queue를 매일 �
 OCI Object Storage 버킷에 백업하고, 원격 객체 검증과 폐기 가능한 신규 VM
 복구시험을 통해 최근 성공 백업까지의 수동 복구 경로를 유지해야 한다.
 
+## G-13. 즉시 채널 이메일 알림
+
+공개·비공개 채널의 새 글과 스레드 답글이 게시되면 작성자를 제외한 현재 채널 멤버에게
+메시지 본문·채널·Team·작성자명을 포함하지 않는 일반 안내 이메일을 즉시 발송해야
+한다. Mattermost 플러그인은 이벤트와 멤버십을 판단하고, 별도 Mailer는 영구 큐,
+재시도와 OCI SMTP 발송을 담당해야 한다.
+
 ---
 
 # 6. 비목표와 명시적 제외 범위
@@ -272,6 +276,7 @@ OCI Object Storage 버킷에 백업하고, 원격 객체 검증과 폐기 가능
 | NG-25 | 자체 모바일 앱 및 자체 Push Proxy |
 | NG-26 | 고위험·규제 데이터 처리 |
 | NG-27 | 고객 기기에 저장된 파일의 원격 삭제 |
+| NG-28 | Persistent Notification, 확인 강제, Reminder와 Scheduled Message |
 
 중앙 로깅, 통합 모니터링, 고가용성과 자동 장애조치는 MVP 안정화 이후 별도 제품
 결정으로 검토한다. 백업은 최근 원격 검증 성공 시점까지의 수동 복구 경로이며
@@ -747,7 +752,7 @@ MM_EMAILSETTINGS_PUSHNOTIFICATIONCONTENTS=generic_no_channel
 
 `generic_no_channel`은 푸시를 끄는 설정이 아니라 활성화된 푸시의 표시 내용을 제한하는 설정이다. 자세한 내용은 [Mattermost 푸시 설정](https://docs.mattermost.com/administration-guide/configure/push-notification-server-configuration-settings.html)을 참고한다.
 
-## 11.10 이메일
+## 11.10 계정 이메일
 
 OCI Email Delivery를 계정 관련 SMTP 릴레이로 사용한다.
 
@@ -767,12 +772,12 @@ OCI Email Delivery를 계정 관련 SMTP 릴레이로 사용한다.
 | FR-MAIL-006 | 발신 주소를 Approved Sender로 등록해야 한다. | 필수 |
 | FR-MAIL-007 | SPF를 구성해야 한다. | 필수 |
 | FR-MAIL-008 | DKIM을 구성해야 한다. | 필수 |
-| FR-MAIL-009 | 일반 메시지 이메일 알림을 기본 비활성화해야 한다. | 필수 |
+| FR-MAIL-009 | Mattermost 기본 일반 메시지 이메일 알림을 비활성화해야 한다. | 필수 |
 | FR-MAIL-010 | Gmail·네이버·다음에서 초대·확인·재설정 메일을 시험해야 한다. | 필수 |
 | FR-MAIL-011 | 시험 메일의 SPF·DKIM 결과가 `pass`여야 한다. | 필수 |
 | FR-MAIL-012 | 수신 위치와 OCI suppression 상태를 기록해야 한다. | 필수 |
 
-일반 메시지 알림 비활성화 기준:
+Mattermost 기본 일반 메시지 알림 비활성화 기준:
 
 ```text
 MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
@@ -780,7 +785,35 @@ MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false
 
 스팸함 분류 여부는 수신 사업자와 발신 평판에 따라 달라질 수 있으므로 받은편지함 수신을 보장하지 않는다. 계정 관련 메일이 실제로 도착하고 링크가 정상 동작하는 것을 인수기준으로 한다.
 
-## 11.11 관리자 기능과 프로젝트 종료
+## 11.11 즉시 채널 이메일 알림
+
+Mattermost 기본 이메일 알림 대신 별도 ThreadHub notifier를 사용한다. 플러그인은
+`MessageHasBeenPosted` 훅에서 새 글과 스레드 답글을 감지하고, 현재 채널 멤버와 수신
+적격성을 판단한 뒤 최소 이벤트를 plugin KV outbox에 기록한다. 별도 Mailer는 내부
+Docker network에서 HMAC 서명 요청을 받아 SQLite 영구 큐에 저장하고 OCI Email
+Delivery SMTP 587·STARTTLS로 수신자별 이메일을 발송한다.
+
+| ID | 요구사항 | 우선순위 |
+| --- | --- | --- |
+| FR-NOT-001 | 공개·비공개 채널의 새 글과 스레드 답글을 게시 직후 감지해야 한다. | 필수 |
+| FR-NOT-002 | 게시 시점의 현재 채널 멤버 중 작성자·비활성 사용자·봇·이메일 미확인 사용자를 제외하고 발송해야 한다. | 필수 |
+| FR-NOT-003 | DM, 그룹 DM, 시스템 글, 수정·삭제와 Webhook·봇 작성 글을 발송 대상에서 제외해야 한다. | 필수 |
+| FR-NOT-004 | 이메일·Mailer 요청·상태 출력·로그에 메시지 본문, 채널명, Team명과 작성자명을 포함하지 않아야 한다. | 필수 |
+| FR-NOT-005 | 수신자별로 분리된 SMTP envelope와 일반 안내문을 사용해야 한다. | 필수 |
+| FR-NOT-006 | plugin→Mailer 요청은 호스트 포트가 없는 내부 network와 프로젝트별 HMAC으로 보호해야 한다. | 필수 |
+| FR-NOT-007 | 계정 메일을 위한 Mattermost 본체와 Mailer는 같은 프로젝트 SMTP 설정을 사용할 수 있으나, 커스텀 플러그인은 SMTP 자격 증명을 읽거나 plugin→Mailer 요청에 포함하지 않아야 한다. | 필수 |
+| FR-NOT-008 | Mailer 또는 SMTP 장애 중에도 Mattermost 글 작성은 정상 완료되고 미처리 작업이 영구 큐에 유지돼야 한다. | 필수 |
+| FR-NOT-009 | notifier는 `activate`, `drain`, `disable` 상태로 신규 수집과 기존 큐 발송을 분리 제어해야 한다. | 필수 |
+| FR-NOT-010 | 전달은 at-least-once이며 드문 중복 가능성과 exactly-once 미보장을 운영 문서에 명시해야 한다. | 제약 |
+| FR-NOT-011 | 공개 플러그인 API만 사용하고 유료 기능 또는 라이선스 검사를 활성화·우회하지 않아야 한다. | 필수 |
+| FR-NOT-012 | 플러그인 번들과 Mailer 이미지에 자체 라이선스와 제3자 의존성 고지를 포함해야 한다. | 필수 |
+
+`MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false`는 Mattermost 기본 일반 메시지 이메일
+알림만 끈다. 계정 이메일과 별도 ThreadHub notifier 발송은 계속 사용할 수 있다.
+상세 구성과 경계는
+[즉시 채널 이메일 알림 아키텍처](../deploy/docs/notifier-architecture.md)를 따른다.
+
+## 11.12 관리자 기능과 프로젝트 종료
 
 | ID | 요구사항 | 우선순위 |
 | --- | --- | --- |
@@ -976,7 +1009,8 @@ Docker Engine 29.6.2가 대상 Ubuntu 저장소에서 제공되지 않으면 임
 | 비밀번호 세션 | 변경·재설정 후 기존 세션 종료 | `MM_SERVICESETTINGS_TERMINATESESSIONSONPASSWORDCHANGE=true` |
 | MFA | 사용자별 MFA 활성화, System Admin 등록 | `MM_SERVICESETTINGS_ENABLEMULTIFACTORAUTHENTICATION=true` |
 | 모바일 푸시 | 비활성화 | `MM_EMAILSETTINGS_SENDPUSHNOTIFICATIONS=false` |
-| 일반 이메일 알림 | 비활성화 | `MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false` |
+| Mattermost 기본 일반 이메일 알림 | 비활성화 | `MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false` |
+| ThreadHub 채널 이메일 알림 | 별도 plugin·Mailer, 초기 fail-closed | SMTP acceptance와 명시적 activation |
 | 활성 사용자 | 운영정책상 최대 50명 | 운영대장 확인 |
 | Team 사용자 한도 | 사용자 교체 여유 250명 | `MM_TEAMSETTINGS_MAXUSERSPERTEAM=250` |
 | 채널 한도 | Team당 2,000개 | `MM_TEAMSETTINGS_MAXCHANNELSPERTEAM=2000` |
@@ -994,6 +1028,10 @@ Docker Engine 29.6.2가 대상 Ubuntu 저장소에서 제공되지 않으면 임
 - 유료 Guest, SSO, Team Override, 유료 감사·보존·접근제어 기능을 사용하지 않는다.
 - Mattermost Calls를 사용하지 않는다.
 - 상업적 고객 프로젝트에 무료 TPNS를 사용하지 않는다.
+- ThreadHub notifier는 Mattermost 공개 플러그인 API만 사용하고 Enterprise 코드,
+  유료 기능 활성화 또는 라이선스 검사 우회를 포함하지 않는다.
+- notifier 플러그인 번들과 Mailer 이미지에 ThreadHub MIT 라이선스와 제3자 의존성
+  고지를 포함한다.
 - 무료 기능인지 불명확한 기능은 정확한 이미지와 공식 근거를 확인한 뒤 채택한다.
 
 ---
@@ -1025,7 +1063,9 @@ Docker Engine 29.6.2가 대상 Ubuntu 저장소에서 제공되지 않으면 임
 │        ▼                           │
 │ Docker Compose                     │
 │ ├── Mattermost Team Edition        │
-│ └── PostgreSQL                     │
+│ │   └── ThreadHub notifier plugin  │
+│ ├── PostgreSQL                     │
+│ └── ThreadHub Mailer               │
 │        │                           │
 │        ▼                           │
 │ /srv/threadhub 영구 bind mounts    │
@@ -1043,6 +1083,11 @@ Docker Engine 29.6.2가 대상 Ubuntu 저장소에서 제공되지 않으면 임
 5. Mattermost는 Docker 내부 네트워크를 통해 PostgreSQL에 접속한다.
 6. PostgreSQL은 호스트 포트를 공개하지 않는다.
 7. 계정 관련 이메일은 OCI Email Delivery를 통해 발송한다.
+8. 새 채널 글·스레드 답글은 플러그인이 감지하고 최소 이벤트를 plugin KV outbox에
+   기록한다.
+9. 플러그인은 HMAC 서명 요청을 호스트 포트가 없는 내부 network의 Mailer로 보낸다.
+10. Mailer는 수신자별 작업을 SQLite 영구 큐에 저장한 뒤 OCI Email Delivery로
+    일반 안내 이메일을 발송한다.
 
 ## 14.3 포트와 접근정책
 
@@ -1424,7 +1469,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | Phase 2. OCI 인프라 | VM, Boot Volume, 예약 IP, NSG, DNS, SSH 구성 | 80·443과 제한된 22만 외부 접근 가능 |
 | Phase 3. 애플리케이션 | Docker, PostgreSQL, Mattermost, bind mount 배포 | health 정상, 6개 Mattermost 경로와 PG18 경로 검증 |
 | Phase 4. HTTPS | NGINX, Let’s Encrypt, Certbot, WebSocket 구성 | HTTPS·전환·WebSocket·갱신 시험 통과 |
-| Phase 5. 이메일 | OCI SMTP, Approved Sender, SPF, DKIM 구성 | Gmail·네이버·다음 계정 메일 시험 통과 |
+| Phase 5. 이메일·알림 | OCI SMTP, Approved Sender, SPF, DKIM, notifier plugin·Mailer 구성 | 계정 메일과 공개·비공개 채널 notifier 시험 통과 |
 | Phase 6. 기본 설정 | 가입, MFA, 권한, 파일, 검색, 푸시와 제외 기능 설정 | 정확한 이미지에서 설정 동작 시험 통과 |
 | Phase 7. 프로젝트 구조 | Team, 채널, 관리자·Member 구성, 정책 공지 | 고객 권한과 기본 채널 구조 확인 |
 | Phase 8. 내부 파일럿 | 기능·권한·검색·영속성·모바일·재부팅 시험 | 내부 파일럿 인수조건 통과 |
@@ -1448,6 +1493,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 
 - 설치와 반복 배포 검증
 - 가입 경로와 이메일 검증
+- 공개·비공개 채널 새 글·스레드 notifier와 SMTP 장애 격리 검증
 - System Scheme과 고객 Member 권한 검증
 - 한글 검색 기능·성능 검증
 - bind mount·컨테이너 재생성·VM 재부팅 검증
@@ -1623,10 +1669,25 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-MAIL-004 | 비밀번호 재설정 메일의 링크가 동작한다. |
 | AC-MAIL-005 | Gmail·네이버·다음에서 세 종류의 계정 메일을 수신할 수 있다. |
 | AC-MAIL-006 | 시험 메일의 SPF와 DKIM 결과가 `pass`다. |
-| AC-MAIL-007 | 일반 메시지 이메일 알림은 기본 비활성화다. |
+| AC-MAIL-007 | Mattermost 기본 일반 메시지 이메일 알림은 비활성화다. |
 | AC-MAIL-008 | 수신 위치와 OCI suppression 상태를 시험 결과에 기록한다. |
 
-## 19.11 라이선스·재배포 인수조건
+## 19.11 즉시 채널 이메일 알림 인수조건
+
+| ID | 인수조건 |
+| --- | --- |
+| AC-NOT-001 | 공개·비공개 채널의 새 글과 스레드 답글이 게시 시점의 적격 채널 멤버에게 발송된다. |
+| AC-NOT-002 | 작성자·비활성 사용자·봇·이메일 미확인 사용자는 수신자에서 제외된다. |
+| AC-NOT-003 | DM, 그룹 DM, 시스템 글, 수정·삭제와 Webhook·봇 작성 글은 발송되지 않는다. |
+| AC-NOT-004 | 이메일·Mailer 요청·로그·상태 출력에 메시지 본문, 채널명, Team명과 작성자명이 없다. |
+| AC-NOT-005 | 각 이메일은 수신자별 단일 SMTP envelope와 일반 안내문을 사용한다. |
+| AC-NOT-006 | Mailer·SMTP 중단 중에도 Mattermost 글 작성이 성공하고 복구 후 영구 큐가 처리된다. |
+| AC-NOT-007 | Mailer 컨테이너 재생성과 VM 재부팅 뒤에도 미처리 큐가 유지된다. |
+| AC-NOT-008 | SMTP acceptance 전과 notifier disabled 상태에서는 신규 수집·발송이 일어나지 않는다. |
+| AC-NOT-009 | allowlist 공개·비공개 루트 글·스레드 수동 시험 뒤에만 all-channels 활성화를 승인한다. |
+| AC-NOT-010 | 플러그인 번들과 Mailer 이미지에 자체 라이선스와 전체 의존성 고지가 포함된다. |
+
+## 19.12 라이선스·재배포 인수조건
 
 | ID | 인수조건 |
 | --- | --- |
@@ -1634,13 +1695,14 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 | AC-LIC-002 | 유료 라이선스 키와 Enterprise Trial이 없다. |
 | AC-LIC-003 | 유료 Guest, SSO, Calls와 유료 고급 기능을 사용하지 않는다. |
 | AC-LIC-004 | 무료 TPNS가 구성되지 않고 모바일 푸시가 비활성화된다. |
+| AC-LIC-005 | notifier가 공개 플러그인 API만 사용하고 Enterprise 코드·유료 기능 활성화·라이선스 우회를 포함하지 않는다. |
 | AC-REP-001 | 비밀정보 없이 배포 구성을 Git에서 관리할 수 있다. |
 | AC-REP-002 | 새 OCI VM에 배포 패키지로 ThreadHub를 재구성할 수 있다. |
 | AC-REP-003 | 새 프로젝트마다 새 `.env`, 자격 증명, 도메인과 관리자 계정을 사용한다. |
 | AC-REP-004 | 새 프로젝트는 이전 프로젝트 데이터 없이 시작한다. |
 | AC-REP-005 | 기록 유지와 완전 폐기 절차가 문서화되어 있다. |
 
-## 19.12 제한된 고객 파일럿 Go 조건
+## 19.13 제한된 고객 파일럿 Go 조건
 
 다음 조건을 모두 충족해야 한다.
 
@@ -1664,7 +1726,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 18. 마지막 원격 검증 성공 세트가 backup ID 생성시각 기준 24시간 이내이고 daily 세트가 정확히 5개다.
 19. 고객에게 모바일 푸시, RPO 24시간·수동 RTO 4시간 목표와 데이터 취급 제한을 안내한다.
 
-## 19.13 고객 파일럿 No-Go 조건
+## 19.14 고객 파일럿 No-Go 조건
 
 다음 중 하나라도 해당하면 고객 파일럿을 시작하거나 계속하지 않는다.
 
@@ -1794,6 +1856,7 @@ threadhub-deploy/
 - NGINX와 WebSocket 설정
 - Docker 설치·배포·상태 점검 스크립트
 - Team·채널 기본 구조
+- notifier plugin·Mailer 소스, 빌드·설치·운영 구성과 라이선스 고지
 - 사용자 초대·권한·MFA 절차
 - 운영 점검 체크리스트
 - 상세 시험 시나리오와 결과 양식
@@ -1817,6 +1880,7 @@ threadhub-deploy/
 | --- | --- |
 | `setup.md` | 사전조건, 인프라, 배포, DNS, HTTPS, 이메일과 초기 설정 |
 | `admin-guide.md` | 사용자 초대·비활성화, MFA, System Scheme, Team·채널 운영 |
+| `notifier-architecture.md` | plugin·Mailer 역할, 이벤트 흐름, 데이터·장애·라이선스 경계 |
 | `operations-checklist.md` | 디스크, 컨테이너, health, 인증서, SMTP와 로그 점검 |
 | `backup-restore.md` | OCI 최소권한, 백업·원격 검증, 복구, 타이머 인수와 보존·폐기 |
 | `test-plan.md` | 시험 ID, 절차, 기대 결과, 실제 결과, 증거와 판정 |
@@ -1872,12 +1936,15 @@ threadhub-deploy/
 41. 프로젝트 기록 유지와 완전 폐기 절차가 문서화되어 있다.
 42. 배포 패키지로 데이터가 없는 새 VM에 ThreadHub를 재구성할 수 있다.
 43. 실제 `.env`, 비밀번호, 키와 고객 데이터가 Git 저장소에 포함되어 있지 않다.
-44. 백업 unit은 비활성으로 등록되고 최초 수동 backup set의 정확한 5개 원격 객체와 SHA-256이 검증되어 있다.
-45. 폐기 가능한 신규 VM에서 PostgreSQL, 공개·비공개 채널, 스레드, 첨부파일과 notifier queue quarantine 복구시험을 통과한다.
-46. 승인된 성공 백업 ID의 정확한 5개 원격 객체를 재검증한 뒤에만 타이머를 활성화하고, 해당 ID 생성시각이 24시간 이내다.
-47. daily 7일·weekly 28일 lifecycle, 실패 이메일과 프로젝트 종료 시 보존·삭제 절차가 검증되어 있다.
-48. 고객 파일럿 No-Go 조건이 남아 있지 않고 최종 시험 결과가 기록되어 있다.
-49. 중앙 로깅, 통합 모니터링, 고가용성과 모바일 푸시는 후속 검토 대상으로 유지되어 있다.
+44. notifier plugin은 대상 채널 이벤트와 멤버십을 판단하고 Mailer는 HMAC 입력, 영구 큐, 재시도와 SMTP 발송을 담당한다.
+45. 공개·비공개 채널 루트 글·스레드, 제외 이벤트, 개인정보 비포함과 SMTP 장애 격리 시험이 통과한다.
+46. notifier 산출물에 자체 라이선스와 전체 제3자 의존성 고지가 포함되고 라이선스 자동검증을 통과한다.
+47. 백업 unit은 비활성으로 등록되고 최초 수동 backup set의 정확한 5개 원격 객체와 SHA-256이 검증되어 있다.
+48. 폐기 가능한 신규 VM에서 PostgreSQL, 공개·비공개 채널, 스레드, 첨부파일과 notifier queue quarantine 복구시험을 통과한다.
+49. 승인된 성공 백업 ID의 정확한 5개 원격 객체를 재검증한 뒤에만 타이머를 활성화하고, 해당 ID 생성시각이 24시간 이내다.
+50. daily 7일·weekly 28일 lifecycle, 실패 이메일과 프로젝트 종료 시 보존·삭제 절차가 검증되어 있다.
+51. 고객 파일럿 No-Go 조건이 남아 있지 않고 최종 시험 결과가 기록되어 있다.
+52. 중앙 로깅, 통합 모니터링, 고가용성과 모바일 푸시는 후속 검토 대상으로 유지되어 있다.
 
 ---
 
@@ -1935,6 +2002,9 @@ threadhub-deploy/
 - [PostgreSQL CJK 검색 구현](https://github.com/mattermost/mattermost/blob/v11.7.7/server/channels/store/sqlstore/post_store.go#L2097-L2218)
 - [System Scheme 권한 목록 구현](https://github.com/mattermost/mattermost/blob/v11.7.7/webapp/channels/src/components/admin_console/permission_schemes_settings/permissions_tree/permissions_tree.tsx#L55-L115)
 - [System Scheme의 Team Edition 제공 공지](https://forum.mattermost.com/t/granular-permissions-coming-soon-to-team-edition/11929)
+- [Mattermost Team·Enterprise 플러그인 지원](https://developers.mattermost.com/integrate/plugins/using-and-managing-plugins/)
+- [Mattermost plans와 통합 기능](https://docs.mattermost.com/product-overview/plans.html)
+- [Mattermost server/public Apache 2.0 라이선스](https://github.com/mattermost/mattermost/blob/server/public/v0.3.0/server/public/LICENSE.txt)
 
 ### 배포·데이터·푸시
 
@@ -1947,19 +2017,17 @@ threadhub-deploy/
 - [Ubuntu 24.04 LTS 릴리스 정보](https://documentation.ubuntu.com/release-notes/24.04/)
 - [OCI Email Delivery 개요](https://docs.oracle.com/en-us/iaas/Content/Email/Concepts/overview.htm)
 
-## 24.4 v4.1 대비 주요 변경
+## 24.4 v4.2 대비 주요 변경
 
-| 영역 | v4.2 변경 내용 |
+| 영역 | v4.3 변경 내용 |
 | --- | --- |
-| 백업 목표 | backup ID 생성시각 기준 RPO 24시간·수동 RTO 4시간·강제된 일일 중단 deadline 5분 추가 |
-| 백업 범위 | PostgreSQL 논리 dump, Mattermost 첨부파일과 notifier queue를 단일 set으로 정의 |
-| 원격 저장 | `ap-singapore-1` 프로젝트별 Private OCI Object Storage와 AES-256 적용 |
-| OCI 권한 | exact-instance Instance Principal과 exact-bucket create·inspect·read, no-delete 확정 |
-| 보존 | daily 7일·weekly 28일 lifecycle 기준 추가 |
-| 복구 안전 | 동일 commit·고정 이미지, new or empty 데이터 경로, `--force` 미제공 |
-| notifier | 복구 queue quarantine과 새 live delivery 비활성 요구 추가 |
-| 활성화 gate | 수동 원격 검증과 폐기 VM 복구 증거 승인 전 timer 비활성 |
-| 종료 | VM 삭제와 백업 삭제를 분리하고 Object Storage 삭제를 별도 승인으로 변경 |
+| 알림 제품 범위 | 공개·비공개 채널 새 글과 스레드 답글의 즉시 일반 안내 이메일 요구 추가 |
+| 책임 분리 | Mattermost plugin의 이벤트·멤버십·KV outbox와 Mailer의 SQLite 큐·재시도·SMTP 책임 명시 |
+| 개인정보 | 메시지 본문, 채널·Team·작성자명을 요청·이메일·로그·상태에서 제외 |
+| 장애 격리 | Mailer·SMTP 장애 중 Mattermost 글 작성 성공과 영구 큐 복구 요구 추가 |
+| 활성화 gate | SMTP acceptance, allowlist 수동 인수와 명시적 all-channels 승인 요구 추가 |
+| 라이선스 | 공개 플러그인 API 사용, 유료 기능 비우회, 자체·제3자 고지의 산출물 포함 요구 추가 |
+| 문서 | plugin·Mailer 분리 이유와 데이터·장애·라이선스 경계 문서 추가 |
 
 ## 24.5 변경 통제
 
@@ -1992,7 +2060,9 @@ threadhub-deploy/
 ├── Certbot + Let’s Encrypt
 └── Docker Compose
     ├── Mattermost Team Edition 11.7.7
-    └── PostgreSQL 18.4
+    │   └── ThreadHub notifier plugin
+    ├── PostgreSQL 18.4
+    └── ThreadHub Mailer
 ```
 
 ## 25.2 확정 운영 원칙
@@ -2007,6 +2077,10 @@ System Admin은 1~2명이며 사용자별 MFA 필수
 채널·스레드 중심 프로젝트 이력 관리
 웹·데스크톱·공식 iOS·Android 앱 지원
 모바일 푸시는 MVP 기본 비활성화
+Mattermost 기본 일반 메시지 이메일 알림은 비활성화
+공개·비공개 채널 새 글·스레드 답글은 ThreadHub notifier로 즉시 일반 안내 이메일 발송
+plugin은 이벤트·멤버십·KV outbox, Mailer는 HMAC·영구 큐·재시도·SMTP를 담당
+이메일과 로그에 메시지 본문·채널·Team·작성자명 미포함
 Mattermost 무료 기능만 사용
 Mattermost Calls, SSO, 유료 Guest와 Export 미사용
 PostgreSQL은 Mattermost와 동일 VM

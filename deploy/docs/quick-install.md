@@ -5,6 +5,8 @@
 리소스를 자동 생성하지 않습니다. 이미 운영 중인 Mattermost에 notifier만 추가하려면
 이 문서나 설치 마법사를 사용하지 말고
 [기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)를 따릅니다.
+플러그인과 Mailer를 함께 사용하는 이유와 데이터·장애·라이선스 경계는
+[알림 아키텍처](./notifier-architecture.md)를 먼저 확인합니다.
 
 ## 1. 설치 순서와 준비해야 할 값
 
