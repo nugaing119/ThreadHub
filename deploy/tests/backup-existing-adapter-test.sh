@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Literal source expressions are contract strings, not shell expansions.
+# shellcheck disable=SC2016
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
