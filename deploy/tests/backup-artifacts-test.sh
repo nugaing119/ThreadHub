@@ -99,7 +99,8 @@ load_fixture() {
     REPOSITORY_ROOT="${fixture}/repository"
     VERSIONS_FILE="${fixture}/versions.env"
     ENV_FILE="${fixture}/runtime.env"
-    BACKUP_ARTIFACT_DATA_ROOT="${fixture}/data"
+    BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT="${fixture}/data/mattermost/data"
+    BACKUP_ARTIFACT_NOTIFIER_ROOT="${fixture}/data/notifier"
     BACKUP_ARTIFACT_RELEASE_FILE="${fixture}/release/release.env"
     # bsdtar lacks GNU --quoting-style; `--` is a no-op list terminator here.
     BACKUP_TAR_QUOTING_ARGS=(--)
@@ -379,7 +380,7 @@ test_unsafe_archives_are_rejected_before_extraction() (
 
     install -d -m 0700 "${fixture}/safe" "${fixture}/safe-extract"
     safe_archive="${fixture}/safe/mattermost-data.tar.zst"
-    backup_create_archive "${BACKUP_ARTIFACT_DATA_ROOT}/mattermost/data" "${safe_archive}"
+    backup_create_archive "${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT}" "${safe_archive}"
     backup_validate_archive "${safe_archive}"
     backup_extract_archive "${safe_archive}" "${fixture}/safe-extract"
     [[ "$(<"${fixture}/safe-extract/자료/고객 파일.txt")" == attachment ]]
@@ -414,6 +415,27 @@ test_queue_archive_rejects_any_non_sqlite_member() (
     [[ ! -s "${fixture}/stdout" && ! -s "${fixture}/stderr" ]]
 )
 
+test_existing_adoption_provenance_uses_the_deployed_release_commit() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    load_fixture "${fixture}"
+    deployed_commit="$(backup_artifact_release_value \
+        "${BACKUP_ARTIFACT_RELEASE_FILE}" NOTIFIER_SOURCE_COMMIT)"
+    printf 'backup adapter\n' >> "${fixture}/repository/tracked.txt"
+    git -C "${fixture}/repository" add tracked.txt
+    git -C "${fixture}/repository" -c user.name=ThreadHub \
+        -c user.email=threadhub@example.invalid commit -q -m adapter
+    [[ "$(git -C "${fixture}/repository" rev-parse HEAD)" != "${deployed_commit}" ]]
+
+    BACKUP_ARTIFACT_SOURCE_COMMIT_MODE=release
+    [[ "$(backup_artifact_git_commit)" == "${deployed_commit}" ]]
+    [[ "$(backup_artifact_provenance_json | jq -r '.source_commit')" == "${deployed_commit}" ]]
+    BACKUP_ARTIFACT_SOURCE_COMMIT_MODE=current
+    ! backup_artifact_provenance_json >/dev/null 2>&1
+    BACKUP_ARTIFACT_SOURCE_COMMIT_MODE=unsupported
+    ! backup_artifact_git_commit >/dev/null 2>&1
+)
+
 run_test 'generated backup ID is private and strict' test_generated_id_is_private_and_strict
 run_test 'GNU tar positional options precede the file list' test_gnu_tar_positional_options_precede_file_list
 run_test 'artifact creation uses only fixed sources and names' test_artifact_creation_uses_fixed_sources_and_names
@@ -427,6 +449,8 @@ run_test 'restore compatibility rejects source and image mismatch' test_restore_
 run_test 'restore set rejects a missing artifact' test_restore_set_rejects_missing_artifact
 run_test 'unsafe archives fail before extraction' test_unsafe_archives_are_rejected_before_extraction
 run_test 'queue archive rejects every non-SQLite member' test_queue_archive_rejects_any_non_sqlite_member
+run_test 'existing adoption provenance uses the deployed release commit' \
+    test_existing_adoption_provenance_uses_the_deployed_release_commit
 
 if ((failures > 0)); then
     printf '%d backup artifact test(s) failed\n' "${failures}" >&2

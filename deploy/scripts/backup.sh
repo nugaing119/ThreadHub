@@ -35,13 +35,13 @@ backup_acquire_lock() {
 backup_require_capacity() {
     local data_bytes queue_bytes available total maximum_required required
 
-    [[ -d "${BACKUP_ARTIFACT_DATA_ROOT}/mattermost/data" \
-        && ! -L "${BACKUP_ARTIFACT_DATA_ROOT}/mattermost/data" \
-        && -d "${BACKUP_ARTIFACT_DATA_ROOT}/notifier/mailer" \
-        && ! -L "${BACKUP_ARTIFACT_DATA_ROOT}/notifier/mailer" ]] || return 20
-    data_bytes="$(du -sb -- "${BACKUP_ARTIFACT_DATA_ROOT}/mattermost/data" 2>/dev/null | awk 'NR == 1 {print $1}')" \
+    [[ -d "${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT}" \
+        && ! -L "${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT}" \
+        && -d "${BACKUP_ARTIFACT_NOTIFIER_ROOT}/mailer" \
+        && ! -L "${BACKUP_ARTIFACT_NOTIFIER_ROOT}/mailer" ]] || return 20
+    data_bytes="$(du -sb -- "${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT}" 2>/dev/null | awk 'NR == 1 {print $1}')" \
         || return 20
-    queue_bytes="$(du -sb -- "${BACKUP_ARTIFACT_DATA_ROOT}/notifier/mailer" 2>/dev/null | awk 'NR == 1 {print $1}')" \
+    queue_bytes="$(du -sb -- "${BACKUP_ARTIFACT_NOTIFIER_ROOT}/mailer" 2>/dev/null | awk 'NR == 1 {print $1}')" \
         || return 20
     available="$(df --output=avail -B1 "${BACKUP_STAGING_ROOT}" 2>/dev/null | awk 'NR == 2 {print $1}')" \
         || return 20
@@ -766,5 +766,9 @@ backup_main() (
 )
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    source_mode="$(backup_source_mode)" || exit 20
+    if [[ "${source_mode}" == existing_notifier ]]; then
+        exec "${BACKUP_COMMAND_DIR}/backup-existing.sh" "$@"
+    fi
     backup_main "$@"
 fi

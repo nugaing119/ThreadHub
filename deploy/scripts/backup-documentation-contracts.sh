@@ -71,6 +71,13 @@ validate_backup_documentation_contracts() {
         'BACKUP_ID' '--resume-upload' '절대 300초 deadline' 'oci-cli-requirements.lock' \
         '--no-index' 'host-wide non-blocking lock' '원자적으로 claim' '정확한 5개 객체' \
         || return 1
+    notifier_docs_require_terms "${guide}" 'existing notifier backup adapter' \
+        '--source-mode existing-notifier' '/etc/threadhub/backup-source.env' \
+        'base+override Compose' '/srv/threadhub-notifier' 'writer 정지 전에 preflight' \
+        || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        'existing notifier backup procedure' '--source-mode existing-notifier' \
+        '/etc/threadhub/backup-source.env' 'timer remains disabled' 'new or empty' || return 1
     # Backticks below are required literal Markdown delimiters.
     # shellcheck disable=SC2016
     notifier_docs_require_terms "${guide}" 'safe restore and notifier quarantine' \

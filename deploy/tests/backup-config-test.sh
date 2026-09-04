@@ -59,6 +59,15 @@ write_valid_config() {
     chmod 0600 "${path}"
 }
 
+write_valid_source_config() {
+    local path="$1" existing_env="$2"
+
+    printf '%s\n' \
+        'BACKUP_SOURCE_MODE=existing_notifier' \
+        "BACKUP_EXISTING_NOTIFIER_ENV_FILE=${existing_env}" > "${path}"
+    chmod 0600 "${path}"
+}
+
 backup_test_privileged() {
     local command_name="$1"
     shift
@@ -91,7 +100,8 @@ load_fixture() {
     local fixture="$1"
 
     THREADHUB_BACKUP_ENV_FILE="${fixture}/backup.env"
-    export THREADHUB_BACKUP_ENV_FILE
+    THREADHUB_BACKUP_SOURCE_ENV_FILE="${fixture}/backup-source.env"
+    export THREADHUB_BACKUP_ENV_FILE THREADHUB_BACKUP_SOURCE_ENV_FILE
     [[ -f "${BACKUP_COMMON}" ]] || return 1
     # shellcheck source=/dev/null
     source "${BACKUP_COMMON}" || return 1
@@ -115,6 +125,41 @@ test_valid_config_requires_exact_secure_contract() (
     backup_validate_config
     [[ "$(backup_env_value BACKUP_REGION)" == ap-singapore-1 ]]
     [[ "$(backup_env_value BACKUP_BUCKET)" == threadhub-backup-01 ]]
+)
+
+test_backup_source_defaults_canonical_and_validates_existing_mode() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    write_valid_config "${fixture}/backup.env"
+    printf '%s\n' 'protected existing notifier configuration' > "${fixture}/existing-notifier.env"
+    chmod 0600 "${fixture}/existing-notifier.env"
+    load_fixture "${fixture}"
+
+    [[ "$(backup_source_mode)" == canonical ]]
+    write_valid_source_config "${fixture}/backup-source.env" "${fixture}/existing-notifier.env"
+    backup_validate_source_config
+    [[ "$(backup_source_mode)" == existing_notifier ]]
+    [[ "$(backup_existing_notifier_env_file)" == "${fixture}/existing-notifier.env" ]]
+)
+
+test_backup_source_rejects_unsafe_or_ambiguous_configuration() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    write_valid_config "${fixture}/backup.env"
+    printf '%s\n' protected > "${fixture}/existing-notifier.env"
+    chmod 0600 "${fixture}/existing-notifier.env"
+    load_fixture "${fixture}"
+
+    write_valid_source_config "${fixture}/backup-source.env" "${fixture}/existing-notifier.env"
+    chmod 0644 "${fixture}/backup-source.env"
+    ! backup_validate_source_config
+    write_valid_source_config "${fixture}/backup-source.env" "${fixture}/existing-notifier.env"
+    printf '%s\n' 'UNKNOWN_KEY=value' >> "${fixture}/backup-source.env"
+    ! backup_validate_source_config
+    write_valid_source_config "${fixture}/backup-source.env" "${fixture}/../existing-notifier.env"
+    ! backup_validate_source_config
+    write_valid_source_config "${fixture}/backup-source.env" "${fixture}/missing.env"
+    ! backup_validate_source_config
 )
 
 test_production_config_requires_root_owner() (
@@ -307,6 +352,8 @@ test_alert_invocation_keeps_recipient_out_of_argv_and_output() (
 )
 
 run_test 'valid backup configuration is exact and secure' test_valid_config_requires_exact_secure_contract
+run_test 'backup source defaults canonical and validates existing-notifier mode' test_backup_source_defaults_canonical_and_validates_existing_mode
+run_test 'backup source rejects unsafe or ambiguous configuration' test_backup_source_rejects_unsafe_or_ambiguous_configuration
 run_test 'production backup configuration requires root ownership' test_production_config_requires_root_owner
 run_test 'backup configuration rejects mode links duplicate unknown and region drift' test_config_rejects_wrong_mode_symlink_duplicate_unknown_and_region
 run_test 'backup identifiers and restore target checks fail closed' test_backup_ids_and_empty_restore_target_are_fail_closed

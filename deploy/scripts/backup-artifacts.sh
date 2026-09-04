@@ -8,8 +8,10 @@ if ! declare -F backup_validate_id >/dev/null 2>&1; then
     source "${BACKUP_ARTIFACT_SCRIPT_DIR}/backup-common.sh"
 fi
 
-BACKUP_ARTIFACT_DATA_ROOT=/srv/threadhub
-BACKUP_ARTIFACT_RELEASE_FILE=${BACKUP_ARTIFACT_DATA_ROOT}/notifier/release/release.env
+BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT="${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT:-/srv/threadhub/mattermost/data}"
+BACKUP_ARTIFACT_NOTIFIER_ROOT="${BACKUP_ARTIFACT_NOTIFIER_ROOT:-/srv/threadhub/notifier}"
+BACKUP_ARTIFACT_RELEASE_FILE="${BACKUP_ARTIFACT_RELEASE_FILE:-${BACKUP_ARTIFACT_NOTIFIER_ROOT}/release/release.env}"
+BACKUP_ARTIFACT_SOURCE_COMMIT_MODE="${BACKUP_ARTIFACT_SOURCE_COMMIT_MODE:-current}"
 BACKUP_TAR_COMMAND=(tar)
 BACKUP_TAR_QUOTING_ARGS=(--quoting-style=escape)
 
@@ -109,8 +111,19 @@ backup_artifact_copy_release() {
 backup_artifact_git_commit() {
     local source_commit
 
-    source_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
-        rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 20
+    case "${BACKUP_ARTIFACT_SOURCE_COMMIT_MODE}" in
+        current)
+            source_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+                rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 20
+            ;;
+        release)
+            source_commit="$(backup_artifact_release_value \
+                "${BACKUP_ARTIFACT_RELEASE_FILE}" NOTIFIER_SOURCE_COMMIT)" || return 20
+            GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+                cat-file -e "${source_commit}^{commit}" 2>/dev/null || return 20
+            ;;
+        *) return 20 ;;
+    esac
     [[ "${source_commit}" =~ ^[a-f0-9]{40}$|^[a-f0-9]{64}$ ]] || return 20
     [[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" status --porcelain=v1 \
         --untracked-files=all --ignore-submodules=none 2>/dev/null)" ]] || return 20
@@ -316,8 +329,8 @@ backup_create_artifacts() {
         && ! -e "${data_archive}" && ! -L "${data_archive}" \
         && ! -e "${queue_archive}" && ! -L "${queue_archive}" ]] || return 20
     if ! backup_create_database_dump "${database_dump}" \
-        || ! backup_create_archive "${BACKUP_ARTIFACT_DATA_ROOT}/mattermost/data" "${data_archive}" \
-        || ! backup_create_archive "${BACKUP_ARTIFACT_DATA_ROOT}/notifier/mailer" "${queue_archive}" \
+        || ! backup_create_archive "${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT}" "${data_archive}" \
+        || ! backup_create_archive "${BACKUP_ARTIFACT_NOTIFIER_ROOT}/mailer" "${queue_archive}" \
             queue.db queue.db-wal queue.db-shm; then
         rm -f -- "${database_dump}" "${data_archive}" "${queue_archive}"
         return 30

@@ -592,6 +592,9 @@ for script in \
     "${SCRIPT_DIR}/configure-backup.sh" \
     "${SCRIPT_DIR}/install-backup.sh" \
     "${SCRIPT_DIR}/backup.sh" \
+    "${SCRIPT_DIR}/backup-existing.sh" \
+    "${SCRIPT_DIR}/backup-existing-snapshot.sh" \
+    "${SCRIPT_DIR}/backup-existing-health.sh" \
     "${SCRIPT_DIR}/backup-snapshot.sh" \
     "${SCRIPT_DIR}/backup-status.sh" \
     "${SCRIPT_DIR}/restore.sh"; do
@@ -612,6 +615,7 @@ for backup_test in \
     "${DEPLOY_DIR}/tests/data-layout-test.sh" \
     "${DEPLOY_DIR}/tests/backup-restore-test.sh" \
     "${DEPLOY_DIR}/tests/backup-installer-test.sh" \
+    "${DEPLOY_DIR}/tests/backup-existing-adapter-test.sh" \
     "${DEPLOY_DIR}/tests/backup-documentation-test.sh" \
     "${DEPLOY_DIR}/tests/backup-integration-contract-test.sh"; do
     require_file "${backup_test}"

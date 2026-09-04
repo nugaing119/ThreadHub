@@ -153,6 +153,33 @@ region을 밝히고 별도 명시 승인을 받습니다.
 자동 `NF-ADOPT-01`~`NF-ADOPT-10`은 설치·rollback 경계를 검증하지만 실제 OCI inbox,
 조직별 수신정책과 사용자의 링크 권한을 대체하지 않습니다.
 
+## 기존 배포의 자동 백업 연결
+
+기존 notifier 적용형 배포는 정규 신규 설치와 Compose project 및 데이터 경로가
+다르므로, `/srv/threadhub`로 옮기거나 `deploy/.env`에 자격증명을 합치지 않습니다.
+`existing-notifier-status.sh`가 정상이고 `deploy/existing-notifier.env`가 mode 0600인
+상태에서 [백업 및 복구 운영 가이드](./backup-restore.md)의 OCI 전용 버킷과 최소 권한을
+먼저 준비한 뒤 다음처럼 연결합니다.
+
+```bash
+sudo ./deploy/scripts/configure-backup.sh --source-mode existing-notifier
+sudo ./deploy/scripts/install-backup.sh --register
+sudo ./deploy/scripts/backup.sh
+sudo ./deploy/scripts/backup-status.sh
+```
+
+`configure-backup.sh`는 기존 backup 설정을 덮어쓰지 않고 보호된
+`/etc/threadhub/backup-source.env`만 추가합니다. `backup.sh`는 이 source mode를 보고
+기존 base+override Compose를 사용해 PostgreSQL dump, 실제 Mattermost data bind mount,
+`/srv/threadhub-notifier/mailer` queue를 하나의 검증 세트로 만듭니다. 운영 release의
+commit을 provenance로 사용하며 현재 저장소에 그 commit이 없거나 working tree가
+dirty하면 실패합니다. Mattermost와 Mailer는 snapshot 구간에만 중지하며, 실패
+trap에서도 재시작과 health를 검증합니다.
+
+최초 수동 백업과 분리된 폐기 VM 복구시험이 끝날 때까지 timer remains disabled입니다.
+복구는 기존 base Compose 경로에 덮어쓰지 않고 정규 신규 설치의 new or empty
+`/srv/threadhub`에서만 수행합니다.
+
 ## 상태·중지와 rollback
 
 평상시 상태는 다음 명령으로 확인합니다.
