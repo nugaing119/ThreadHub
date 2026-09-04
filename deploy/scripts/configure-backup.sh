@@ -74,8 +74,11 @@ configure_backup_entry() {
     if [[ "${source_mode}" == existing_notifier ]]; then
         existing_env="${THREADHUB_EXISTING_NOTIFIER_ENV_FILE:-${DEPLOY_DIR}/existing-notifier.env}"
         export THREADHUB_EXISTING_NOTIFIER_ENV_FILE="${existing_env}"
-        # shellcheck source=existing-notifier-common.sh
-        source "${CONFIGURE_BACKUP_SCRIPT_DIR}/existing-notifier-common.sh"
+        if ! declare -F existing_notifier_validate_config >/dev/null 2>&1; then
+            # shellcheck source=existing-notifier-common.sh
+            source "${CONFIGURE_BACKUP_SCRIPT_DIR}/existing-notifier-common.sh"
+        fi
+        EXISTING_NOTIFIER_ENV_FILE="${existing_env}"
         existing_notifier_validate_config >/dev/null 2>&1 || {
             printf '[ACTION REQUIRED] The protected existing-notifier configuration is invalid and was not changed.\n' >&2
             return 20
