@@ -190,12 +190,21 @@ fixture_base_compose() {
 create_reviewed_tree() {
     local root="$1"
     local version="$2"
-    mkdir -p "${root}/server/dist"
+    mkdir -p \
+        "${root}/server/dist" \
+        "${root}/third_party/licenses/github.com/mattermost/mattermost/server/public"
     printf '%s\n' \
         "{\"description\":\"reviewed\",\"homepage_url\":\"https://threadhub.invalid\",\"id\":\"${plugin_id}\",\"min_server_version\":\"11.7.7\",\"name\":\"ThreadHub Notifier\",\"server\":{\"executables\":{\"linux-amd64\":\"server/dist/plugin-linux-amd64\"}},\"support_url\":\"https://threadhub.invalid\",\"version\":\"${version}\"}" \
         > "${root}/plugin.json"
     printf 'reviewed-executable-%s\n' "${version}" > "${root}/server/dist/plugin-linux-amd64"
     chmod 0755 "${root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'fixture MIT license' > "${root}/LICENSE"
+    printf '%s\n' 'fixture third-party notices' > "${root}/THIRD_PARTY_NOTICES.md"
+    printf '%s\n' 'fixture inventory source' > "${root}/third_party/README.md"
+    printf '%s\n' $'module\tversion\tlicense\tlicense_file\tsource' \
+        > "${root}/third_party/modules.tsv"
+    printf '%s\n' 'fixture Apache license' \
+        > "${root}/third_party/licenses/github.com/mattermost/mattermost/server/public/LICENSE.txt"
 }
 
 create_reviewed_bundle() {

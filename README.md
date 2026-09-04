@@ -108,4 +108,13 @@ DNS 또는 OCI Email Delivery가 아직 준비되지 않았다면 기존 작업�
 
 이 저장소의 자체 문서와 배포 구성은 [MIT License](./LICENSE)로 제공합니다.
 
-Mattermost 소프트웨어는 Mattermost의 라이선스와 상표정책을 따릅니다. ThreadHub는 Mattermost, Inc.의 공식 제품이 아니며 Mattermost와 제휴하거나 보증받은 프로젝트가 아닙니다.
+즉시 채널 이메일 알림은 Mattermost Team Edition에서 공식 지원하는 공개 플러그인
+API만 사용하며, Enterprise 전용 기능을 활성화하거나 라이선스 검사를 우회하지
+않습니다. 플러그인·Mailer의 자체 라이선스, 전체 Go 의존성, MPL 소스 제공 안내와
+원문 고지는 [notifier 라이선스 및 제3자 고지](./notifier/THIRD_PARTY_NOTICES.md)에서
+확인할 수 있습니다.
+
+Mattermost 소프트웨어는 Mattermost의 라이선스와 상표정책을 따릅니다. ThreadHub는
+Mattermost, Inc.의 공식 제품이 아니며 Mattermost와 제휴하거나 보증받은 프로젝트가
+아닙니다. 고지는 기술적 준수 기준이며 개별 고객 계약에 대한 법률 자문을 대신하지
+않습니다.

@@ -110,11 +110,16 @@ Mattermost에 notifier를 채택할 때는 base Compose를 수정하지 않는
 [기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)를 먼저
 따릅니다.
 
-이 notifier는 Mattermost Team Edition의 normal plugin API를 사용합니다. no paid feature를
-활성화하지 않으며 no license check change가 없습니다. 공개·비공개 채널의 새 글과
-스레드 답글에서 작성자를 제외한 현재 채널 멤버에게 일반 안내문만 보냅니다. DM과
-group DM은 제외하고, 본문·채널·Team·작성자 정보는 이메일·상태 출력·로그에 넣지
-않습니다.
+이 notifier는 Mattermost Team Edition에서 공식 지원하는 공개 플러그인 API만
+사용합니다. 유료 기능을 활성화하거나 라이선스 검사를 우회하지 않습니다. 구현 기준,
+제3자 모듈 목록과 라이선스 원문은
+[notifier 라이선스 및 제3자 고지](../../notifier/THIRD_PARTY_NOTICES.md)를 따릅니다.
+의존성을 추가하거나 버전을 변경하면 고지와 자동 검증도 같은 변경에서 갱신해야
+합니다.
+
+공개·비공개 채널의 새 글과 스레드 답글에서 작성자를 제외한 현재 채널 멤버에게 일반
+안내문만 보냅니다. DM과 group DM은 제외하고, 본문·채널·Team·작성자 정보는
+이메일·상태 출력·로그에 넣지 않습니다.
 
 전달은 at-least-once이며 SMTP가 수락한 뒤 상태 기록 전에 프로세스가 중단되면 드물게
 duplicate 이메일이 생길 수 있습니다. exactly-once 전달은 보장하지 않습니다. 실제

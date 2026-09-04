@@ -9,10 +9,12 @@ umask 077
 script_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 notifier_root="$(cd -- "${script_dir}/.." && pwd -P)"
 repository_root="$(cd -- "${notifier_root}/.." && pwd -P)"
-# shellcheck source=./harness-lib.sh
+# shellcheck source=notifier/integration/harness-lib.sh
 source "${script_dir}/harness-lib.sh"
 # shellcheck source=../../deploy/scripts/notifier-lib.sh
 source "${repository_root}/deploy/scripts/notifier-lib.sh"
+# shellcheck source=../../deploy/scripts/notifier-plugin-files.sh
+source "${repository_root}/deploy/scripts/notifier-plugin-files.sh"
 compose_file="${script_dir}/docker-compose.yml"
 versions_file="${repository_root}/deploy/versions.env"
 scenario_ids_file="${script_dir}/cmd/acceptance/scenario-ids.txt"
@@ -402,14 +404,9 @@ bundle_container_id=""
 chmod 0600 "${bundle_file}"
 
 tar -tzf "${bundle_file}" >"${integration_root}/bundle-entries" || abort_run NF-HARNESS-compose-bundle-shape
-printf '%s\n' \
-    "${plugin_id}/" \
-    "${plugin_id}/plugin.json" \
-    "${plugin_id}/server/" \
-    "${plugin_id}/server/dist/" \
-    "${plugin_id}/server/dist/plugin-linux-amd64" \
-    >"${integration_root}/expected-bundle-entries"
-cmp -s "${integration_root}/expected-bundle-entries" "${integration_root}/bundle-entries" || abort_run NF-HARNESS-compose-bundle-shape
+notifier_plugin_bundle_entries_are_valid \
+    "${integration_root}/bundle-entries" "${plugin_id}" current \
+    || abort_run NF-HARNESS-compose-bundle-shape
 tar -tvzf "${bundle_file}" | awk '{ type=substr($1,1,1); if (type != "-" && type != "d") exit 1 }' || abort_run NF-HARNESS-compose-bundle-shape
 
 result_assertion=NF-HARNESS-compose-start

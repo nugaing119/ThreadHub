@@ -272,8 +272,9 @@ validate_notifier_documentation_contracts() {
     notifier_docs_require_terms "${deploy_dir}/docs/operations-checklist.md" \
         'immediate disable and 24h/7d privacy retention' 'immediate disable' '24h/7d privacy retention' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/admin-guide.md" \
-        'Team Edition plugin and license boundary' 'Mattermost Team Edition' 'normal plugin API' \
-        'no paid feature' 'no license check change' || return 1
+        'Team Edition plugin and license boundary' 'Mattermost Team Edition' '공개 플러그인 API' \
+        '유료 기능' '라이선스 검사를 우회하지 않습니다' \
+        '../../notifier/THIRD_PARTY_NOTICES.md' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/setup.md" \
         'safe project DNS A-record isolation' 'DNS A record' 'unrelated RRsets' 'two independent VM' || return 1
     notifier_docs_require_regex "${deploy_dir}/docs/oci-email-delivery.md" \

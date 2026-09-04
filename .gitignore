@@ -41,6 +41,8 @@ volumes/
 data/
 postgres/
 mattermost/
+!notifier/third_party/licenses/github.com/mattermost/
+!notifier/third_party/licenses/github.com/mattermost/**
 backups/
 backup-staging/
 restore-staging/

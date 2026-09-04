@@ -66,14 +66,8 @@ for path in \
 done
 
 tar -tzf "${reviewed_bundle}" > "${tmp_dir}/entries"
-printf '%s\n' \
-    "${plugin_id}/" \
-    "${plugin_id}/plugin.json" \
-    "${plugin_id}/server/" \
-    "${plugin_id}/server/dist/" \
-    "${plugin_id}/server/dist/plugin-linux-amd64" \
-    > "${tmp_dir}/expected-entries"
-cmp -s "${tmp_dir}/entries" "${tmp_dir}/expected-entries"
+notifier_plugin_bundle_entries_are_valid \
+    "${tmp_dir}/entries" "${plugin_id}" current
 tar -tvzf "${reviewed_bundle}" > "${tmp_dir}/verbose-entries"
 awk '{ type = substr($1, 1, 1); if (type != "-" && type != "d") exit 1 }' \
     "${tmp_dir}/verbose-entries"

@@ -136,6 +136,17 @@ mkdir "${temporary_dir}/bundle"
 tar -xzf "${bundle_path}" -C "${temporary_dir}/bundle" \
     --no-same-owner --no-same-permissions 2>/dev/null \
     || fail bundle-archive
+bundle_notice_root="${temporary_dir}/bundle/com.threadhub.channel-email-notifier"
+for required_notice in \
+    LICENSE \
+    THIRD_PARTY_NOTICES.md \
+    third_party/modules.tsv \
+    third_party/licenses/github.com/mattermost/mattermost/server/public/LICENSE.txt; do
+    [[ -f "${bundle_notice_root}/${required_notice}" \
+        && ! -L "${bundle_notice_root}/${required_notice}" \
+        && -s "${bundle_notice_root}/${required_notice}" ]] \
+        || fail bundle-license
+done
 if ! "${gitleaks_bin}" dir --redact --no-banner "${temporary_dir}/bundle" \
     >"${temporary_dir}/bundle-scan" 2>&1; then
     fail bundle-content
@@ -290,6 +301,23 @@ while IFS= read -r layer_path; do
         || fail image-archive
 done < <(jq -r '.[0].Layers[]' "${manifest_file}")
 [[ "${layer_number}" -gt 0 ]] || fail image-archive
+
+find "${temporary_dir}/layers" -type d \
+    -path '*/licenses/threadhub-notifier' -print \
+    >"${temporary_dir}/image-notice-roots"
+[[ "$(wc -l <"${temporary_dir}/image-notice-roots" | tr -d '[:space:]')" == 1 ]] \
+    || fail image-license
+image_notice_root="$(<"${temporary_dir}/image-notice-roots")"
+for required_notice in \
+    LICENSE \
+    THIRD_PARTY_NOTICES.md \
+    third_party/modules.tsv \
+    third_party/licenses/github.com/mattermost/mattermost/server/public/LICENSE.txt; do
+    [[ -f "${image_notice_root}/${required_notice}" \
+        && ! -L "${image_notice_root}/${required_notice}" \
+        && -s "${image_notice_root}/${required_notice}" ]] \
+        || fail image-license
+done
 
 mkdir "${temporary_dir}/image-scan"
 cp "${temporary_dir}/image/${config_path}" "${temporary_dir}/image-scan/config.json"

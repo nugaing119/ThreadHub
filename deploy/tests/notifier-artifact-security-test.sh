@@ -87,11 +87,21 @@ make_bundle() {
     local bundle_root="${temporary_dir}/bundle-root"
 
     rm -rf "${bundle_root}"
-    mkdir -p "${bundle_root}/com.threadhub.channel-email-notifier/server/dist"
+    mkdir -p \
+        "${bundle_root}/com.threadhub.channel-email-notifier/server/dist" \
+        "${bundle_root}/com.threadhub.channel-email-notifier/third_party/licenses/github.com/mattermost/mattermost/server/public"
     printf '%s\n' '{"id":"com.threadhub.channel-email-notifier"}' \
         >"${bundle_root}/com.threadhub.channel-email-notifier/plugin.json"
     printf '%s\n' "${content}" \
         >"${bundle_root}/com.threadhub.channel-email-notifier/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'fixture license' \
+        >"${bundle_root}/com.threadhub.channel-email-notifier/LICENSE"
+    printf '%s\n' 'fixture notices' \
+        >"${bundle_root}/com.threadhub.channel-email-notifier/THIRD_PARTY_NOTICES.md"
+    printf '%s\n' $'module\tversion\tlicense\tlicense_file\tsource' \
+        >"${bundle_root}/com.threadhub.channel-email-notifier/third_party/modules.tsv"
+    printf '%s\n' 'fixture Apache license' \
+        >"${bundle_root}/com.threadhub.channel-email-notifier/third_party/licenses/github.com/mattermost/mattermost/server/public/LICENSE.txt"
     tar -czf "${temporary_dir}/bundle.tar.gz" -C "${bundle_root}" \
         com.threadhub.channel-email-notifier
 }
@@ -132,9 +142,20 @@ make_image_document() {
     local config_name=""
 
     rm -rf "${image_root}" "${layer_root}"
-    mkdir -p "${image_root}" "${layer_root}/app"
+    mkdir -p \
+        "${image_root}" \
+        "${layer_root}/app" \
+        "${layer_root}/licenses/threadhub-notifier/third_party/licenses/github.com/mattermost/mattermost/server/public"
     printf '%s\n' "${content}" >"${layer_root}/app/threadhub-mailer"
-    tar -cf "${image_root}/layer.tar" -C "${layer_root}" app
+    printf '%s\n' 'fixture license' \
+        >"${layer_root}/licenses/threadhub-notifier/LICENSE"
+    printf '%s\n' 'fixture notices' \
+        >"${layer_root}/licenses/threadhub-notifier/THIRD_PARTY_NOTICES.md"
+    printf '%s\n' $'module\tversion\tlicense\tlicense_file\tsource' \
+        >"${layer_root}/licenses/threadhub-notifier/third_party/modules.tsv"
+    printf '%s\n' 'fixture Apache license' \
+        >"${layer_root}/licenses/threadhub-notifier/third_party/licenses/github.com/mattermost/mattermost/server/public/LICENSE.txt"
+    tar -cf "${image_root}/layer.tar" -C "${layer_root}" app licenses
     printf '%s\n' "${document}" >"${image_root}/config-pending.json"
     config_digest="$(fixture_sha256 "${image_root}/config-pending.json")"
     config_name="${config_digest}.json"
@@ -234,7 +255,7 @@ if ! run_gate >"${temporary_dir}/clean-output" 2>&1; then
     clean_class="$(sed -n 's/^not ok - notifier artifact secret gate: //p' \
         "${temporary_dir}/clean-output")"
     case "${clean_class}" in
-        scanner|bundle|bundle-archive|bundle-content|image|image-platform|image-metadata|image-archive|image-content) ;;
+        scanner|bundle|bundle-archive|bundle-license|bundle-content|image|image-platform|image-metadata|image-archive|image-license|image-content) ;;
         *) clean_class=unknown ;;
     esac
     fail "clean bundle and Mailer image fixture was rejected (${clean_class})"
