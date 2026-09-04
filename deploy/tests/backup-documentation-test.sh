@@ -76,6 +76,12 @@ rm -f "${fixture_root}/deploy/docs/backup-restore.md.bak"
 assert_contract_failure 'bucket-read permission required by OCI preflight was removed'
 
 reset_fixture
+sed -i.bak 's/request\.principal\.id/compartment-wide-principal/g' \
+    "${fixture_root}/deploy/docs/deployment-models.md"
+rm -f "${fixture_root}/deploy/docs/deployment-models.md.bak"
+assert_contract_failure 'shared Dynamic Group exact-principal boundary was removed'
+
+reset_fixture
 sed -i.bak 's/install-backup\.sh --prepare-restore-host/install-backup.sh --register/g' \
     "${fixture_root}/deploy/docs/backup-restore.md"
 rm -f "${fixture_root}/deploy/docs/backup-restore.md.bak"

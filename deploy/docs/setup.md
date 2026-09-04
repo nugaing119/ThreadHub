@@ -1,6 +1,7 @@
 # ThreadHub 설치 가이드
 
-새 VM에서 가장 간단한 설치 방법은 [빠른 설치 가이드](./quick-install.md)의
+새 프로젝트의 모델 선택은 [배포 모델과 신규 프로젝트 표준](./deployment-models.md)을
+먼저 따릅니다. 새 VM에서 가장 간단한 설치 방법은 [빠른 설치 가이드](./quick-install.md)의
 `setup-wizard.sh`를 사용하는 것입니다. 이 문서는 각 단계를 수동으로 수행하거나
 문제를 진단해야 할 때 사용합니다.
 
