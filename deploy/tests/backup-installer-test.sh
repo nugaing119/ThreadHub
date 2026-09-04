@@ -212,12 +212,15 @@ test_configurator_creates_reuses_and_refuses_unsafe_state() (
 
 test_configurator_adds_existing_source_without_replacing_backup_config() (
     stage=fixture
+    printf 'existing-source diagnostic: stage=%s\n' "${stage}" >&2
     trap 'printf "existing-source diagnostic: preconfigure stage=%s failed\n" "${stage}" >&2' ERR
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
     stage=directory
+    printf 'existing-source diagnostic: stage=%s\n' "${stage}" >&2
     mkdir -p "${fixture}/etc/threadhub"
     stage=backup-fixture
+    printf 'existing-source diagnostic: stage=%s\n' "${stage}" >&2
     printf '%s\n' \
         'BACKUP_REGION=ap-singapore-1' \
         'BACKUP_NAMESPACE=namespace1' \
@@ -228,6 +231,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         'BACKUP_WEEKLY_RETENTION_DAYS=28' > "${fixture}/etc/threadhub/backup.env"
     chmod 0600 "${fixture}/etc/threadhub/backup.env"
     stage=existing-fixture
+    printf 'existing-source diagnostic: stage=%s\n' "${stage}" >&2
     printf '%s\n' \
         "THN_COMPOSE_PROJECT_DIR=${fixture}/project" \
         "THN_COMPOSE_FILE=${fixture}/project/compose.yml" \
@@ -250,6 +254,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
     chmod 0600 "${fixture}/existing-notifier.env"
 
     stage=source-configurator
+    printf 'existing-source diagnostic: stage=%s\n' "${stage}" >&2
     [[ -f "${CONFIGURATOR}" ]]
     # shellcheck source=/dev/null
     source "${CONFIGURATOR}"
@@ -268,12 +273,14 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
     }
 
     stage=backup-hash
+    printf 'existing-source diagnostic: stage=%s\n' "${stage}" >&2
     before="$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')"
     if ! configure_backup_entry --source-mode existing-notifier \
         >"${fixture}/stdout" 2>"${fixture}/stderr"; then
         printf 'existing-source diagnostic: initial configure failed\n' >&2
         return 1
     fi
+    printf 'existing-source diagnostic: stage=initial-configured\n' >&2
     [[ "${before}" == "$(openssl dgst -sha256 "${BACKUP_ENV_FILE}" | awk '{print $NF}')" ]] || {
         printf 'existing-source diagnostic: backup config changed\n' >&2
         return 1
@@ -282,6 +289,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         printf 'existing-source diagnostic: source config validation failed\n' >&2
         return 1
     }
+    printf 'existing-source diagnostic: stage=source-validated\n' >&2
     [[ "$(portable_mode "${BACKUP_SOURCE_ENV_FILE}")" == 600 ]] || {
         printf 'existing-source diagnostic: source config mode is invalid\n' >&2
         return 1
@@ -292,6 +300,7 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         printf 'existing-source diagnostic: idempotent configure failed\n' >&2
         return 1
     fi
+    printf 'existing-source diagnostic: stage=idempotent-configured\n' >&2
     [[ "${source_before}" == "$(openssl dgst -sha256 "${BACKUP_SOURCE_ENV_FILE}" | awk '{print $NF}')" ]] || {
         printf 'existing-source diagnostic: source config changed\n' >&2
         return 1
