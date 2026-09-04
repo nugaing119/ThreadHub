@@ -36,6 +36,7 @@ validate_backup_documentation_contracts() {
     local repository_root="$1"
     local deploy_dir="${repository_root}/deploy"
     local guide="${deploy_dir}/docs/backup-restore.md"
+    local deployment_models="${deploy_dir}/docs/deployment-models.md"
     local prd="${repository_root}/docs/threadhub-prd-v4.3-final.md"
     local documents=(
         "${repository_root}/README.md"
@@ -43,6 +44,7 @@ validate_backup_documentation_contracts() {
         "${repository_root}/SECURITY.md"
         "${deploy_dir}/README.md"
         "${deploy_dir}/docs/quick-install.md"
+        "${deployment_models}"
         "${deploy_dir}/docs/setup.md"
         "${deploy_dir}/docs/admin-guide.md"
         "${deploy_dir}/docs/operations-checklist.md"
@@ -64,7 +66,12 @@ validate_backup_documentation_contracts() {
     notifier_docs_require_terms "${guide}" 'exact OCI least-privilege boundary' \
         'ap-singapore-1' 'Public Access' 'AES-256' 'Instance Principal' \
         'read buckets' 'BUCKET_READ' 'OBJECT_CREATE' 'OBJECT_INSPECT' 'OBJECT_READ' 'OBJECT_DELETE' \
-        'explicit user authorization' || return 1
+        'request.principal.id' 'cross-project deny matrix' 'explicit user authorization' || return 1
+    notifier_docs_require_terms "${deployment_models}" 'deployment model decision and isolation' \
+        'canonical fresh' 'existing adoption' 'in-place layout migration' \
+        'shared Dynamic Group exception' 'ANY {instance.id' 'request.principal.id' \
+        'cross-project deny matrix' '프로젝트별 SMTP IAM 사용자' 'Email Domain·DKIM·SPF' \
+        || return 1
     notifier_docs_require_terms "${guide}" 'retention and lifecycle boundary' \
         'daily/' '7일' 'weekly/' '28일' 'Lifecycle service authorization' || return 1
     notifier_docs_require_terms "${guide}" 'enforced backup safety boundaries' \
@@ -113,8 +120,20 @@ validate_backup_documentation_contracts() {
 
     notifier_docs_require_link "${repository_root}/README.md" \
         './deploy/docs/backup-restore.md' || return 1
+    notifier_docs_require_link "${repository_root}/README.md" \
+        './deploy/docs/deployment-models.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" \
         './docs/backup-restore.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/README.md" \
+        './docs/deployment-models.md' || return 1
+    for document in \
+        "${deploy_dir}/docs/quick-install.md" \
+        "${deploy_dir}/docs/setup.md" \
+        "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        "${deploy_dir}/docs/oci-provisioning.md" \
+        "${guide}"; do
+        notifier_docs_require_link "${document}" './deployment-models.md' || return 1
+    done
     for document in \
         "${deploy_dir}/docs/quick-install.md" \
         "${deploy_dir}/docs/setup.md" \

@@ -40,6 +40,7 @@ deploy/
 │   ├── restore.sh
 │   └── validate.sh
 └── docs/
+    ├── deployment-models.md
     ├── quick-install.md
     ├── backup-restore.md
     ├── existing-mattermost-notifier.md
@@ -83,7 +84,9 @@ Docker Compose가 설치되어 있으면 실제 `docker compose config`를 실�
 
 ## VM 배포 순서
 
-새 VM의 권장 진입점은 대화형 설치 마법사입니다.
+새 프로젝트의 표준은 [배포 모델과 신규 프로젝트 표준](./docs/deployment-models.md)의
+canonical fresh이며, 새 VM의 권장 진입점은 대화형 설치 마법사입니다. 기존 운영
+Mattermost에는 이 경로를 사용하지 않습니다.
 
 ```bash
 ./deploy/scripts/setup-wizard.sh

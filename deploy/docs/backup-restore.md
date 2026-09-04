@@ -31,7 +31,11 @@ OCI Object Storage 기본 서버 측 AES-256 암호화를 사용하며, 공개 U
 Pre-Authenticated Request를 만들지 않는다. VM은 Instance Principal로만
 접근한다.
 
-Dynamic Group은 정확한 프로젝트 VM 한 대만 일치해야 한다. 아래의 모든 값은
+Dynamic Group은 원칙적으로 정확한 프로젝트 VM 한 대만 일치해야 한다. OCI quota
+제약으로 프로젝트별 Dynamic Group을 만들 수 없으면
+[배포 모델과 신규 프로젝트 표준](./deployment-models.md)의 shared Dynamic Group
+exception을 사용할 수 있다. 공유 그룹도 승인된 VM의 정확한 instance OCID만
+`ANY`로 열거하며 compartment 전체나 broad tag를 포함하지 않는다. 아래의 모든 값은
 실제 값이 아닌 placeholder다.
 
 ```text
@@ -41,12 +45,18 @@ Allow dynamic-group '<identity-domain>'/'<project-backup-dynamic-group>' to read
 Allow dynamic-group '<identity-domain>'/'<project-backup-dynamic-group>' to manage objects in compartment <project-compartment> where all {target.bucket.name = '<project-backup-bucket>', any {request.permission = 'OBJECT_CREATE', request.permission = 'OBJECT_INSPECT', request.permission = 'OBJECT_READ'}}
 ```
 
+공유 Dynamic Group을 사용할 때는 위 project policy에 exact
+`request.principal.id = '<project-threadhub-instance-ocid>'` 조건도 함께 적용한다.
+따라서 같은 Dynamic Group의 다른 VM도 이 프로젝트 버킷을 사용할 수 없어야 한다.
+전체 placeholder 예시는 연결된 배포 모델 문서의 shared Dynamic Group exception을
+사용하며, 실제 OCID나 버킷명을 이 공개 문서에 기록하지 않는다.
+
 첫 문장의 `read buckets`는 preflight가 호출하는 `GetBucket`의 `BUCKET_READ`에
 필요하다. `inspect buckets`의 `BUCKET_INSPECT`만으로는 `oci os bucket get`이
 거부되므로 대체할 수 없다. VM 정책에는 `OBJECT_DELETE`, 버킷 생성·수정·삭제,
 다른 버킷 접근 또는 다른 인스턴스 권한을 넣지 않는다. 라이브 시험에서 대상 버킷
-read와 객체 create/inspect/read는
-성공하고, 교차 버킷·객체 삭제·버킷 삭제는 거부되어야 한다.
+read와 객체 create/inspect/read는 성공하고, cross-project deny matrix에서 다른 모든
+프로젝트 버킷·객체 삭제·버킷 삭제는 거부되어야 한다.
 
 ## 3. 명시적 승인 경계
 

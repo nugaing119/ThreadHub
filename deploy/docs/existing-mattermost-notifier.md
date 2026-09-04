@@ -2,7 +2,8 @@
 
 이 문서는 이미 운영 중인 Mattermost에 공개·비공개 채널 새 글과 스레드 답글의
 일반 안내 이메일을 추가하는 절차입니다. 새 ThreadHub 설치 절차가 아닙니다. 신규
-VM은 [빠른 설치 가이드](./quick-install.md)를 사용합니다.
+VM은 [배포 모델과 신규 프로젝트 표준](./deployment-models.md)의 canonical fresh와
+[빠른 설치 가이드](./quick-install.md)를 사용합니다.
 
 플러그인과 Mailer의 역할, 분리 이유, 데이터·장애·라이선스 경계는 적용 전에
 [알림 아키텍처](./notifier-architecture.md)에서 확인합니다.
@@ -46,6 +47,10 @@ setup은 다음 항목만 추가합니다.
 setup과 rollback은 base Compose file과 base environment file을 덮어쓰거나 수정하지
 않습니다. 기존 Team·채널·사용자·게시물·파일 행은 유지합니다. plugin 전용 KV와
 rollback 격리 증거는 별도 운영 데이터로 남을 수 있습니다.
+
+기존 배포를 단순히 경로 통일 목적으로 in-place layout migration하지 않습니다.
+향후 검증된 백업을 new or empty `/srv/threadhub`의 새 VM에 복구할 때만 canonical fresh
+레이아웃으로 전환합니다.
 
 plugin pair 설치와 rollback 중 Mattermost 컨테이너가 한 번 재생성되므로 사용자는
 보통 30–60초 동안 연결이 끊겼다가 다시 연결될 수 있습니다. PostgreSQL과 SMTP
