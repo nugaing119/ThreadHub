@@ -26,11 +26,12 @@ MAILER_PROBE_ENV := \
 	-e SMTP_FEEDBACK_NAME=ThreadHub \
 	-e NOTIFIER_RATE_PER_MINUTE=10
 
-.PHONY: verify fmt-check mod-verify vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-artifact-secrets verify-reproducible clean
+.PHONY: verify fmt-check mod-verify license-check vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-artifact-secrets verify-reproducible clean
 
 verify:
 	@$(MAKE) fmt-check
 	@$(MAKE) mod-verify
+	@$(MAKE) license-check
 	@$(MAKE) vet
 	@$(MAKE) test
 	@$(MAKE) plugin-bundle
@@ -45,6 +46,9 @@ fmt-check:
 
 mod-verify:
 	@go mod verify
+
+license-check:
+	@../deploy/tests/notifier-license-compliance-test.sh
 
 vet:
 	@go vet ./...
@@ -120,8 +124,12 @@ verify-artifacts:
 		'$(NOTIFIER_PLUGIN_ID)/plugin.json' \
 		'$(NOTIFIER_PLUGIN_ID)/server/' \
 		'$(NOTIFIER_PLUGIN_ID)/server/dist/' \
-		'$(NOTIFIER_PLUGIN_ID)/server/dist/plugin-linux-amd64' > "$$tmp/expected"; \
-	diff -u "$$tmp/expected" "$$tmp/entries"; \
+		'$(NOTIFIER_PLUGIN_ID)/server/dist/plugin-linux-amd64' > "$$tmp/expected-base"; \
+	find LICENSE THIRD_PARTY_NOTICES.md third_party -print \
+		| sed 's#^#$(NOTIFIER_PLUGIN_ID)/#' > "$$tmp/expected-notices"; \
+	LC_ALL=C sort -u "$$tmp/expected-base" "$$tmp/expected-notices" > "$$tmp/expected"; \
+	LC_ALL=C sort -u "$$tmp/entries" > "$$tmp/actual"; \
+	diff -u "$$tmp/expected" "$$tmp/actual"; \
 	awk 'BEGIN { bad=0 } /^\// { bad=1 } { n=split($$0,p,"/"); for (i=1;i<=n;i++) if (p[i]=="..") bad=1 } END { exit bad }' "$$tmp/entries"; \
 	tar -tvzf "$(PLUGIN_BUNDLE)" | awk '{ type=substr($$1,1,1); if (type!="-" && type!="d") exit 1 }'; \
 	mkdir "$$tmp/extracted"; \
@@ -129,6 +137,9 @@ verify-artifacts:
 	plugin_root="$$tmp/extracted/$(NOTIFIER_PLUGIN_ID)"; \
 	test -x "$$plugin_root/server/dist/plugin-linux-amd64"; \
 	cmp -s "$$plugin_root/plugin.json" plugin/plugin.json; \
+	cmp -s "$$plugin_root/LICENSE" LICENSE; \
+	cmp -s "$$plugin_root/THIRD_PARTY_NOTICES.md" THIRD_PARTY_NOTICES.md; \
+	diff -qr "$$plugin_root/third_party" third_party >/dev/null; \
 	printf '%s\n' \
 		'package main' \
 		'import ("encoding/json"; "io"; "os")' \
@@ -154,6 +165,11 @@ verify-artifacts:
 	mkdir -p "$$tmp/ca"; \
 	"$(CONTAINER_CLI)" cp "$$cid:/etc/ssl/certs/ca-certificates.crt" "$$tmp/ca/ca-certificates.crt"; \
 	test -s "$$tmp/ca/ca-certificates.crt"; \
+	mkdir -p "$$tmp/mailer-notices"; \
+	"$(CONTAINER_CLI)" cp "$$cid:/licenses/threadhub-notifier/." "$$tmp/mailer-notices/"; \
+	cmp -s "$$tmp/mailer-notices/LICENSE" LICENSE; \
+	cmp -s "$$tmp/mailer-notices/THIRD_PARTY_NOTICES.md" THIRD_PARTY_NOTICES.md; \
+	diff -qr "$$tmp/mailer-notices/third_party" third_party >/dev/null; \
 	go version -m "$$tmp/threadhub-mailer" > "$$tmp/mailer-buildinfo"; \
 	grep -F 'GOOS=linux' "$$tmp/mailer-buildinfo" >/dev/null; \
 	grep -F 'GOARCH=amd64' "$$tmp/mailer-buildinfo" >/dev/null; \

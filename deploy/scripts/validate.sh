@@ -403,6 +403,7 @@ require_file "${SCRIPT_DIR}/existing-notifier-common.sh"
 require_file "${SCRIPT_DIR}/existing-notifier-preflight.sh"
 require_file "${SCRIPT_DIR}/existing-notifier-overlay.sh"
 require_file "${DEPLOY_DIR}/tests/common-compose-test.sh"
+require_file "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
@@ -414,6 +415,8 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/common-compose-test.sh" ]] \
     || die "Common Compose guard regression test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh" ]] \
+    || die "Notifier license compliance test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
@@ -433,6 +436,7 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh" ]] \
     || die "Existing notifier operations test must be executable"
 "${DEPLOY_DIR}/tests/common-compose-test.sh"
+"${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
@@ -442,7 +446,7 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
-log "Notifier installer configuration, state and SMTP acceptance behaviors are valid"
+log "Notifier licensing, installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv
 require_command ln
