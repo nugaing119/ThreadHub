@@ -76,11 +76,23 @@ Compose가 이미 정상 설치된 호스트에서는 `ruby`를 별도로 설치
 
 마법사는 notifier HMAC을 생성하고 보호된 `deploy/.env`에만 기록합니다. SMTP
 username/password는 hidden prompt로 입력하며 명령행 인수로 전달하지 않습니다.
+신규 설치는 `NOTIFIER_CONTENT_MODE=project_team_channel`을 기록해 알림 제목과 본문에
+프로젝트 도메인, Team 표시명, 채널 표시명과 새 글/스레드 답글 유형을 포함합니다.
+메시지 본문·작성자명·첨부파일명은 포함하지 않습니다. 비공개 채널명 자체가 OCI Email
+Delivery와 수신자 메일함에 남으면 안 되는 프로젝트는 활성화 전에 보호된 `.env`의
+값을 `generic`으로 변경하고 다시 검증합니다.
 `NOTIFIER_ENABLED=true`인 신규 설정은 `./deploy/scripts/notifier-smtp-test.sh`의
 일회성 SMTP acceptance가 현재 자격 증명에 대해 성공하고, 빈 pre-activation queue와
 정확한 Runtime=Running plugin을 확인한 뒤 activation cutoff를 기록할 때만 발송합니다.
 
 마법사는 실제 `.env` 값을 출력하지 않습니다.
+
+notifier v0.1.0으로 이미 운영 중인 canonical 설치는 이 빠른 설치 절차로 덮어쓰지
+않습니다. v0.2.0의 별도 통제된 업그레이드 전에 보호된 `deploy/.env`를 `sudoedit`으로
+열어 `NOTIFIER_CONTENT_MODE=generic` 또는
+`NOTIFIER_CONTENT_MODE=project_team_channel`을 정확히 한 줄 추가해야 합니다. 파일 전체를
+출력하거나 덮어쓰지 않습니다. 키가 없거나 중복되면 검증기는 기존 서비스를 변경하지
+않고 중단합니다. 이 설정만 추가해도 실행 중인 v0.1.0의 메일 형식은 바뀌지 않습니다.
 
 `deploy/.env`의 신규 생성과 notifier 설정 추가는 같은 파일시스템 안에서
 no-clobber 이동과 hard link로 게시됩니다. Ubuntu 24.04 기본 GNU Coreutils의
@@ -136,7 +148,7 @@ System Admin을 생성합니다. 관리자 비밀번호는 채팅이나 셸 인�
 2. 초대·이메일 확인·비밀번호 재설정 및 notifier SMTP 시험 메일의 inbox/link
 3. SPF와 DKIM 결과
 4. public/private 채널 Member 권한과 notifier 수신 경계
-5. CJK 검색과 일반 안내문
+5. CJK 검색과 notifier 컨텍스트 안내문(도메인·Team·채널·새 글/답글 유형)
 6. iOS 또는 Android 앱
 
 자동 점검 통과는 위 수동 인수시험을 대체하지 않습니다.

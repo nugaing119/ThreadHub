@@ -16,7 +16,9 @@ ThreadHub는 다음 요구사항을 동시에 충족하기 위해 두 구성요�
 
 - 공개·비공개 채널의 새 글과 스레드 답글을 게시 직후 감지한다.
 - 게시 시점의 채널 멤버에게만 수신자별 이메일을 보낸다.
-- 메시지 본문, 채널명, Team명과 작성자명을 이메일에 포함하지 않는다.
+- 프로젝트 도메인, Team 표시명, 채널 표시명과 새 글/스레드 답글 유형을 이메일에
+  포함해 여러 프로젝트 알림을 구분한다.
+- 메시지 본문, 작성자명, 첨부파일명과 수신자 목록은 이메일에 포함하지 않는다.
 - DM, 그룹 DM, 시스템 글, 수정·삭제와 Webhook·봇 작성 글은 제외한다.
 - SMTP 장애가 Mattermost의 글 작성 성공 여부에 영향을 주지 않게 한다.
 - 커스텀 플러그인 코드에서 SMTP 처리와 자격 증명 접근을 제거한다.
@@ -31,7 +33,7 @@ Mailer는 OCI Email Delivery로 안전하고 재시도 가능한 SMTP 전송을 
 | 구성요소 | 책임 | 보유하지 않는 책임 |
 | --- | --- | --- |
 | Mattermost 플러그인 | `MessageHasBeenPosted` 감지, 대상 이벤트 필터, 현재 채널 멤버와 적격 수신자 확인, plugin KV outbox 기록, HMAC 서명 요청 | SMTP 연결·자격 증명 사용, 장기 재시도, 이메일 발송 큐 |
-| Mailer | 서명·재전송 입력 검증, SQLite 영구 큐와 중복 방지, 수신자별 일반 안내문 생성, 속도 제한·재시도·실패 분류, STARTTLS SMTP 발송 | Mattermost 메시지 본문 조회, 채널 권한 결정, Mattermost 유료 기능 활성화 |
+| Mailer | 서명·재전송 입력 검증, SQLite 영구 큐와 중복 방지, 수신자별 컨텍스트 안내문 생성, 속도 제한·재시도·실패 분류, STARTTLS SMTP 발송 | Mattermost 메시지 본문 조회, 채널 권한 결정, Mattermost 유료 기능 활성화 |
 | OCI Email Delivery | 승인된 발신자의 SMTP 메시지 접수와 인터넷 메일 전달 | Mattermost 이벤트 감지, 채널 멤버십 판단 |
 
 ## 3. 이벤트 흐름
@@ -39,11 +41,11 @@ Mailer는 OCI Email Delivery로 안전하고 재시도 가능한 SMTP 전송을 
 ```text
 사용자가 채널에 새 글 또는 스레드 답글 작성
   → Mattermost가 글을 저장하고 플러그인 훅 호출
-  → 플러그인이 대상 여부와 현재 채널 멤버 확인
+  → 플러그인이 대상 여부·현재 채널 멤버·Team/채널 표시명 확인
   → 최소 이벤트를 plugin KV outbox에 기록
   → 내부 Docker network로 HMAC 서명 요청 전송
   → Mailer가 SQLite에 원자적으로 저장한 뒤 접수 응답
-  → Mailer가 수신자별 일반 안내 이메일을 STARTTLS로 발송
+  → Mailer가 수신자별 프로젝트 컨텍스트 안내 이메일을 STARTTLS로 발송
   → 사용자는 ThreadHub에 로그인해 원문 확인
 ```
 
@@ -75,11 +77,39 @@ Mailer만 중지하거나 notifier를 비활성화해도 Mattermost 채널, 사�
 계속 유지된다. 전달 방식은 at-least-once이므로 SMTP 접수 직후 상태 기록 전에 프로세스가
 중단되면 드물게 중복 이메일이 발생할 수 있다.
 
-### 개인정보 최소화
+### 개인정보 최소화와 컨텍스트 노출 선택
 
-Mailer에는 발송에 필요한 최소 식별자와 수신 주소만 전달한다. 메시지 본문, 채널명,
-Team명과 작성자명은 Mailer 요청, 이메일, 상태 출력과 로그에 포함하지 않는다. 이메일은
-새 메시지가 있다는 일반 안내와 ThreadHub 확인 링크만 제공한다.
+`NOTIFIER_CONTENT_MODE=project_team_channel`은 이메일 제목과 본문에 다음 값만 포함한다.
+
+- `THREADHUB_DOMAIN` 프로젝트 도메인
+- Mattermost Team 표시명
+- 공개 또는 비공개 채널 표시명
+- `새 글` 또는 `스레드 답글` 유형
+- 권한 확인을 거치는 Mattermost permalink
+
+메시지 본문, 작성자명, 첨부파일명과 다른 수신자 주소는 plugin→Mailer 요청이나
+이메일에 포함하지 않는다. Mailer 상태와 로그에는 Team·채널명과 수신 주소를 출력하지
+않는다. 표시명은 길이와 제어문자를 검증하고, 제목은 RFC 2047로 인코딩하며 HTML 본문은
+escape한다.
+
+예를 들어 `project-a.example.test`의 `Customer-A` Team, `Support` 채널에
+스레드 답글이 등록되면 제목은 다음 형식이다.
+
+```text
+[ThreadHub][project-a.example.test] Customer-A / Support · 스레드 답글
+```
+
+본문에는 같은 도메인·Team·채널과 이벤트 유형, 원문 확인 링크만 표시한다.
+
+이 모드는 **비공개 Team·채널 표시명도 OCI Email Delivery와 수신자의 메일함에
+남긴다.** 채널명 자체가 기밀인 프로젝트는 `NOTIFIER_CONTENT_MODE=generic`을 사용한다.
+`generic`은 기존처럼 새 메시지 안내와 permalink만 보낸다. 신규 설치 마법사는 여러
+프로젝트 구분을 위해 `project_team_channel`을 명시적으로 기록하지만, v0.1.0에서
+업그레이드되어 새 필드가 없는 기존 큐 항목은 일반형으로 안전하게 발송한다.
+
+Mailer SQLite schema v2는 전송 대기 중에만 Team·채널명과 이벤트 유형을 보존한다.
+모든 수신자의 발송이 끝나거나 실패 건을 취소하면 permalink와 함께 이 컨텍스트도
+즉시 `NULL`로 scrub하고, 가명화된 종료 행은 기존 7일 정책에 따라 제거한다.
 
 ## 5. Mattermost 기본 이메일 알림과의 관계
 
@@ -111,5 +141,6 @@ Mattermost 공식 문서는 플러그인을 Team Edition과 Enterprise Edition �
 
 즉시 채널 이메일이 필요하지 않으면 notifier 전체를 비활성 상태로 둘 수 있다. 멘션과
 DM 중심의 지연 가능한 알림만 필요하다면 Mattermost 기본 이메일 알림을 별도로 평가할
-수 있다. 모든 채널 새 글을 게시 직후, 채널 멤버에게, 일반 안내문으로 보내야 하는
+수 있다. 모든 채널 새 글을 게시 직후, 채널 멤버에게, 프로젝트를 구분할 수 있는
+최소 컨텍스트 안내문으로 보내야 하는
 ThreadHub 기준에서는 플러그인과 Mailer를 함께 사용한다.

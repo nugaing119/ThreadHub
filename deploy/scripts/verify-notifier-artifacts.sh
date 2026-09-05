@@ -84,8 +84,8 @@ read_created_by_history_pin() {
     ' "${versions_file}"
 }
 
-bundle_path="${1:-notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz}"
-mailer_image="${2:-threadhub/notifier-mailer:0.1.0}"
+bundle_path="${1:-notifier/dist/com.threadhub.channel-email-notifier-0.2.0.tar.gz}"
+mailer_image="${2:-threadhub/notifier-mailer:0.2.0}"
 gitleaks_bin="${GITLEAKS_BIN:-}"
 container_command="${CONTAINER_COMMAND:-docker}"
 temporary_dir="$(mktemp -d)"

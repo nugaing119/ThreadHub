@@ -293,7 +293,9 @@ validate_notifier_documentation_contracts() {
         'MessageHasBeenPosted' 'plugin KV outbox' 'HMAC' 'SQLite' 'STARTTLS' \
         'Mattermost 본체와 Mailer에는 같은' '커스텀 플러그인 구현은 SMTP 자격 증명을 읽거나' \
         'SMTP 또는 Mailer가 일시 중단돼도 Mattermost의 글 작성은 계속 성공' \
-        '메시지 본문, 채널명, Team명과 작성자명' 'MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false' \
+        'NOTIFIER_CONTENT_MODE=project_team_channel' 'NOTIFIER_CONTENT_MODE=generic' \
+        '비공개 Team·채널 표시명도 OCI Email Delivery' \
+        '메시지 본문, 작성자명, 첨부파일명' 'MM_EMAILSETTINGS_SENDEMAILNOTIFICATIONS=false' \
         'Persistent Notification' '라이선스 검사를 활성화·우회하지 않는다' \
         '../../notifier/THIRD_PARTY_NOTICES.md' || return 1
     notifier_docs_require_terms "${prd}" \

@@ -39,6 +39,7 @@ type Config struct {
 	FromAddress   string
 	ReplyTo       string
 	FeedbackName  string
+	ContentMode   string
 	RatePerMinute int
 }
 
@@ -51,6 +52,10 @@ func Load(getenv func(string) string) (Config, error) {
 		ControlFile: getenv("NOTIFIER_CONTROL_FILE"),
 		SMTPHost:    getenv("SMTP_SERVER"), SMTPUsername: getenv("SMTP_USERNAME"), SMTPPassword: getenv("SMTP_PASSWORD"),
 		FromAddress: getenv("SMTP_FROM_ADDRESS"), ReplyTo: getenv("SMTP_REPLY_TO_ADDRESS"), FeedbackName: getenv("SMTP_FEEDBACK_NAME"),
+		ContentMode: getenv("NOTIFIER_CONTENT_MODE"),
+	}
+	if cfg.ContentMode == "" {
+		cfg.ContentMode = protocol.ContentModeGeneric
 	}
 	if cfg.ControlFile == "" {
 		cfg.ControlFile = "/run/threadhub-notifier/state.json"
@@ -65,7 +70,7 @@ func Load(getenv func(string) string) (Config, error) {
 	if cfg.RatePerMinute, err = strconv.Atoi(getenv("NOTIFIER_RATE_PER_MINUTE")); err != nil || cfg.RatePerMinute < 1 || cfg.RatePerMinute > 60 {
 		return Config{}, errInvalidConfig
 	}
-	if _, _, err := net.SplitHostPort(cfg.ListenAddress); err != nil || cfg.Domain == "" || strings.ContainsAny(cfg.Domain, "\r\n") || !filepath.IsAbs(cfg.QueuePath) || !filepath.IsAbs(cfg.ControlFile) || filepath.Clean(cfg.ControlFile) != cfg.ControlFile || !ociSMTPHost.MatchString(cfg.SMTPHost) || isPlaceholderOCIHost(cfg.SMTPHost) || cfg.SMTPUsername == "" || cfg.SMTPPassword == "" || cfg.FeedbackName == "" || strings.ContainsAny(cfg.FeedbackName, "\r\n") {
+	if _, _, err := net.SplitHostPort(cfg.ListenAddress); err != nil || cfg.Domain == "" || strings.ContainsAny(cfg.Domain, "\r\n") || !filepath.IsAbs(cfg.QueuePath) || !filepath.IsAbs(cfg.ControlFile) || filepath.Clean(cfg.ControlFile) != cfg.ControlFile || !ociSMTPHost.MatchString(cfg.SMTPHost) || isPlaceholderOCIHost(cfg.SMTPHost) || cfg.SMTPUsername == "" || cfg.SMTPPassword == "" || cfg.FeedbackName == "" || strings.ContainsAny(cfg.FeedbackName, "\r\n") || cfg.ContentMode != protocol.ContentModeGeneric && cfg.ContentMode != protocol.ContentModeProjectContext {
 		return Config{}, errInvalidConfig
 	}
 	if protocol.ValidateEmail(cfg.FromAddress) != nil || protocol.ValidateEmail(cfg.ReplyTo) != nil {
@@ -98,5 +103,5 @@ func (c Config) SMTPConfigFingerprint() string {
 }
 
 func (c Config) String() string {
-	return fmt.Sprintf("mailer{listen=%q domain=%q queue=%q control=%q smtp_host=%q smtp_port=%d from=%q reply_to=%q feedback_name=%q rate_per_minute=%d}", c.ListenAddress, c.Domain, c.QueuePath, c.ControlFile, c.SMTPHost, c.SMTPPort, c.FromAddress, c.ReplyTo, c.FeedbackName, c.RatePerMinute)
+	return fmt.Sprintf("mailer{listen=%q domain=%q queue=%q control=%q smtp_host=%q smtp_port=%d from=%q reply_to=%q feedback_name=%q content_mode=%q rate_per_minute=%d}", c.ListenAddress, c.Domain, c.QueuePath, c.ControlFile, c.SMTPHost, c.SMTPPort, c.FromAddress, c.ReplyTo, c.FeedbackName, c.ContentMode, c.RatePerMinute)
 }

@@ -825,7 +825,7 @@ cleanup() {
     fi
 
     if [[ "${generated_bundle}" == true ]]; then
-        rm -f -- "${repository_root}/notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz" \
+        rm -f -- "${repository_root}/notifier/dist/com.threadhub.channel-email-notifier-0.2.0.tar.gz" \
             || cleanup_ok=false
         rmdir "${repository_root}/notifier/dist" >/dev/null 2>&1 || true
     fi
@@ -942,7 +942,7 @@ go_tag="$(version_value GO_BUILDER_IMAGE_TAG)" || fail NF-ADOPT-01
 go_digest="$(version_value GO_BUILDER_IMAGE_DIGEST)" || fail NF-ADOPT-01
 notifier_version="$(version_value NOTIFIER_VERSION)" || fail NF-ADOPT-01
 [[ "${mattermost_repository}:${mattermost_tag}" == mattermost/mattermost-team-edition:11.7.7 ]] || fail NF-ADOPT-01
-[[ "${postgres_repository}:${postgres_tag}" == postgres:18.4 && "${notifier_version}" == 0.1.0 ]] || fail NF-ADOPT-01
+[[ "${postgres_repository}:${postgres_tag}" == postgres:18.4 && "${notifier_version}" == 0.2.0 ]] || fail NF-ADOPT-01
 
 db_password="$(openssl rand -hex 32)"
 hmac_secret="$(openssl rand -hex 32)"

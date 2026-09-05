@@ -20,6 +20,7 @@ type Config struct {
 	MailerURL   *url.URL
 	HMACSecret  []byte
 	ControlFile string
+	ContentMode string
 	PollEvery   time.Duration
 }
 
@@ -31,9 +32,13 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	cfg := Config{
 		Domain:      getenv("THREADHUB_DOMAIN"),
 		ControlFile: getenv("NOTIFIER_CONTROL_FILE"),
+		ContentMode: getenv("NOTIFIER_CONTENT_MODE"),
 	}
 	if cfg.ControlFile == "" {
 		cfg.ControlFile = "/run/threadhub-notifier/state.json"
+	}
+	if cfg.ContentMode == "" {
+		cfg.ContentMode = protocol.ContentModeGeneric
 	}
 	var err error
 	if cfg.HMACSecret, err = protocol.DecodeSecretHex(getenv("NOTIFIER_HMAC_SECRET")); err != nil {
@@ -45,7 +50,7 @@ func LoadConfig(getenv func(string) string) (Config, error) {
 	if cfg.MailerURL, err = parseInternalMailerURL(getenv("NOTIFIER_MAILER_URL")); err != nil {
 		return Config{}, errInvalidConfig
 	}
-	if cfg.Domain == "" || strings.ContainsAny(cfg.Domain, "\r\n") || !filepath.IsAbs(cfg.ControlFile) || filepath.Clean(cfg.ControlFile) != cfg.ControlFile {
+	if cfg.Domain == "" || strings.ContainsAny(cfg.Domain, "\r\n") || !filepath.IsAbs(cfg.ControlFile) || filepath.Clean(cfg.ControlFile) != cfg.ControlFile || cfg.ContentMode != protocol.ContentModeGeneric && cfg.ContentMode != protocol.ContentModeProjectContext {
 		return Config{}, errInvalidConfig
 	}
 	return cfg, nil
@@ -64,5 +69,5 @@ func (c Config) String() string {
 	if c.MailerURL != nil {
 		mailerURL = c.MailerURL.String()
 	}
-	return fmt.Sprintf("plugin{domain=%q mailer_url=%q control=%q poll=%s}", c.Domain, mailerURL, c.ControlFile, c.PollEvery)
+	return fmt.Sprintf("plugin{domain=%q mailer_url=%q control=%q content_mode=%q poll=%s}", c.Domain, mailerURL, c.ControlFile, c.ContentMode, c.PollEvery)
 }

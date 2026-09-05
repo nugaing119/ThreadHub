@@ -52,6 +52,7 @@ THN_SMTP_REPLY_TO_ADDRESS=admin@valid.test
 THN_SMTP_FEEDBACK_NAME=ThreadHub
 THN_HMAC_SECRET=${FIXTURE_HMAC}
 THN_RATE_PER_MINUTE=10
+THN_CONTENT_MODE=project_team_channel
 EOF
     chmod 0600 "${path}"
 }
@@ -182,6 +183,15 @@ test_smtp_port_hmac_and_rate_boundaries_are_rejected() (
     assert_private_output "${output}"
 )
 
+test_unknown_content_mode_is_rejected() (
+	prepare_fixture
+	trap 'rm -rf "${fixture}"' EXIT
+	sed -i.bak 's/THN_CONTENT_MODE=project_team_channel/THN_CONTENT_MODE=message_body/' "${config}"
+	rm -f "${config}.bak"
+	! run_validation "${config}" "${output}" || return 1
+	assert_private_output "${output}"
+)
+
 test_unprefixed_notifier_key_is_rejected() (
     prepare_fixture
     trap 'rm -rf "${fixture}"' EXIT
@@ -199,7 +209,8 @@ if [[ -f "${LIBRARY}" ]]; then
     run_test 'relative Compose paths are rejected without disclosure' test_relative_paths_are_rejected
     run_test 'notifier root nested in Mattermost data is rejected' test_nested_notifier_root_is_rejected
     run_test 'unsafe Mattermost service names are rejected' test_service_name_injection_is_rejected
-    run_test 'SMTP port HMAC and rate boundaries are enforced' test_smtp_port_hmac_and_rate_boundaries_are_rejected
+	run_test 'SMTP port HMAC and rate boundaries are enforced' test_smtp_port_hmac_and_rate_boundaries_are_rejected
+	run_test 'unknown notification content modes are rejected' test_unknown_content_mode_is_rejected
     run_test 'unprefixed notifier keys are rejected' test_unprefixed_notifier_key_is_rejected
 fi
 

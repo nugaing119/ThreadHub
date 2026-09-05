@@ -51,6 +51,22 @@ func TestEventValidate(t *testing.T) {
 		wantErr bool
 	}{
 		{name: "valid minimal event"},
+		{name: "valid project context", mutate: func(e *Event) {
+			e.TeamName = "All"
+			e.ChannelName = "Mentor & Mentee"
+			e.EventType = EventTypeThreadReply
+		}},
+		{name: "partial project context", mutate: func(e *Event) { e.TeamName = "All" }, wantErr: true},
+		{name: "invalid event type", mutate: func(e *Event) {
+			e.TeamName = "All"
+			e.ChannelName = "공지"
+			e.EventType = "edited_post"
+		}, wantErr: true},
+		{name: "control character in channel", mutate: func(e *Event) {
+			e.TeamName = "All"
+			e.ChannelName = "공지\nBcc"
+			e.EventType = EventTypeNewPost
+		}, wantErr: true},
 		{name: "event and post ids differ", mutate: func(e *Event) { e.EventID = model.NewId() }, wantErr: true},
 		{name: "http permalink", mutate: func(e *Event) { e.Permalink = "http://threadhub.test/_redirect/pl/" + e.PostID }, wantErr: true},
 		{name: "percent-encoded permalink path", mutate: func(e *Event) { e.Permalink = "https://threadhub.test/_redirect/pl%2f" + e.PostID }, wantErr: true},
@@ -71,6 +87,34 @@ func TestEventValidate(t *testing.T) {
 			}
 			if err := e.Validate(testDomain); (err != nil) != tt.wantErr {
 				t.Fatalf("Validate() error = %v, wantErr %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestEventValidateContentModeRequiresExactContextBoundary(t *testing.T) {
+	base := validEvent()
+	contextEvent := base
+	contextEvent.TeamName = "All"
+	contextEvent.ChannelName = "Mentor & Mentee"
+	contextEvent.EventType = EventTypeNewPost
+
+	for _, test := range []struct {
+		name  string
+		event Event
+		mode  string
+		valid bool
+	}{
+		{name: "generic without context", event: base, mode: ContentModeGeneric, valid: true},
+		{name: "generic with context", event: contextEvent, mode: ContentModeGeneric},
+		{name: "project without context", event: base, mode: ContentModeProjectContext},
+		{name: "project with context", event: contextEvent, mode: ContentModeProjectContext, valid: true},
+		{name: "unknown mode", event: base, mode: "message_body"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.event.ValidateContentMode(test.mode)
+			if (err == nil) != test.valid {
+				t.Fatalf("ValidateContentMode() error = %v, valid = %v", err, test.valid)
 			}
 		})
 	}

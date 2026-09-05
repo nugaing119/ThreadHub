@@ -3,9 +3,11 @@ package store
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -23,12 +25,12 @@ var (
 	testNow    = time.Date(2026, 8, 27, 4, 5, 6, 0, time.UTC)
 )
 
-func TestOpenCreatesSchemaV1WithRequiredPragmasAndIsIdempotent(t *testing.T) {
+func TestOpenCreatesSchemaV2WithRequiredPragmasAndIsIdempotent(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.db")
 	store := openTestStore(t, path)
 
-	if got := queryInt64(t, store, "SELECT version FROM schema_version"); got != 1 {
-		t.Fatalf("schema version = %d, want 1", got)
+	if got := queryInt64(t, store, "SELECT version FROM schema_version"); got != 2 {
+		t.Fatalf("schema version = %d, want 2", got)
 	}
 	for pragma, want := range map[string]string{
 		"journal_mode":  "wal",
@@ -55,6 +57,42 @@ func TestOpenCreatesSchemaV1WithRequiredPragmasAndIsIdempotent(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	if got := queryInt64(t, store, "SELECT count(*) FROM schema_version"); got != 1 {
 		t.Fatalf("schema version rows after second open = %d, want 1", got)
+	}
+}
+
+func TestOpenMigratesExistingSchemaV1WithoutDroppingQueuedData(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(schemaBootstrap); err != nil {
+		t.Fatalf("bootstrap v1 schema: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO schema_version(version) VALUES (1)"); err != nil {
+		t.Fatalf("record v1 schema: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO events(event_hash, post_id, permalink, occurred_at_ms, accepted_at_ms)
+		VALUES(?, ?, ?, ?, ?)`, strings.Repeat("a", 64), testPostID,
+		"https://threadhub.example.test/_redirect/pl/"+testPostID, testNow.UnixMilli(), testNow.UnixMilli()); err != nil {
+		t.Fatalf("seed v1 event: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close v1 database: %v", err)
+	}
+
+	store := openTestStore(t, path)
+	if got := queryInt64(t, store, "SELECT version FROM schema_version"); got != 2 {
+		t.Fatalf("schema version = %d, want 2", got)
+	}
+	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NOT NULL"); got != 1 {
+		t.Fatalf("queued v1 events = %d, want 1 preserved", got)
+	}
+	for _, column := range []string{"team_name", "channel_name", "event_type"} {
+		var count int64
+		if err := store.db.QueryRow("SELECT count(*) FROM pragma_table_info('events') WHERE name = ?", column).Scan(&count); err != nil || count != 1 {
+			t.Fatalf("migrated column %s count = %d, error = %v", column, count, err)
+		}
 	}
 }
 
@@ -184,6 +222,9 @@ func TestAcceptRejectsConflictingEventMetadata(t *testing.T) {
 	}{
 		{"permalink", func(e *protocol.Event) { e.Permalink = "https://other.example.test/_redirect/pl/" + e.PostID }},
 		{"occurred_at", func(e *protocol.Event) { e.OccurredAt++ }},
+		{"team_name", func(e *protocol.Event) { e.TeamName = "Other team" }},
+		{"channel_name", func(e *protocol.Event) { e.ChannelName = "Other channel" }},
+		{"event_type", func(e *protocol.Event) { e.EventType = protocol.EventTypeThreadReply }},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			changed := event
@@ -231,7 +272,8 @@ func TestClaimDueAtomicallyAcquiresLeaseAndOnlyExpiredLeaseResets(t *testing.T) 
 	for delivery := range claimed {
 		if delivery != nil {
 			claimCount++
-			if delivery.AttemptCount != 1 || delivery.Email == "" || delivery.Permalink == "" {
+			if delivery.AttemptCount != 1 || delivery.Email == "" || delivery.Permalink == "" ||
+				delivery.TeamName != "All" || delivery.ChannelName != "Mentor & Mentee" || delivery.EventType != protocol.EventTypeNewPost {
 				t.Errorf("claimed delivery = %+v, want first complete attempt", delivery)
 			}
 		}
@@ -409,7 +451,7 @@ func TestExhaustedDeliveryRetryAndRetentionBoundaries(t *testing.T) {
 	if got := queryInt64(t, store, "SELECT count(*) FROM deliveries WHERE status = 'cancelled' AND email IS NULL"); got != 1 {
 		t.Fatalf("cancelled scrubbed deliveries = %d, want 1", got)
 	}
-	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE event_hash = ? AND post_id IS NULL AND permalink IS NULL", protocol.HashIdentifier(testSecret, "event", cancelEvent.EventID)); got != 1 {
+	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE event_hash = ? AND post_id IS NULL AND permalink IS NULL AND team_name IS NULL AND channel_name IS NULL AND event_type IS NULL", protocol.HashIdentifier(testSecret, "event", cancelEvent.EventID)); got != 1 {
 		t.Fatalf("scrubbed exhausted event rows = %d, want 1", got)
 	}
 
@@ -491,7 +533,7 @@ func TestCancelFailedAtomicallyCancelsBothFailureStatesOnly(t *testing.T) {
 		protocol.HashIdentifier(testSecret, "event", sendingEvent.EventID), sendingEvent.Recipients[0].Email); got != 1 {
 		t.Fatalf("intact sending deliveries = %d, want 1", got)
 	}
-	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NULL AND permalink IS NULL"); got != 2 {
+	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NULL AND permalink IS NULL AND team_name IS NULL AND channel_name IS NULL AND event_type IS NULL"); got != 2 {
 		t.Fatalf("scrubbed completed failed events = %d, want 2", got)
 	}
 	if got := queryInt64(t, store, "SELECT count(*) FROM events WHERE post_id IS NOT NULL AND permalink IS NOT NULL"); got != 2 {
@@ -599,10 +641,13 @@ func eventWithRecipients(count int) protocol.Event {
 
 func eventWithID(id string) protocol.Event {
 	return protocol.Event{
-		EventID:    id,
-		PostID:     id,
-		Permalink:  "https://threadhub.example.test/_redirect/pl/" + id,
-		OccurredAt: testNow.Add(-time.Minute).UnixMilli(),
+		EventID:     id,
+		PostID:      id,
+		Permalink:   "https://threadhub.example.test/_redirect/pl/" + id,
+		OccurredAt:  testNow.Add(-time.Minute).UnixMilli(),
+		TeamName:    "All",
+		ChannelName: "Mentor & Mentee",
+		EventType:   protocol.EventTypeNewPost,
 		Recipients: []protocol.Recipient{{
 			UserID: "cccccccccccccccccccccccccc",
 			Email:  "expiry-recipient@example.test",

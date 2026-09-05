@@ -11,7 +11,7 @@ func TestLoadConfigAcceptsOnlyTheFixedInternalMailerEndpoint(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadConfig() error = %v", err)
 	}
-	if cfg.Domain != "threadhub.example.test" || cfg.MailerURL.String() != "http://threadhub-mailer:8080" || cfg.PollEvery != time.Second {
+	if cfg.Domain != "threadhub.example.test" || cfg.MailerURL.String() != "http://threadhub-mailer:8080" || cfg.PollEvery != time.Second || cfg.ContentMode != "project_team_channel" {
 		t.Fatalf("LoadConfig() = %#v, want validated configuration", cfg)
 	}
 	if got, want := string(cfg.HMACSecret), strings.Repeat("\x01", 32); got != want {
@@ -33,6 +33,7 @@ func TestLoadConfigRejectsUnsafeValuesWithoutLeakingSecret(t *testing.T) {
 		{name: "invalid HMAC", key: "NOTIFIER_HMAC_SECRET", value: "not-hex"},
 		{name: "relative control file", key: "NOTIFIER_CONTROL_FILE", value: "state.json"},
 		{name: "nonpositive poll interval", key: "NOTIFIER_POLL_EVERY", value: "0s"},
+		{name: "unknown content mode", key: "NOTIFIER_CONTENT_MODE", value: "message_body"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			values := testConfigValues()
@@ -58,5 +59,6 @@ func testConfigValues() map[string]string {
 		"NOTIFIER_HMAC_SECRET":  strings.Repeat("01", 32),
 		"NOTIFIER_CONTROL_FILE": "/run/threadhub-notifier/state.json",
 		"NOTIFIER_POLL_EVERY":   "1s",
+		"NOTIFIER_CONTENT_MODE": "project_team_channel",
 	}
 }

@@ -111,6 +111,7 @@ func newFakeMattermostAPI() *fakeMattermostAPI {
 }
 
 func (f *fakeMattermostAPI) GetChannel(string) (*model.Channel, *model.AppError) { return nil, nil }
+func (f *fakeMattermostAPI) GetTeam(string) (*model.Team, *model.AppError)       { return nil, nil }
 func (f *fakeMattermostAPI) GetChannelMembers(string, int, int) (model.ChannelMembers, *model.AppError) {
 	return nil, nil
 }

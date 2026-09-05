@@ -6,6 +6,8 @@ import (
 	"net/mail"
 	"net/url"
 	"regexp"
+	"unicode"
+	"unicode/utf8"
 )
 
 var (
@@ -15,16 +17,28 @@ var (
 	ErrDuplicateRecipient = errors.New("duplicate recipient")
 	ErrInvalidRecipient   = errors.New("invalid recipient")
 	ErrInvalidEmail       = errors.New("invalid email")
+	ErrInvalidContext     = errors.New("invalid notification context")
 )
 
 var mattermostID = regexp.MustCompile(`^[a-z0-9]{26}$`)
 
+const (
+	EventTypeNewPost          = "new_post"
+	EventTypeThreadReply      = "thread_reply"
+	ContentModeGeneric        = "generic"
+	ContentModeProjectContext = "project_team_channel"
+	maxDisplayNameRunes       = 128
+)
+
 type Event struct {
-	EventID    string      `json:"event_id"`
-	PostID     string      `json:"post_id"`
-	Permalink  string      `json:"permalink"`
-	OccurredAt int64       `json:"occurred_at"`
-	Recipients []Recipient `json:"recipients"`
+	EventID     string      `json:"event_id"`
+	PostID      string      `json:"post_id"`
+	Permalink   string      `json:"permalink"`
+	OccurredAt  int64       `json:"occurred_at"`
+	TeamName    string      `json:"team_name,omitempty"`
+	ChannelName string      `json:"channel_name,omitempty"`
+	EventType   string      `json:"event_type,omitempty"`
+	Recipients  []Recipient `json:"recipients"`
 }
 
 type Recipient struct {
@@ -44,6 +58,9 @@ func (e Event) Validate(domain string) error {
 	if err != nil || u.Scheme != "https" || u.Host != domain || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery || u.EscapedPath() != "/_redirect/pl/"+e.PostID {
 		return ErrInvalidPermalink
 	}
+	if !validContext(e.TeamName, e.ChannelName, e.EventType) {
+		return ErrInvalidContext
+	}
 
 	seen := make(map[string]struct{}, len(e.Recipients))
 	for _, recipient := range e.Recipients {
@@ -59,6 +76,49 @@ func (e Event) Validate(domain string) error {
 		}
 	}
 	return nil
+}
+
+// ValidateContentMode prevents a configuration mismatch from placing more
+// project metadata in the Mailer queue than the selected mode permits.
+func (e Event) ValidateContentMode(mode string) error {
+	hasContext := e.TeamName != "" || e.ChannelName != "" || e.EventType != ""
+	switch mode {
+	case ContentModeGeneric:
+		if hasContext {
+			return ErrInvalidContext
+		}
+	case ContentModeProjectContext:
+		if !hasContext || !validContext(e.TeamName, e.ChannelName, e.EventType) {
+			return ErrInvalidContext
+		}
+	default:
+		return ErrInvalidContext
+	}
+	return nil
+}
+
+// Context is omitted in generic mode and in Mailer queue entries created by
+// notifier v0.1.0. Context-bearing events must provide all three values.
+func validContext(teamName, channelName, eventType string) bool {
+	if teamName == "" && channelName == "" && eventType == "" {
+		return true
+	}
+	if !validDisplayName(teamName) || !validDisplayName(channelName) {
+		return false
+	}
+	return eventType == EventTypeNewPost || eventType == EventTypeThreadReply
+}
+
+func validDisplayName(value string) bool {
+	if value == "" || !utf8.ValidString(value) || utf8.RuneCountInString(value) > maxDisplayNameRunes {
+		return false
+	}
+	for _, r := range value {
+		if unicode.IsControl(r) {
+			return false
+		}
+	}
+	return true
 }
 
 func ValidateEmail(value string) error {

@@ -90,6 +90,54 @@ func TestRenderProducesParseableMultipartBody(t *testing.T) {
 	}
 }
 
+func TestRenderIncludesProjectTeamChannelAndReplyTypeWithoutMessageContent(t *testing.T) {
+	t.Parallel()
+	in := testInput()
+	in.ContentMode = ModeProjectContext
+	in.TeamName = "All <운영>"
+	in.ChannelName = "Mentor & Mentee"
+	in.EventType = "thread_reply"
+	rendered, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	decodedSubject, err := new(mime.WordDecoder).DecodeHeader(header(rendered.Data, "Subject"))
+	if err != nil {
+		t.Fatalf("DecodeHeader() error = %v", err)
+	}
+	if want := "[ThreadHub][threadhub.example.test] All <운영> / Mentor & Mentee · 스레드 답글"; decodedSubject != want {
+		t.Fatalf("Subject = %q, want %q", decodedSubject, want)
+	}
+	data := string(rendered.Data)
+	for _, required := range []string{"프로젝트: threadhub.example.test", "팀: All <운영>", "채널: Mentor & Mentee", "스레드 답글"} {
+		if !strings.Contains(data, required) {
+			t.Fatalf("rendered message missing %q", required)
+		}
+	}
+	if strings.Contains(data, "<dd>All <운영></dd>") || !strings.Contains(data, "<dd>All &lt;운영&gt;</dd>") {
+		t.Fatal("HTML context was not escaped")
+	}
+	for _, forbidden := range []string{"SENTINEL post content", "SENTINEL author", "attachment.pdf"} {
+		if strings.Contains(data, forbidden) {
+			t.Fatalf("rendered message leaked %q", forbidden)
+		}
+	}
+}
+
+func TestRenderFallsBackToGenericForLegacyQueuedEvent(t *testing.T) {
+	t.Parallel()
+	in := testInput()
+	in.ContentMode = ModeProjectContext
+	rendered, err := Render(in)
+	if err != nil {
+		t.Fatalf("Render() error = %v", err)
+	}
+	decodedSubject, err := new(mime.WordDecoder).DecodeHeader(header(rendered.Data, "Subject"))
+	if err != nil || decodedSubject != genericSubject {
+		t.Fatalf("legacy Subject = %q, %v; want generic", decodedSubject, err)
+	}
+}
+
 func TestRenderUsesDeterministicOpaqueMessageID(t *testing.T) {
 	t.Parallel()
 	in := testInput()

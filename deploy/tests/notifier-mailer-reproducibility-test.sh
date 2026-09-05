@@ -91,13 +91,13 @@ build_repository "${first_repository}" "${first_release}"
 first_mailer_id="$(read_release_value \
     "${first_release}/release.env" NOTIFIER_MAILER_IMAGE_ID)"
 first_bundle_id="$(sudo docker image inspect --format '{{.Id}}' \
-    threadhub/notifier-plugin-bundle:0.1.0)"
+    threadhub/notifier-plugin-bundle:0.2.0)"
 
 build_repository "${second_repository}" "${second_release}"
 second_mailer_id="$(read_release_value \
     "${second_release}/release.env" NOTIFIER_MAILER_IMAGE_ID)"
 second_bundle_id="$(sudo docker image inspect --format '{{.Id}}' \
-    threadhub/notifier-plugin-bundle:0.1.0)"
+    threadhub/notifier-plugin-bundle:0.2.0)"
 
 [[ "${first_mailer_id}" == "${second_mailer_id}" ]]
 printf '%s\n' 'ok - Mailer image identity is independent of source commit time'

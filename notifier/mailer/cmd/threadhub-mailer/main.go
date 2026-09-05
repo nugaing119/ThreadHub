@@ -451,9 +451,11 @@ func defaultServe(ctx context.Context, cfg config.Config) error {
 			FromName: cfg.FeedbackName, FromAddress: cfg.FromAddress, ReplyTo: cfg.ReplyTo,
 			ToAddress: delivery.Email, Domain: cfg.Domain, EventHash: delivery.Key.EventHash,
 			RecipientHash: delivery.Key.RecipientHash, Permalink: delivery.Permalink, Date: time.Now(),
+			ContentMode: cfg.ContentMode, TeamName: delivery.TeamName, ChannelName: delivery.ChannelName,
+			EventType: delivery.EventType,
 		})
 	}, sender, controls, nil, worker.Config{RatePerMinute: cfg.RatePerMinute})
-	handler := httpapi.NewHandler(queue, controls, cfg.HMACSecret, time.Now, logsafe.New(nil))
+	handler := httpapi.NewHandler(queue, controls, cfg.HMACSecret, cfg.Domain, cfg.ContentMode, time.Now, logsafe.New(nil))
 	server := newHTTPServer(cfg.ListenAddress, handler)
 	return serve(ctx, server, queue, controls, deliveryWorker)
 }

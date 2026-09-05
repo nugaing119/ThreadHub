@@ -170,12 +170,14 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
         ($mattermost.environment.THREADHUB_DOMAIN == "threadhub.internal") and
         ($mattermost.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
         ($mattermost.environment.NOTIFIER_HMAC_SECRET == $hmac) and
+        ($mattermost.environment.NOTIFIER_CONTENT_MODE == "project_team_channel") and
         ($mattermost.environment.NOTIFIER_CONTROL_FILE == "/run/threadhub-notifier/state.json") and
         ($mattermost.environment.NOTIFIER_POLL_EVERY == "1s") and
         ($mailer.environment == {
           "NOTIFIER_CONTROL_FILE":"/run/threadhub-notifier/state.json",
           "NOTIFIER_HMAC_SECRET":$hmac,
           "NOTIFIER_LISTEN_ADDRESS":":8080",
+          "NOTIFIER_CONTENT_MODE":"project_team_channel",
           "NOTIFIER_QUEUE_PATH":"/var/lib/threadhub-notifier/queue.db",
           "NOTIFIER_RATE_PER_MINUTE":"10",
           "SMTP_FEEDBACK_NAME":"ThreadHub",
@@ -257,11 +259,13 @@ assert(mailer.dig("logging", "options") == {"max-size" => "10m", "max-file" => "
 assert(mm_env["THREADHUB_DOMAIN"] == "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}", "Plugin must receive THREADHUB_DOMAIN")
 assert(mm_env["NOTIFIER_MAILER_URL"] == "http://threadhub-mailer:8080", "Plugin Mailer URL must be fixed")
 assert(mm_env["NOTIFIER_HMAC_SECRET"] == "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}", "Plugin HMAC must fail closed when absent")
+assert(mm_env["NOTIFIER_CONTENT_MODE"] == "${NOTIFIER_CONTENT_MODE:-generic}", "Plugin and Mailer content modes must match")
 assert(mm_env["NOTIFIER_CONTROL_FILE"] == "/run/threadhub-notifier/state.json", "Plugin control path must be fixed")
 assert(mm_env["NOTIFIER_POLL_EVERY"] == "1s", "Plugin control poll interval must be fixed")
 
 expected_mailer_env = {
   "NOTIFIER_LISTEN_ADDRESS" => ":8080",
+  "NOTIFIER_CONTENT_MODE" => "${NOTIFIER_CONTENT_MODE:-generic}",
   "THREADHUB_DOMAIN" => "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}",
   "NOTIFIER_HMAC_SECRET" => "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}",
   "NOTIFIER_CONTROL_FILE" => "/run/threadhub-notifier/state.json",
@@ -382,14 +386,14 @@ if command -v ruby >/dev/null 2>&1; then
     ruby -rjson - "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" <<'RUBY'
 manifest = JSON.parse(File.read(ARGV.fetch(0)))
 abort("[threadhub] ERROR: notifier manifest ID is invalid") unless manifest["id"] == "com.threadhub.channel-email-notifier"
-abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.1.0"
+abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.2.0"
 abort("[threadhub] ERROR: notifier manifest server executable is invalid") unless manifest.dig("server", "executables") == {"linux-amd64" => "server/dist/plugin-linux-amd64"}
 RUBY
 else
     grep -F '"id": "com.threadhub.channel-email-notifier"' \
         "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
         || die "Notifier manifest ID is invalid"
-    grep -F '"version": "0.1.0"' \
+    grep -F '"version": "0.2.0"' \
         "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
         || die "Notifier manifest version is invalid"
     grep -F '"linux-amd64": "server/dist/plugin-linux-amd64"' \

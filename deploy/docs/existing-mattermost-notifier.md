@@ -1,15 +1,18 @@
 # 기존 Mattermost에 ThreadHub 이메일 notifier 적용
 
 이 문서는 이미 운영 중인 Mattermost에 공개·비공개 채널 새 글과 스레드 답글의
-일반 안내 이메일을 추가하는 절차입니다. 새 ThreadHub 설치 절차가 아닙니다. 신규
+프로젝트 컨텍스트 안내 이메일을 추가하는 절차입니다. 새 ThreadHub 설치 절차가 아닙니다. 신규
 VM은 [배포 모델과 신규 프로젝트 표준](./deployment-models.md)의 canonical fresh와
 [빠른 설치 가이드](./quick-install.md)를 사용합니다.
 
 플러그인과 Mailer의 역할, 분리 이유, 데이터·장애·라이선스 경계는 적용 전에
 [알림 아키텍처](./notifier-architecture.md)에서 확인합니다.
 
-notifier는 Mattermost 메시지 본문, 채널명, Team명과 작성자명을 이메일에 포함하지
-않습니다. 수신자는 게시 시점의 채널 멤버 중 작성자·비활성 사용자·봇을 제외한
+기본 `project_team_channel` 모드는 프로젝트 도메인, Team 표시명, 채널 표시명과
+새 글/스레드 답글 유형을 이메일에 포함합니다. 메시지 본문, 작성자명과 첨부파일명은
+포함하지 않습니다. 비공개 채널명 자체가 이메일 시스템에 남으면 안 되는 배포는
+`THN_CONTENT_MODE=generic`을 선택합니다. 수신자는 게시 시점의 채널 멤버 중
+작성자·비활성 사용자·봇을 제외한
 이메일 확인 사용자입니다. DM, 그룹 DM, 시스템 글, 수정·삭제와 Webhook·봇 작성
 글은 발송 대상이 아닙니다.
 
@@ -73,13 +76,33 @@ fixture가 아니라 Mattermost 서비스만 필요한 단계에서 재생성하
 - HTTPS 도메인
 - notifier 전용 root 경로
 - SMTP server, username, password, Approved Sender, Reply-To와 CA bundle
+- 이메일 컨텍스트 모드 `project_team_channel` 또는 `generic`
 
 SMTP password와 HMAC은 채팅, 명령행 인수, 로그 또는 Git에 넣지 않습니다. 설정은
 대화형 숨김 입력으로 만들고 mode `0600`을 유지합니다. OCI IAM user, group, policy,
 SMTP Credential, Approved Sender, DNS와 공인 IP를 만들거나 바꾸려면 대상 compartment와
 region을 밝히고 별도 명시 승인을 받습니다.
 
+`project_team_channel`은 비공개 Team·채널 표시명을 OCI Email Delivery와 각 수신자의
+메일함에 전달한다는 점을 데이터 취급 범위에 포함해야 합니다. 채널명에는 고객명,
+사건번호, 장애 상세나 기타 비밀정보를 넣지 않는 명명 규칙을 권장합니다.
+
 ## 적용 순서
+
+v0.1.0이 이미 운영 중인 인스턴스는 아래의 최초 적용 순서를 다시 실행해 덮어쓰지
+않습니다. v0.2.0의 별도 통제된 플러그인·Mailer 업그레이드 전에 보호된
+`deploy/existing-notifier.env`를 `sudoedit`으로 열어 다음 중 정확히 한 줄을 추가합니다.
+설정 파일 전체를 출력하거나 새 파일로 덮어쓰지 않습니다.
+
+```text
+THN_CONTENT_MODE=project_team_channel
+```
+
+비공개 Team·채널명 외부 노출을 허용하지 않으면 값은 `generic`으로 둡니다. 이 키가
+없거나 중복되거나 알 수 없는 값이면 preflight는 기존 서비스를 변경하지 않고
+exit code 20으로 중단합니다. 이 설정만 추가해도 실행 중인 v0.1.0의 메일 형식은
+바뀌지 않으며, 검증된 v0.2.0 release pair의 통제된 교체 전에는 새 형식을 기대하지
+않습니다.
 
 안전 gate의 고정 순서는 `existing-notifier-preflight.sh` → `disabled` →
 `existing-notifier-setup.sh` → `SMTP acceptance` → `allowlist` →
@@ -125,7 +148,7 @@ region을 밝히고 별도 명시 승인을 받습니다.
    ./deploy/scripts/existing-notifier-control.sh activate-allowlist
    ```
 
-   public/private root and thread 글을 각각 작성해 대상 멤버만 일반 안내 이메일을 받고,
+   public/private root and thread 글을 각각 작성해 대상 멤버만 컨텍스트 안내 이메일을 받고,
    비allowlist 채널·DM·시스템 글·작성자·비멤버가 제외되는지 확인합니다.
 
 5. 다음 상태와 manual acceptance 결과를 함께 기록합니다.
@@ -150,7 +173,9 @@ region을 밝히고 별도 명시 승인을 받습니다.
 - 게시 작성자 제외
 - 현재 채널 비멤버, 비활성 사용자와 봇 제외
 - 비allowlist 채널, DM, 그룹 DM과 시스템 글 제외
-- 이메일에 본문·채널·Team·작성자 정보가 없음
+- `project_team_channel`이면 제목·본문의 도메인, Team, 채널과 새 글/답글 유형이 정확함
+- `generic`이면 Team·채널 표시명이 없음
+- 두 모드 모두 메시지 본문·작성자명·첨부파일명과 다른 수신자 주소가 없음
 - 링크가 `https://<domain>/_redirect/pl/<post-id>`이며 권한 있는 사용자만 원문 접근
 - SMTP 중단 중 Mattermost 글 작성 성공과 복구 후 queue 처리
 - 받은편지함 도착, SPF/DKIM, 모바일·웹 링크

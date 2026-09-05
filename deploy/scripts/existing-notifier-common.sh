@@ -29,6 +29,7 @@ EXISTING_NOTIFIER_KEYS=(
     THN_SMTP_FEEDBACK_NAME
     THN_HMAC_SECRET
     THN_RATE_PER_MINUTE
+    THN_CONTENT_MODE
 )
 readonly EXISTING_NOTIFIER_KEYS
 
@@ -115,6 +116,7 @@ existing_notifier_validate_config() {
     local key
     local rate_per_minute
     local feedback_name
+    local content_mode
 
     runtime_env_require_secure "${EXISTING_NOTIFIER_ENV_FILE}" || return $?
     existing_notifier_validate_exact_keys "${EXISTING_NOTIFIER_ENV_FILE}"
@@ -150,6 +152,10 @@ existing_notifier_validate_config() {
         || die "THN_RATE_PER_MINUTE must be an integer from 1 through 60"
     ((rate_per_minute >= 1 && rate_per_minute <= 60)) \
         || die "THN_RATE_PER_MINUTE must be an integer from 1 through 60"
+
+    content_mode="$(existing_notifier_value THN_CONTENT_MODE)"
+    [[ "${content_mode}" == generic || "${content_mode}" == project_team_channel ]] \
+        || die "THN_CONTENT_MODE must be generic or project_team_channel"
 
     feedback_name="$(existing_notifier_value THN_SMTP_FEEDBACK_NAME)"
     ((${#feedback_name} >= 1 && ${#feedback_name} <= 64)) \
