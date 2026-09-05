@@ -182,3 +182,7 @@ API 오류 401
 SHA-256, 강제된 서비스 중단 deadline 5분 이내, 공개·비공개 채널·스레드·첨부파일 복구, notifier
 queue quarantine, 새 live queue와 delivery 비활성 상태를 확인합니다. 검토한 성공
 백업 ID만 타이머 활성화 명령에 사용하며 운영 식별자와 증거는 비공개로 보관합니다.
+타이머 활성화 뒤 `sudo systemctl start threadhub-backup.service`로 실제 systemd 실행
+경로를 한 번 인수하고, 실행시각이 0보다 큰지, `Result=success`, `ExecMainStatus=0`,
+원격 검증 성공과 데이터 기준 집계 유지 여부를 확인합니다. 그 다음 예약 실행이 같은
+결과로 최신 백업을 갱신해야 정기 실행 인수를 완료합니다.

@@ -108,6 +108,9 @@ CRS-1은 다음 두 프로필만 지원한다. hostname이나 고객 이름별 �
 - 폐기 가능한 별도 VM의 new or empty `/srv/threadhub`에 실제 복구시험
 - 복구된 Mattermost 데이터와 격리된 notifier queue 검증
 - 위 증거 검토 전에는 backup timer 비활성
+- 타이머 활성화 후 동일한 `threadhub-backup.service`를 수동 시작해 실제 systemd 실행
+  경로, 원격 검증, 5분 이내 중단과 데이터 기준 집계를 인수
+- 다음 예약 실행의 성공과 최신 원격 검증 세트 갱신을 별도로 확인
 - 기존 배포는 데이터 경로를 옮기지 않고 `backup-source.env` 어댑터 사용
 
 ## 4. 프로젝트마다 달라도 되는 값

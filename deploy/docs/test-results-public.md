@@ -116,14 +116,37 @@ backup timer도 활성화하지 않았습니다. System Admin MFA도 해당 시�
 주장하지 않습니다. 실제 도메인, 이메일, OCID, IP, bucket 이름, backup ID와 운영 수량은
 비공개 기록에만 보관했습니다.
 
-## 5. 한글 검색 성능
+## 5. 기존 운영형 백업·복구 라이브 검증
+
+2026-09-06에 기존 notifier 적용형 운영 인스턴스의 새 수동 백업을 별도의 폐기 가능한
+Ubuntu 24.04 AMD64 VM에 복구해 다음을 확인했습니다.
+
+- exact project bucket의 Instance Principal create/inspect/read 성공과 delete 거부
+- 원격 manifest·SHA-256 검증 뒤 new or empty `/srv/threadhub`에만 복구
+- 원본과 복구본의 Team·사용자·채널·게시물·파일 비밀정보 비노출 집계 일치
+- Mattermost data 파일 개수·전체 바이트 일치와 원본 데이터 root 불변
+- 복구 notifier queue quarantine, 새 live queue 0건과 delivery 비활성
+- 복구시험 후 임시 VM·Boot Volume·공인 IP·임시 읽기 policy와 Dynamic Group 항목 제거
+
+최초 예약 실행은 systemd root 환경의 Git 소유권 검사에서 writer 정지 전에 fail-closed
+됐으며 서비스 중단·snapshot·upload는 없었습니다. 전역 Git 설정을 바꾸지 않고 현재
+저장소의 물리 절대 경로만 command-scoped `safe.directory`로 지정한 뒤, 동일한
+`threadhub-backup.service`를 수동 실행해 snapshot·service recovery·daily/weekly upload와
+원격 검증, 5분 이내 중단, HTTPS·notifier·데이터 기준 유지를 확인했습니다.
+
+이 결과로 `BK-LIVE-01`~`BK-LIVE-05`를 통과했습니다. 수정 이후 다음 예약시각의 자동
+실행은 아직 도래하지 않았으므로 `BK-LIVE-06`은 통과로 주장하지 않으며, 실제 성공 후
+비공개 운영 기록을 갱신합니다. 실제 운영 식별자·백업 ID·데이터 크기·사용자와 게시물
+수량은 공개하지 않습니다.
+
+## 6. 한글 검색 성능
 
 실제 프로젝트 데이터와 분리한 폐기 가능한 시험 채널에서 대표 누적 게시물을
 생성해 CJK 부분 문자열 검색을 반복 측정했습니다. 설정한 3초 기준을 충족했으며,
 시험 데이터는 측정 후 제거했습니다. 실제 게시물 수와 상세 측정 원본은 비공개
 검증 기록에서 관리합니다.
 
-## 6. 프로젝트 Team 구조
+## 7. 프로젝트 Team 구조
 
 초대 전용 프로젝트 Team과 다음 네 Team 공개 채널의 자동 참여를 검증했습니다.
 
@@ -138,7 +161,7 @@ Team 공개 채널은 인터넷 공개가 아니라 해당 Team 멤버에게만 
 `reconcile-team-channels.sh`는 대상 Team URL 이름을 명시적으로 받아 기존 멤버의
 누락된 채널 참여를 보완합니다.
 
-## 7. 공개 문서 경계
+## 8. 공개 문서 경계
 
 다음 증거는 공개 저장소에 커밋하지 않습니다.
 

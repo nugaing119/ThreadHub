@@ -105,6 +105,18 @@ rm -f "${fixture_root}/deploy/docs/test-plan.md.bak"
 assert_contract_failure 'live backup test identifiers were removed'
 
 reset_fixture
+sed -i.bak '/systemctl start threadhub-backup.service/d' \
+    "${fixture_root}/deploy/docs/backup-restore.md"
+rm -f "${fixture_root}/deploy/docs/backup-restore.md.bak"
+assert_contract_failure 'exact systemd backup service acceptance was removed'
+
+reset_fixture
+sed -i.bak 's/BK-LIVE-06/BK-LIVE-PENDING/g' \
+    "${fixture_root}/deploy/docs/test-results-public.md"
+rm -f "${fixture_root}/deploy/docs/test-results-public.md.bak"
+assert_contract_failure 'pending scheduled execution was claimed without its test ID'
+
+reset_fixture
 sed -i.bak 's/| result |/| result | bucket |/' \
     "${fixture_root}/deploy/docs/test-results-public.md"
 rm -f "${fixture_root}/deploy/docs/test-results-public.md.bak"

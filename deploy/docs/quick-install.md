@@ -164,4 +164,6 @@ base readiness and backup readiness separation: 설치 마법사의 `[READY]`는
 `configure-backup.sh`, `install-backup.sh --register`, 최초 수동 백업, 원격 5개 객체
 검증, 폐기 가능한 신규 VM 복구시험을 순서대로 수행합니다. unit 등록 뒤에도
 timer remains disabled 상태여야 하며, 증거 검토와 명시적 인수 후에만 별도 명령으로
-활성화합니다.
+활성화합니다. 활성화 직후 동일한 `threadhub-backup.service`를 수동 시작해 실제
+systemd 실행 경로를 인수하고, 다음 예약 실행이 최신 원격 검증 세트를 갱신하는지도
+별도로 확인합니다.

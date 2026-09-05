@@ -38,7 +38,8 @@
 - [ ] daily 세트가 정확히 5개이며 일요일 weekly 세트도 정확히 5개
 - [ ] 원격 객체 크기와 SHA-256 metadata가 manifest와 일치
 - [ ] `/var/lib/threadhub-backup/staging`에는 실패 세트만 제한적으로 존재
-- [ ] `threadhub-backup.timer`와 최근 service 실행 결과 정상
+- [ ] `threadhub-backup.timer`가 enabled·active이고 다음 예약시각이 존재
+- [ ] service의 `ExecMainStartTimestampMonotonic > 0`, `Result=success`, `ExecMainStatus=0`
 - [ ] failure email이 도착했고 고객 데이터·백업 ID·버킷명이 없음
 
 서비스는 회복되었으나 업로드만 실패했고 완전한 로컬 세트가 24시간 이내라면

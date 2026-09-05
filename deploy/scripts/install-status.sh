@@ -124,7 +124,21 @@ if "${SUDO_COMMAND[@]}" test -f "${backup_service_unit}" \
         && "${SUDO_COMMAND[@]}" systemctl is-active --quiet threadhub-backup.timer; then
         if "${SUDO_COMMAND[@]}" test -f "${backup_config}" \
             && "${SUDO_COMMAND[@]}" "${SCRIPT_DIR}/backup-status.sh" --json >/dev/null 2>&1; then
-            ok "Backup configuration, verified freshness and active timer"
+            backup_service_started="$("${SUDO_COMMAND[@]}" systemctl show \
+                threadhub-backup.service --property=ExecMainStartTimestampMonotonic \
+                --value 2>/dev/null || true)"
+            backup_service_result="$("${SUDO_COMMAND[@]}" systemctl show \
+                threadhub-backup.service --property=Result --value 2>/dev/null || true)"
+            backup_service_exit="$("${SUDO_COMMAND[@]}" systemctl show \
+                threadhub-backup.service --property=ExecMainStatus --value 2>/dev/null || true)"
+            if [[ "${backup_service_started}" =~ ^[0-9]+$ \
+                && "${backup_service_started}" -gt 0 \
+                && "${backup_service_result}" == success \
+                && "${backup_service_exit}" == 0 ]]; then
+                ok "Backup configuration, verified freshness, successful systemd service path and active timer"
+            else
+                fail "Backup timer is active but the exact systemd backup service path has not completed successfully"
+            fi
         else
             fail "Backup timer is active but configuration or verified freshness is invalid"
         fi

@@ -278,6 +278,40 @@ HEAD가 아니라 운영 Mailer release의 검증된 source commit과 실제 not
 기준으로 원격 manifest를 대조한다. source mode나 release 증거가 불완전하면 timer를
 활성화하지 않는다.
 
+### 최초 systemd 실행 경로 인수
+
+직접 실행한 `backup.sh`의 성공만으로 `backup-enabled`를 선언하지 않는다. 타이머를
+활성화한 뒤 승인된 작업 시간에 아래처럼 동일한 systemd service를 한 번 수동 시작한다.
+이 실행에도 최대 5분의 Mattermost·Mailer 쓰기 중단 승인이 필요하다. service가 이미
+실행 중이면 중복 시작하지 않고 완료를 기다린다.
+
+```bash
+sudo systemctl start threadhub-backup.service
+sudo systemctl show threadhub-backup.service \
+  --property=ExecMainStartTimestampMonotonic \
+  --property=Result \
+  --property=ExecMainStatus
+sudo ./deploy/scripts/backup-status.sh
+./deploy/scripts/install-status.sh
+```
+
+다음을 모두 확인해야 한다.
+
+- `ExecMainStartTimestampMonotonic`이 0보다 크고 `Result=success`, `ExecMainStatus=0`
+- 최신 상태가 `success/complete`이고 snapshot·service recovery·upload·remote verify가 모두 성공
+- 중단시간 300초 이하, Mattermost HTTPS와 PostgreSQL·Mailer health 정상
+- notifier plugin·SMTP acceptance·control state 정상, pending/sending/failed queue 0
+- Team·사용자·채널·게시물·파일의 비밀정보 비노출 기준 집계와 Mattermost data 파일 집계 유지
+
+preflight 실패는 writer 정지와 업로드가 없었는지 확인한 뒤 원인을 수정한다. snapshot
+이후 실패는 Mattermost·Mailer recovery와 데이터 집계를 먼저 확인한다. 상태 파일을
+수정해 성공으로 바꾸지 않으며 같은 service 경로를 다시 실행해 통과시킨다.
+
+마지막으로 `threadhub-backup.timer`의 다음 예약 시각을 기록하고 그 예약 실행이 실제로
+성공해 최신 원격 검증 세트를 갱신하는지 확인한다. systemd service 수동 인수까지
+통과하면 `backup-enabled`로 운영할 수 있지만, 다음 예약 실행까지 성공해야
+`BK-LIVE-06`을 완료한 것으로 기록한다.
+
 ## 9. 정기 운영과 실패 대응
 
 매일 다음 항목을 확인한다.
@@ -291,6 +325,7 @@ sudo systemctl status threadhub-backup.service --no-pager
 - 마지막 원격 검증 성공 세트의 생성시각이 24시간 이내인지 확인한다.
 - daily 세트가 정확히 5개인지, 일요일 weekly 세트도 5개인지 확인한다.
 - `/var/lib/threadhub-backup/staging`에 실패 세트만 제한적으로 남는지 확인한다.
+- service의 실제 실행시각이 0보다 크고 최근 `Result=success`, `ExecMainStatus=0`인지 확인한다.
 - 실패 이메일이 일반 문구로 도착했는지 확인한다.
 - `preflight`, `snapshot`, `service_recovery`, `manifest`, `upload`,
   `remote_verify`의 안정된 failure class로 원인을 분류한다.

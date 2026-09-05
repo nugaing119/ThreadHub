@@ -442,6 +442,12 @@ test_wizard_registers_and_status_separates_backup_readiness() (
         "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
     grep -F '[MANUAL] Configure the exact project bucket and complete backup/restore acceptance before enabling the timer.' \
         "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
+    grep -F 'ExecMainStartTimestampMonotonic' \
+        "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
+    grep -F 'successful systemd service path and active timer' \
+        "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
+    grep -F 'the exact systemd backup service path has not completed successfully' \
+        "${DEPLOY_DIR}/scripts/install-status.sh" >/dev/null
 )
 
 test_activation_reverifies_the_exact_remote_set() (

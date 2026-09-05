@@ -37,6 +37,7 @@ validate_backup_documentation_contracts() {
     local deploy_dir="${repository_root}/deploy"
     local guide="${deploy_dir}/docs/backup-restore.md"
     local deployment_models="${deploy_dir}/docs/deployment-models.md"
+    local canonical_standard="${deploy_dir}/docs/canonical-runtime-standard.md"
     local prd="${repository_root}/docs/threadhub-prd-v4.3-final.md"
     local documents=(
         "${repository_root}/README.md"
@@ -45,6 +46,7 @@ validate_backup_documentation_contracts() {
         "${deploy_dir}/README.md"
         "${deploy_dir}/docs/quick-install.md"
         "${deployment_models}"
+        "${canonical_standard}"
         "${deploy_dir}/docs/setup.md"
         "${deploy_dir}/docs/admin-guide.md"
         "${deploy_dir}/docs/operations-checklist.md"
@@ -100,6 +102,10 @@ validate_backup_documentation_contracts() {
         '## 8. 증거 검토 후 타이머 활성화' 'acceptance-gated activation' \
         '최초 원격 검증 성공' '폐기 가능한 VM 복구 증거' \
         'install-backup.sh --enable-after-acceptance' 'ENABLE BACKUP TIMER' || return 1
+    notifier_docs_require_section_order "${guide}" \
+        '### 최초 systemd 실행 경로 인수' 'exact systemd backup service acceptance' \
+        'systemctl start threadhub-backup.service' \
+        'ExecMainStartTimestampMonotonic' 'BK-LIVE-06' || return 1
     notifier_docs_require_section_order "${guide}" \
         '## 7. 폐기 가능한 신규 VM 복구 시험' 'fresh restore host bootstrap' \
         'validate.sh' 'install-backup.sh --prepare-restore-host' \
@@ -158,10 +164,18 @@ validate_backup_documentation_contracts() {
         'Object Storage' 'public' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
         'base readiness and backup readiness separation' '[READY]' \
-        'timer remains disabled' 'backup-restore.md' || return 1
+        'timer remains disabled' 'threadhub-backup.service' '다음 예약 실행' \
+        'backup-restore.md' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/operations-checklist.md" \
         'backup daily operations' '24시간' '정확히 5개' 'staging' \
+        'ExecMainStartTimestampMonotonic > 0' 'Result=success' 'ExecMainStatus=0' \
         'failure email' 'resume-upload' || return 1
+    notifier_docs_require_terms "${canonical_standard}" \
+        'canonical backup systemd acceptance' 'backup-enabled' \
+        'threadhub-backup.service' '다음 예약 실행' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/admin-guide.md" \
+        'administrator backup systemd acceptance' \
+        'systemctl start threadhub-backup.service' 'Result=success' 'ExecMainStatus=0' || return 1
     notifier_docs_require_section_order "${deploy_dir}/docs/project-close.md" \
         '### 백업 보존·삭제 gate' 'backup close sequence' \
         'notifier 종료 gate' '마지막 수동 백업' '원격 검증' \
@@ -173,7 +187,11 @@ validate_backup_documentation_contracts() {
         '버킷이 비었는지' 'lifecycle service policy' '0건' \
         '운영 HTTPS' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/test-plan.md" \
-        'backup test families' 'BK-UNIT-' 'BK-INT-' 'BK-LIVE-' || return 1
+        'backup test families' 'BK-UNIT-' 'BK-INT-' 'BK-LIVE-05' 'BK-LIVE-06' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/test-results-public.md" \
+        'live systemd backup evidence' '기존 운영형 백업·복구 라이브 검증' \
+        'writer 정지 전에 fail-closed' 'command-scoped `safe.directory`' \
+        '`BK-LIVE-06`은 통과로 주장하지 않으며' || return 1
     backup_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
     notifier_docs_require_terms "${prd}" 'PRD backup baseline' \
         'v4.3 Final' 'G-12' 'RPO 24시간' 'RTO 4시간' \

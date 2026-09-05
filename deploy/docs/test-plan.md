@@ -35,7 +35,8 @@
 | BK-LIVE-02 | 라이브 승인 필요 | 교차 버킷, object delete와 bucket delete 거부 |
 | BK-LIVE-03 | 라이브 승인 필요 | 최초 수동 daily 5개 객체와 SHA-256 원격 검증 |
 | BK-LIVE-04 | 라이브 승인 필요 | 폐기 가능한 신규 VM 복구와 notifier 재발송 없음 |
-| BK-LIVE-05 | 라이브 승인 필요 | 인수 증거 검토 후 타이머 활성화와 다음 일일 실행 |
+| BK-LIVE-05 | 라이브 승인 필요 | 타이머 활성화 후 동일한 systemd service 수동 실행, 원격 검증·health·데이터 기준 유지 |
+| BK-LIVE-06 | 라이브 승인 필요 | 다음 예약시각의 자동 실행과 최신 원격 검증 세트 갱신 |
 
 백업 시험의 상세 순서, 개인정보 제한과 Go/No-Go 기준은
 [백업 및 복구 운영 가이드](./backup-restore.md)를 따릅니다. `BK-LIVE-*`는 대상

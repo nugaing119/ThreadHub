@@ -204,5 +204,7 @@ OCI Ubuntu 이미지의 host iptables가 외부 연결을 거부할 수 있으�
 기본 ThreadHub가 `[READY]`가 된 뒤에만 [백업 및 복구 운영 가이드](./backup-restore.md)를
 별도 절차로 수행합니다. 백업 unit 등록은 타이머를 시작하지 않으며, 최초 수동 원격
 백업과 폐기 가능한 새 VM 복구시험을 모두 인수하기 전에는 활성화하지 않습니다.
+활성화한 뒤에는 동일한 systemd service를 수동 실행해 서비스 계정·환경 경로를
+검증하고, 이어지는 다음 예약 실행 성공까지 별도로 확인합니다.
 Object Storage 버킷·lifecycle·Dynamic Group·IAM policy는 실제 compartment와
 `ap-singapore-1`을 명시하고 별도 승인을 받은 뒤 구성합니다.
