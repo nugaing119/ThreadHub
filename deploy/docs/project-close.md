@@ -65,14 +65,32 @@ retry/cancel 명령은 [운영 점검표](./operations-checklist.md)를 따릅�
 
 1. `pending=0`, `sending=0`, `failed=0`, `delivery_enabled=false` close gate와 `failed_permanent` 및 `failed_exhausted` cancel/scrub 결과를 확인합니다.
 2. 보호된 queue backup의 보존 또는 securely removed 결정을 기록합니다.
-3. 프로젝트 SMTP Credential을 삭제합니다.
-4. exact project Approved Sender를 삭제합니다.
-5. IAM membership/user/policy/group을 순서대로 제거합니다.
-6. project A record만 제거합니다.
-7. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
-8. OCI Compute VM을 삭제합니다.
-9. Boot Volume 삭제 옵션과 실제 결과를 확인합니다.
-10. 예약 공인 IP를 해제하거나 다음 프로젝트용으로 재지정합니다.
+3. 마지막 수동 백업과 원격 5개 객체 검증이 성공했는지 확인합니다.
+4. 공유 Dynamic Group exception을 사용했다면 종료 프로젝트의 정확한 VM·복구 VM
+   OCID clause만 제거하고, 다른 프로젝트 clause가 변경되지 않았는지 비교합니다.
+   전용 Dynamic Group이면 관련 project policy 제거 뒤 그룹을 삭제합니다.
+5. 프로젝트 SMTP Credential을 삭제합니다.
+6. exact project Approved Sender를 삭제합니다.
+7. 전용 IAM membership과 user를 제거한 뒤 SMTP policy와 전용 group을 삭제합니다.
+8. project A record의 현재 값이 종료 VM의 공인 IP와 일치하는지 확인하고 해당
+   `A` RRset만 제거합니다.
+9. 정확한 OCI 인스턴스 OCID와 Boot Volume OCID를 재확인합니다.
+10. OCI Compute VM을 Boot Volume 보존 없이 삭제하고 두 lifecycle state가 모두
+    `TERMINATED`인지 확인합니다.
+11. 예약 공인 IP가 VM에서 분리됐는지 확인한 뒤 해제하거나, 명시적으로 승인된 다음
+    프로젝트용으로만 재지정합니다.
+12. 프로젝트 전용 NSG가 다른 VNIC에 연결되지 않았는지 확인한 뒤 삭제합니다. 공유
+    VCN, subnet, Security List 또는 NSG는 삭제하지 않습니다.
+13. 완전 삭제를 선택한 백업 버킷의 object lifecycle policy를 먼저 삭제해 새 lifecycle
+    작업을 중지합니다.
+14. daily·weekly 객체, object version과 미완료 multipart upload를 제거하고
+    버킷이 비었는지 확인한 뒤 exact project bucket을 삭제합니다.
+15. 프로젝트 전용 backup Instance Principal policy와 lifecycle service policy를
+    삭제합니다. 공유 Dynamic Group 자체와 다른 프로젝트 policy는 삭제하지 않습니다.
+16. exact 이름·OCID 조회로 프로젝트 IAM user/group/policy, SMTP Credential,
+    Approved Sender, DNS RRset, bucket, 공인 IP와 NSG가 0건인지 확인합니다.
+17. 공유 Dynamic Group의 기존 clause, 기존 운영 VM의 `RUNNING` 상태와 운영 HTTPS
+    응답을 다시 확인합니다.
 
 공유 Email Domain/DKIM/SPF/DNS zone은 별도 영향분석과 명시적 승인 없이는 삭제하지
 않습니다. IAM user/group/policy 또는 SMTP Credential은 tenancy-wide 영향을 줄 수

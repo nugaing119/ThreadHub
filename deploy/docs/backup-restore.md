@@ -83,9 +83,23 @@ rule은 해당 prefix와 기간에만 적용하며, 미완료 multipart upload�
 Object Storage lifecycle 삭제는 best-effort이므로 운영자는 실제 객체 수와
 가장 오래된 객체를 확인해야 한다.
 
-Lifecycle service authorization은 VM의 no-delete 정책과 별개다. 실제 정책은
-변경 시점의 Oracle 공식 문서를 기준으로 생성하고 검토한 뒤, 승인된 라이브
-변경으로만 적용한다.
+Lifecycle service authorization은 VM의 no-delete 정책과 별개다. 현재 표준처럼
+버킷 versioning을 비활성화하고 객체 삭제와 미완료 multipart upload 정리만 수행할
+때는 다음과 같이 리전의 Object Storage service principal과 정확한 프로젝트 버킷을
+동시에 제한한다. 아래 값은 placeholder이며 정책은 tenancy의 승인된 IAM policy
+location에 만든다.
+
+```text
+Allow service objectstorage-ap-singapore-1 to manage object-family in compartment id <project-compartment-ocid> where all {target.bucket.name = '<project-backup-bucket>', any {request.permission = 'BUCKET_INSPECT', request.permission = 'BUCKET_READ', request.permission = 'OBJECT_INSPECT', request.permission = 'OBJECT_DELETE'}}
+```
+
+`BUCKET_INSPECT`, `BUCKET_READ`와 `OBJECT_INSPECT`는 lifecycle service가 대상과
+규칙을 판정하는 데 필요하고 `OBJECT_DELETE`는 객체 삭제와 미완료 multipart abort에
+필요하다. VM Instance Principal 정책에는 계속 `OBJECT_DELETE`를 주지 않는다. 버킷
+versioning을 활성화하거나 tier 이동을 추가하면 이 예시를 그대로 사용하지 않고
+Oracle 공식 문서에 따라 `OBJECT_VERSION_DELETE` 또는 `OBJECT_UPDATE_TIER`의 필요성을
+별도로 검토한다. 실제 정책은 변경 시점의 Oracle 공식 문서를 다시 확인하고,
+승인된 라이브 변경으로만 적용한다.
 
 ## 5. 설정 및 비활성 등록
 

@@ -73,7 +73,10 @@ validate_backup_documentation_contracts() {
         'cross-project deny matrix' '프로젝트별 SMTP IAM 사용자' 'Email Domain·DKIM·SPF' \
         || return 1
     notifier_docs_require_terms "${guide}" 'retention and lifecycle boundary' \
-        'daily/' '7일' 'weekly/' '28일' 'Lifecycle service authorization' || return 1
+        'daily/' '7일' 'weekly/' '28일' 'Lifecycle service authorization' \
+        'objectstorage-ap-singapore-1' 'target.bucket.name' 'BUCKET_INSPECT' \
+        'BUCKET_READ' 'OBJECT_INSPECT' 'OBJECT_DELETE' 'OBJECT_VERSION_DELETE' \
+        'OBJECT_UPDATE_TIER' || return 1
     notifier_docs_require_terms "${guide}" 'enforced backup safety boundaries' \
         'BACKUP_ID' '--resume-upload' '절대 300초 deadline' 'oci-cli-requirements.lock' \
         '--no-index' 'host-wide non-blocking lock' '원자적으로 claim' '정확한 5개 객체' \
@@ -163,6 +166,12 @@ validate_backup_documentation_contracts() {
         '### 백업 보존·삭제 gate' 'backup close sequence' \
         'notifier 종료 gate' '마지막 수동 백업' '원격 검증' \
         'explicit user authorization' 'Object Storage' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/project-close.md" \
+        'complete project teardown verification' \
+        '공유 Dynamic Group exception' '정확한 VM·복구 VM' 'Boot Volume 보존 없이' \
+        '예약 공인 IP' '프로젝트 전용 NSG' 'object lifecycle policy' \
+        '버킷이 비었는지' 'lifecycle service policy' '0건' \
+        '운영 HTTPS' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/test-plan.md" \
         'backup test families' 'BK-UNIT-' 'BK-INT-' 'BK-LIVE-' || return 1
     backup_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
