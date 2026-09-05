@@ -207,6 +207,8 @@ validate_notifier_documentation_contracts() {
     notifier_docs_require_terms "${repository_root}/AGENTS.md" \
         'existing production convergence contract' \
         'canonical-runtime-standard.md' 'never create hostname-specific code' \
+        'version-and-profile-specific' 'exactly one active legacy instance' \
+        'never select behavior by' 'require shared migration tooling' \
         'verified remote backup' 'successful disposable-VM restore' \
         'Change one instance at a time' || return 1
     # Backticks below are required literal Markdown delimiters.
@@ -217,7 +219,9 @@ validate_notifier_documentation_contracts() {
         'hostname이나 고객 이름별 특수 프로필을 만들지 않는다' \
         '`canonical-fresh`' '`existing-adoption`' '`legacy-held`' '`migration-ready`' \
         '`retirement-candidate`' '표준화를 이유로 upgrade하지 않는다' \
-        '공통 v0.1.0→v0.2.0 migration' '운영 v0.1.0을 v0.2.0으로' \
+        '활성 legacy 인스턴스가 정확히 하나' '범용 다중 프로필 도구를 요구하지 않는다' \
+        '둘 이상의 활성 legacy 인스턴스' 'hostname을 선택 조건으로 사용해서는 안 되며' \
+        '단일 프로필·버전 전환 절차' '운영 v0.1.0을 v0.2.0으로' \
         '최신 수동 원격 백업' '별도의 폐기 가능한 VM' \
         'pending=0' 'sending=0' 'failed=0' '전체 채널을 활성화하지 않고' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
