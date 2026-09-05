@@ -245,6 +245,11 @@ Instance Principal 접근을 다시 확인한다. 운영자가 정확히
 `ENABLE BACKUP TIMER`를 입력해야 `threadhub-backup.timer`가 enable·start된다.
 그 전에는 timer remains disabled다.
 
+기존 notifier 적용형에서는 활성화 검증도 `backup-source.env`를 확인하고, 현재 저장소
+HEAD가 아니라 운영 Mailer release의 검증된 source commit과 실제 notifier 경로를
+기준으로 원격 manifest를 대조한다. source mode나 release 증거가 불완전하면 timer를
+활성화하지 않는다.
+
 ## 9. 정기 운영과 실패 대응
 
 매일 다음 항목을 확인한다.

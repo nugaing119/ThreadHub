@@ -444,8 +444,38 @@ test_wizard_registers_and_status_separates_backup_readiness() (
 )
 
 test_activation_reverifies_the_exact_remote_set() (
+    grep -F 'backup_installer_prepare_artifact_source || return 20' \
+        "${INSTALLER}" >/dev/null
     grep -F 'backup_oci_verify_remote_set "${remote_prefix}" "${requested_id}"' \
         "${INSTALLER}" >/dev/null
+)
+
+test_activation_uses_existing_notifier_release_provenance() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    mkdir -p "${fixture}/mattermost-data" "${fixture}/notifier/release"
+    touch "${fixture}/existing-notifier.env"
+
+    # shellcheck source=/dev/null
+    source "${INSTALLER}"
+    backup_source_mode() { printf 'existing_notifier\n'; }
+    backup_existing_notifier_env_file() { printf '%s\n' "${fixture}/existing-notifier.env"; }
+    backup_installer_load_existing_notifier() { :; }
+    existing_notifier_validate_config() { :; }
+    existing_notifier_value() {
+        case "$1" in
+            THN_MATTERMOST_DATA_ROOT) printf '%s\n' "${fixture}/mattermost-data" ;;
+            THN_DATA_ROOT) printf '%s\n' "${fixture}/notifier" ;;
+            *) return 1 ;;
+        esac
+    }
+
+    backup_installer_prepare_artifact_source
+    [[ "${THREADHUB_EXISTING_NOTIFIER_ENV_FILE}" == "${fixture}/existing-notifier.env" ]]
+    [[ "${BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT}" == "${fixture}/mattermost-data" ]]
+    [[ "${BACKUP_ARTIFACT_NOTIFIER_ROOT}" == "${fixture}/notifier" ]]
+    [[ "${BACKUP_ARTIFACT_RELEASE_FILE}" == "${fixture}/notifier/release/release.env" ]]
+    [[ "${BACKUP_ARTIFACT_SOURCE_COMMIT_MODE}" == release ]]
 )
 
 run_test 'versions pin the verified upstream OCI CLI archive' test_versions_pin_an_upstream_archive
@@ -463,6 +493,8 @@ run_test 'unit publication is idempotent and no-clobber' test_unit_publication_i
 run_test 'OCI installer verifies the archive and exact wheel' test_oci_installer_verifies_archive_and_exact_wheel_before_linking
 run_test 'wizard and status keep backup readiness separate' test_wizard_registers_and_status_separates_backup_readiness
 run_test 'activation reverifies the exact remote set' test_activation_reverifies_the_exact_remote_set
+run_test 'activation uses existing notifier release provenance' \
+    test_activation_uses_existing_notifier_release_provenance
 
 if ((failures > 0)); then
     printf '%d backup installer test(s) failed\n' "${failures}" >&2

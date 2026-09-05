@@ -254,6 +254,38 @@ backup_installer_register_units() (
     systemctl daemon-reload
 )
 
+backup_installer_load_existing_notifier() {
+    # shellcheck source=existing-notifier-common.sh
+    source "${INSTALL_BACKUP_SCRIPT_DIR}/existing-notifier-common.sh"
+}
+
+backup_installer_prepare_artifact_source() {
+    local source_mode
+
+    source_mode="$(backup_source_mode)" || return 20
+    case "${source_mode}" in
+        canonical)
+            ;;
+        existing_notifier)
+            export THREADHUB_EXISTING_NOTIFIER_ENV_FILE
+            THREADHUB_EXISTING_NOTIFIER_ENV_FILE="$(backup_existing_notifier_env_file)" \
+                || return 20
+            backup_installer_load_existing_notifier || return 20
+            (existing_notifier_validate_config) >/dev/null 2>&1 || return 20
+            BACKUP_ARTIFACT_MATTERMOST_DATA_ROOT="$(
+                existing_notifier_value THN_MATTERMOST_DATA_ROOT
+            )" || return 20
+            BACKUP_ARTIFACT_NOTIFIER_ROOT="$(existing_notifier_value THN_DATA_ROOT)" \
+                || return 20
+            BACKUP_ARTIFACT_RELEASE_FILE="${BACKUP_ARTIFACT_NOTIFIER_ROOT}/release/release.env"
+            BACKUP_ARTIFACT_SOURCE_COMMIT_MODE=release
+            ;;
+        *)
+            return 20
+            ;;
+    esac
+}
+
 backup_installer_validate_activation() {
     local requested_id="$1" remote_prefix
 
@@ -276,6 +308,7 @@ backup_installer_validate_activation() {
     backup_oci_preflight || return 30
     remote_prefix="$(backup_oci_find_set "${requested_id}")" || return 30
     [[ -n "${remote_prefix}" ]] || return 30
+    backup_installer_prepare_artifact_source || return 20
     backup_oci_verify_remote_set "${remote_prefix}" "${requested_id}"
 }
 
