@@ -61,6 +61,32 @@ When the user asks to add the notifier to an already running Mattermost:
    stated. A repository request alone does not authorize live infrastructure or
    a production Mattermost change.
 
+## Existing production convergence contract
+
+When the user asks to standardize or upgrade existing ThreadHub instances:
+
+1. Read `deploy/docs/canonical-runtime-standard.md`. Classify the instance by
+   supported profile and lifecycle state; never create hostname-specific code,
+   copied scripts, or an undocumented third deployment profile.
+2. Repository documentation or tooling work does not authorize access to or
+   mutation of any live VM, OCI resource, DNS record, SMTP credential, container,
+   or persistent data. Obtain separate explicit approval for one exact instance.
+3. Perform read-only inventory first and stop on any ambiguous Compose merge,
+   volume, release, plugin, queue schema, or data path. Never normalize a live
+   layout merely to make paths uniform.
+4. Do not upgrade a production v0.1.0 notifier until the shared v0.1.0-to-v0.2.0
+   migration and rollback path has passed both canonical-fresh and
+   existing-adoption real-image tests.
+5. Before an approved production mutation, require a verified remote backup and
+   a successful disposable-VM restore for that instance. Never restore over the
+   production data root.
+6. Record privacy-safe Team, user, channel, post, and file baselines before and
+   after the change. Any mismatch blocks broad notifier activation and requires
+   rollback review.
+7. Change one instance at a time: drain, reach zero pending/sending/failed,
+   disable, install disabled, run SMTP acceptance, test a public/private
+   allowlist, and require separate approval for all_channels.
+
 ## Backup agent safety contract
 
 When the user asks to configure, test, restore, or remove ThreadHub backups:

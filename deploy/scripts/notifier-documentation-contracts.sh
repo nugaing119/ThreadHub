@@ -131,6 +131,7 @@ validate_notifier_documentation_contracts() {
     local repository_root="$1"
     local deploy_dir="${repository_root}/deploy"
     local architecture="${deploy_dir}/docs/notifier-architecture.md"
+    local canonical_standard="${deploy_dir}/docs/canonical-runtime-standard.md"
     local prd="${repository_root}/docs/threadhub-prd-v4.3-final.md"
     local documents=(
         "${repository_root}/README.md"
@@ -145,6 +146,7 @@ validate_notifier_documentation_contracts() {
         "${deploy_dir}/docs/project-close.md"
         "${deploy_dir}/docs/test-plan.md"
         "${deploy_dir}/docs/test-results-public.md"
+        "${canonical_standard}"
         "${architecture}"
         "${prd}"
     )
@@ -156,9 +158,13 @@ validate_notifier_documentation_contracts() {
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/quick-install.md' || return 1
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/existing-mattermost-notifier.md' || return 1
     notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/notifier-architecture.md' || return 1
+    notifier_docs_require_link "${repository_root}/README.md" './deploy/docs/canonical-runtime-standard.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" './docs/quick-install.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" './docs/existing-mattermost-notifier.md' || return 1
     notifier_docs_require_link "${deploy_dir}/README.md" './docs/notifier-architecture.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/README.md" './docs/canonical-runtime-standard.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/deployment-models.md" './canonical-runtime-standard.md' || return 1
+    notifier_docs_require_link "${deploy_dir}/docs/existing-mattermost-notifier.md" './canonical-runtime-standard.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './oci-email-delivery.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './admin-guide.md' || return 1
     notifier_docs_require_link "${deploy_dir}/docs/quick-install.md" './existing-mattermost-notifier.md' || return 1
@@ -198,6 +204,22 @@ validate_notifier_documentation_contracts() {
         'existing Mattermost fail-closed agent contract' \
         'existing-notifier-preflight.sh' 'do not modify the base Compose file' \
         'exit code 20' 'never enable all_channels without explicit approval' || return 1
+    notifier_docs_require_terms "${repository_root}/AGENTS.md" \
+        'existing production convergence contract' \
+        'canonical-runtime-standard.md' 'never create hostname-specific code' \
+        'verified remote backup' 'successful disposable-VM restore' \
+        'Change one instance at a time' || return 1
+    # Backticks below are required literal Markdown delimiters.
+    # shellcheck disable=SC2016
+    notifier_docs_require_terms "${canonical_standard}" \
+        'canonical runtime convergence standard' \
+        'ThreadHub Canonical Runtime Standard 1(CRS-1)' \
+        'hostname이나 고객 이름별 특수 프로필을 만들지 않는다' \
+        '`canonical-fresh`' '`existing-adoption`' '`legacy-held`' '`migration-ready`' \
+        '`retirement-candidate`' '표준화를 이유로 upgrade하지 않는다' \
+        '공통 v0.1.0→v0.2.0 migration' '운영 v0.1.0을 v0.2.0으로' \
+        '최신 수동 원격 백업' '별도의 폐기 가능한 VM' \
+        'pending=0' 'sending=0' 'failed=0' '전체 채널을 활성화하지 않고' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
         'fresh and existing adoption separation' \
         'fresh installation only' 'existing-mattermost-notifier.md' || return 1

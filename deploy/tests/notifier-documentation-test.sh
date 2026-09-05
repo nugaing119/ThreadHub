@@ -61,6 +61,22 @@ rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
 assert_contract_failure 'missing existing Mattermost adoption guide was accepted'
 
 reset_fixture
+rm -f "${fixture_root}/deploy/docs/canonical-runtime-standard.md"
+assert_contract_failure 'missing canonical runtime standard was accepted'
+
+reset_fixture
+sed -i.bak 's/hostname이나 고객 이름별 특수 프로필을 만들지 않는다/host-specific exceptions are allowed/g' \
+    "${fixture_root}/deploy/docs/canonical-runtime-standard.md"
+rm -f "${fixture_root}/deploy/docs/canonical-runtime-standard.md.bak"
+assert_contract_failure 'hostname-specific production exceptions were accepted'
+
+reset_fixture
+sed -i.bak 's/별도의 폐기 가능한 VM/disposable restore omitted/g' \
+    "${fixture_root}/deploy/docs/canonical-runtime-standard.md"
+rm -f "${fixture_root}/deploy/docs/canonical-runtime-standard.md.bak"
+assert_contract_failure 'missing disposable restore gate was accepted'
+
+reset_fixture
 perl -0pi -e 's/`existing-notifier-setup\.sh` → `SMTP acceptance` → `allowlist`/`existing-notifier-setup.sh` → `allowlist` → `SMTP acceptance`/' \
     "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
 assert_contract_failure 'allowlist activation before SMTP acceptance was accepted'
