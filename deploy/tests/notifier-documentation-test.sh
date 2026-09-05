@@ -77,6 +77,18 @@ rm -f "${fixture_root}/deploy/docs/canonical-runtime-standard.md.bak"
 assert_contract_failure 'missing disposable restore gate was accepted'
 
 reset_fixture
+sed -i.bak 's/범용 다중 프로필 도구를 요구하지 않는다/general multi-profile utility is always required/g' \
+    "${fixture_root}/deploy/docs/canonical-runtime-standard.md"
+rm -f "${fixture_root}/deploy/docs/canonical-runtime-standard.md.bak"
+assert_contract_failure 'single active legacy instance was forced into a general migration utility'
+
+reset_fixture
+sed -i.bak 's/hostname을 선택 조건으로 사용해서는 안 되며/hostname may select migration behavior/g' \
+    "${fixture_root}/deploy/docs/canonical-runtime-standard.md"
+rm -f "${fixture_root}/deploy/docs/canonical-runtime-standard.md.bak"
+assert_contract_failure 'hostname-selected migration behavior was accepted'
+
+reset_fixture
 perl -0pi -e 's/`existing-notifier-setup\.sh` → `SMTP acceptance` → `allowlist`/`existing-notifier-setup.sh` → `allowlist` → `SMTP acceptance`/' \
     "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
 assert_contract_failure 'allowlist activation before SMTP acceptance was accepted'

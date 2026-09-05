@@ -145,7 +145,7 @@ OCID, IP, hostname, 채널 ID와 credential fingerprint를 제거한 비공개 c
 | --- | --- | --- |
 | `crs1-conformant` | 현재 검증된 commit과 목표 상태 일치 | 일상 운영과 문서화된 rotation |
 | `legacy-held` | 정상 운영 중이나 이전 notifier 또는 설치 revision | 읽기 전용 조사와 기존 운영만 허용 |
-| `migration-ready` | 공통 migration 지원 범위, 백업·복구·preflight 통과 | 별도 승인 후 한 인스턴스 적용 |
+| `migration-ready` | 검증된 프로필·버전 전환 절차의 지원 범위, 백업·복구·preflight 통과 | 별도 승인 후 한 인스턴스 적용 |
 | `retirement-candidate` | 사용이 종료됐거나 종료 예정이며 업그레이드 효익이 없음 | 업그레이드 금지, 보존·폐기 결정과 종료 절차만 수행 |
 | `unsupported` | topology·버전·volume·데이터 상태가 지원 범위 밖 | 자동 변경 금지, 별도 설계 필요 |
 
@@ -153,19 +153,30 @@ notifier v0.1.0 인스턴스는 현재 `legacy-held`다. `NOTIFIER_CONTENT_MODE`
 실행 중인 plugin·Mailer 또는 queue schema는 v0.2.0으로 바뀌지 않는다. 신규 설치
 마법사나 최초 adoption 절차로 덮어쓰지 않는다.
 
-`legacy-held`를 `migration-ready`로 바꾸려면 공통 v0.1.0→v0.2.0 migration이 다음을
-모두 자동 검증해야 한다.
+활성 legacy 인스턴스가 정확히 하나이고 이후 프로젝트가 현재 release로 새로 설치되는
+경우에는 해당 인스턴스가 속한 **하나의 지원 프로필과 정확한 출발·목표 버전**을 위한
+검증된 전환 절차를 사용한다. 이 경우 반복 사용을 전제로 한 범용 다중 프로필 도구를 요구하지 않는다.
+전환 절차는 hostname을 선택 조건으로 사용해서는 안 되며, 다른 프로필·버전에는 변경 전
+실패해야 한다.
 
-- canonical-fresh와 existing-adoption 두 프로필의 정확한 사전 상태 식별
+둘 이상의 활성 legacy 인스턴스가 있거나 서로 다른 배포 프로필을 전환해야 하면 반복적인
+수동 작업 대신 공통 migration 도구와 각 프로필의 real-image 시험을 먼저 준비한다.
+인스턴스 수가 하나에서 늘어나면 첫 전환 절차를 복사하지 않고 이 기준으로 다시 판단한다.
+
+단일 프로필·버전 전환 절차와 관련 preflight·시험은 다음을 모두 검증해야 한다.
+
+- 지원하는 정확한 프로필과 출발·목표 release의 사전 상태 식별
 - 알 수 없는 파일·service·volume·plugin·queue schema 발견 시 변경 전 중단
 - Mattermost Team·사용자·채널·게시물·파일 비변경 증거
 - v1 queue의 pending·sending·failed 보존과 v2 schema migration
 - disabled 설치, SMTP acceptance, allowlist와 명시적 all_channels 승인
 - 실패 지점별 기존 plugin/Mailer pair와 control 상태 복원
-- real-image 통합 시험과 disposable restore 시험
+- 해당 프로필의 real-image 통합 시험과 실제 인스턴스 백업을 사용한 disposable restore 시험
 
-이 공통 migration 도구와 시험이 저장소에 병합되기 전에는 운영 v0.1.0을 v0.2.0으로
-올리지 않는다. 서버별 수동 명령을 조합해 같은 결과라고 추정하지 않는다.
+이 전환 절차와 시험이 저장소에 병합되기 전에는 운영 v0.1.0을 v0.2.0으로 올리지 않는다.
+서버별 임의 명령을 조합하거나 hostname 전용 스크립트를 만들어 같은 결과라고 추정하지
+않는다. 범용 도구를 생략하는 것은 복구시험, 데이터 비교 또는 rollback gate를 생략한다는
+뜻이 아니다.
 
 `retirement-candidate`는 표준화를 이유로 upgrade하지 않는다. 먼저 notifier를 안전하게
 drain·disable하고 기록 유지 또는 완전 폐기를 결정한 뒤 [프로젝트 종료 절차](./project-close.md)를

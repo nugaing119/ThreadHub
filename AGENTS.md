@@ -74,9 +74,12 @@ When the user asks to standardize or upgrade existing ThreadHub instances:
 3. Perform read-only inventory first and stop on any ambiguous Compose merge,
    volume, release, plugin, queue schema, or data path. Never normalize a live
    layout merely to make paths uniform.
-4. Do not upgrade a production v0.1.0 notifier until the shared v0.1.0-to-v0.2.0
-   migration and rollback path has passed both canonical-fresh and
-   existing-adoption real-image tests.
+4. Do not upgrade a production v0.1.0 notifier until a version-and-profile-specific
+   transition and rollback path is merged and has passed the real-image test for
+   the exact supported profile. With exactly one active legacy instance, do not
+   require a general multi-profile migration utility, but never select behavior by
+   hostname. If multiple active legacy instances or profiles require transition,
+   require shared migration tooling instead of copied procedures.
 5. Before an approved production mutation, require a verified remote backup and
    a successful disposable-VM restore for that instance. Never restore over the
    production data root.
