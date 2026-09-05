@@ -213,6 +213,32 @@ existing_notifier_target_plugin_is_inert_after_rollback() {
     ' "${states_file}" >/dev/null 2>&1
 }
 
+existing_notifier_repository_git() {
+    local repository_physical
+
+    [[ "${REPOSITORY_ROOT}" == /* && -d "${REPOSITORY_ROOT}" \
+        && ! -L "${REPOSITORY_ROOT}" ]] || return 1
+    repository_physical="$(cd -- "${REPOSITORY_ROOT}" && pwd -P)" || return 1
+    [[ "${repository_physical}" == /* && -d "${repository_physical}" \
+        && ! -L "${repository_physical}" ]] || return 1
+
+    GIT_OPTIONAL_LOCKS=0 git \
+        -c "safe.directory=${repository_physical}" \
+        -C "${repository_physical}" "$@"
+}
+
+existing_notifier_release_commit_is_compatible() {
+    local release_commit="$1" current_commit
+
+    [[ "${release_commit}" =~ ^[a-f0-9]{40}$|^[a-f0-9]{64}$ ]] || return 1
+    current_commit="$(existing_notifier_repository_git \
+        rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 1
+    existing_notifier_repository_git \
+        cat-file -e "${release_commit}^{commit}" 2>/dev/null || return 1
+    existing_notifier_repository_git \
+        merge-base --is-ancestor "${release_commit}" "${current_commit}" 2>/dev/null
+}
+
 existing_notifier_installed_target_plugin_is_reviewed() {
     local service="$1"
     local scratch_root="$2"
@@ -268,9 +294,9 @@ existing_notifier_installed_target_plugin_is_reviewed() {
     [[ "${release_version}" == "$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" \
         && "${release_plugin_id}" == "${plugin_id}" \
         && "${release_sha}" =~ ^[a-f0-9]{64}$ \
-        && "${release_source_commit}" == "$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}')" \
         && "${bundle_relative}" == "notifier/dist/${plugin_id}-${release_version}.tar.gz" ]] \
         || return 1
+    existing_notifier_release_commit_is_compatible "${release_source_commit}" || return 1
     bundle_path="${REPOSITORY_ROOT}/${bundle_relative}"
     [[ -f "${bundle_path}" && ! -L "${bundle_path}" \
         && "$(sha256_file "${bundle_path}")" == "${release_sha}" ]] || return 1

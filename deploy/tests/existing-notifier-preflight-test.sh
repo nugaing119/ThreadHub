@@ -179,6 +179,33 @@ test_preflight_exists() {
     [[ -f "${PREFLIGHT}" ]]
 }
 
+test_release_commit_may_precede_backup_adapter_head() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    repository="${fixture}/repository"
+    mkdir -p "${repository}"
+    git -C "${repository}" init -q
+    printf 'notifier release\n' > "${repository}/tracked.txt"
+    git -C "${repository}" add tracked.txt
+    git -C "${repository}" -c user.name=ThreadHub-Test \
+        -c user.email=threadhub-test@invalid.example commit -qm release
+    release_commit="$(git -C "${repository}" rev-parse HEAD)"
+    printf 'backup adapter\n' >> "${repository}/tracked.txt"
+    git -C "${repository}" add tracked.txt
+    git -C "${repository}" -c user.name=ThreadHub-Test \
+        -c user.email=threadhub-test@invalid.example commit -qm backup-adapter
+    adapter_commit="$(git -C "${repository}" rev-parse HEAD)"
+
+    # shellcheck source=../scripts/existing-notifier-preflight.sh
+    source "${PREFLIGHT}"
+    REPOSITORY_ROOT="${repository}"
+    existing_notifier_release_commit_is_compatible "${release_commit}" || return 1
+    ! existing_notifier_release_commit_is_compatible \
+        ffffffffffffffffffffffffffffffffffffffff || return 1
+    git -C "${repository}" checkout -q --detach "${release_commit}"
+    ! existing_notifier_release_commit_is_compatible "${adapter_commit}"
+)
+
 test_fixture_normalizes_caller_umask() (
     umask 0002
     prepare_fixture
@@ -511,6 +538,8 @@ test_uid_owned_bind_roots_are_inspected_with_privilege() (
 
 run_test 'existing notifier preflight script exists' test_preflight_exists
 if [[ -f "${PREFLIGHT}" ]]; then
+    run_test 'reviewed release commit may precede the backup adapter HEAD' \
+        test_release_commit_may_precede_backup_adapter_head
     run_test 'preflight fixture normalizes caller umask' test_fixture_normalizes_caller_umask
     run_test 'supported preflight is read-only and PII-free' test_supported_model_is_read_only
     run_test 'unsupported Mattermost version stops before writes' test_unsupported_version_exits_twenty_before_writes
