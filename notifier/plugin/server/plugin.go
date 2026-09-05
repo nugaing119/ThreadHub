@@ -130,7 +130,7 @@ func (p *Plugin) defaultRuntime(cfg Config, api MattermostAPI, logger errorClass
 		controls:   watcher,
 		outbox:     NewOutbox(api),
 		recipients: NewRecipientResolver(api),
-		mailer:     NewMailerClient(cfg.MailerURL, cfg.Domain, cfg.HMACSecret, p.httpClient),
+		mailer:     NewMailerClient(cfg.MailerURL, cfg.Domain, cfg.HMACSecret, p.httpClient, api).WithContentMode(cfg.ContentMode),
 		logger:     logger,
 	}, nil
 }

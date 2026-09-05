@@ -76,6 +76,7 @@ THN_SMTP_REPLY_TO_ADDRESS=admin@valid.test
 THN_SMTP_FEEDBACK_NAME=ThreadHub
 THN_HMAC_SECRET=1111111111111111111111111111111111111111111111111111111111111111
 THN_RATE_PER_MINUTE=10
+THN_CONTENT_MODE=project_team_channel
 EOF
     chmod 0600 "${config}"
     write_supported_model
@@ -358,7 +359,7 @@ test_notifier_environment_and_network_collisions_are_rejected() (
 test_existing_target_plugin_is_rejected() (
     prepare_fixture
     trap 'rm -rf "${fixture}"' EXIT
-    fixture_plugin_json='{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+    fixture_plugin_json='{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}'
     set +e
     run_preflight > "${output}" 2>&1
     result=$?
@@ -466,7 +467,7 @@ test_reviewed_installed_plugin_is_accepted_only_for_resume() (
     trap 'rm -rf "${fixture}"' EXIT
     mkdir -p "${plugins_root}/com.threadhub.channel-email-notifier" "${data_root}/plugins"
     printf 'reviewed\n' > "${data_root}/plugins/com.threadhub.channel-email-notifier.tar.gz"
-    fixture_plugin_json='{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+    fixture_plugin_json='{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}'
     fixture_installed_reviewed=true
     run_preflight --resume > "${output}" 2>&1 || return 1
     grep -F '[OK] Reviewed installed notifier pair is safe to resume' "${output}" >/dev/null \

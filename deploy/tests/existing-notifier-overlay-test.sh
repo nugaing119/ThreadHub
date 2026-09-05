@@ -80,6 +80,7 @@ THN_SMTP_REPLY_TO_ADDRESS=admin@valid.test
 THN_SMTP_FEEDBACK_NAME=ThreadHub
 THN_HMAC_SECRET=${FIXTURE_HMAC}
 THN_RATE_PER_MINUTE=10
+THN_CONTENT_MODE=project_team_channel
 EOF
     chmod 0600 "${config}"
 }
@@ -174,9 +175,10 @@ fixture_docker() {
               environment: {
                 EXISTING_VALUE: "preserved",
                 THREADHUB_DOMAIN: "mattermost.valid.test",
-                NOTIFIER_MAILER_URL: "http://threadhub-mailer:8080",
-                NOTIFIER_HMAC_SECRET: $hmac,
-                NOTIFIER_CONTROL_FILE: "/run/threadhub-notifier/state.json",
+				NOTIFIER_MAILER_URL: "http://threadhub-mailer:8080",
+				NOTIFIER_HMAC_SECRET: $hmac,
+				NOTIFIER_CONTENT_MODE: "project_team_channel",
+				NOTIFIER_CONTROL_FILE: "/run/threadhub-notifier/state.json",
                 NOTIFIER_POLL_EVERY: "1s",
                 MM_PLUGINSETTINGS_ENABLE: "true"
               },
@@ -192,7 +194,7 @@ fixture_docker() {
               restart: "unless-stopped"
             },
             "threadhub-mailer": {
-              image: "threadhub/notifier-mailer:0.1.0",
+              image: "threadhub/notifier-mailer:0.2.0",
               pull_policy: "never",
               platform: "linux/amd64",
               user: "65532:65532",
@@ -205,7 +207,10 @@ fixture_docker() {
                 {type: "bind", source: ($notifier_root + "/control"), target: "/run/threadhub-notifier", read_only: true},
                 {type: "bind", source: "/etc/ssl/certs/ca-certificates.crt", target: "/run/threadhub-smtp-ca/ca.crt", read_only: true}
               ],
-              environment: {SSL_CERT_FILE: "/run/threadhub-smtp-ca/ca.crt"},
+			  environment: {
+				NOTIFIER_CONTENT_MODE: "project_team_channel",
+				SSL_CERT_FILE: "/run/threadhub-smtp-ca/ca.crt"
+			  },
               networks: {"threadhub-notifier-internal": null, "threadhub-notifier-outbound": null}
             }
           },
@@ -275,13 +280,15 @@ test_combined_model_preserves_base_and_hardens_mailer() (
         ($mm.environment.EXISTING_VALUE == "preserved") and
         ($base[0].services[$service].environment.MM_PLUGINSETTINGS_ENABLE == "false") and
         ($mm.environment.MM_PLUGINSETTINGS_ENABLE == "true") and
-        ($mm.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
+		($mm.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
+		($mm.environment.NOTIFIER_CONTENT_MODE == "project_team_channel") and
         ([$mm.volumes[] | select(.target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
         (($mm.group_add | index("2001")) != null) and (($mm.group_add | index("3000")) != null) and
         (($mailer.ports // []) | length == 0) and
         ($mailer.user == "65532:65532") and ($mailer.read_only == true) and
         ($mailer.cap_drop == ["ALL"]) and
-        ($mailer.security_opt == ["no-new-privileges:true"]) and
+		($mailer.security_opt == ["no-new-privileges:true"]) and
+		($mailer.environment.NOTIFIER_CONTENT_MODE == "project_team_channel") and
         ($mailer.environment.SSL_CERT_FILE == "/run/threadhub-smtp-ca/ca.crt") and
         ([$mailer.volumes[] | select(.target == "/run/threadhub-smtp-ca/ca.crt" and .read_only == true)] | length == 1) and
         (.networks["threadhub-notifier-internal"].internal == true)

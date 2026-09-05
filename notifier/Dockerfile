@@ -31,7 +31,7 @@ RUN install -m 0644 plugin/plugin.json LICENSE THIRD_PARTY_NOTICES.md \
     && tar --sort=name --mtime='UTC 2020-01-01' \
         --owner=0 --group=0 --numeric-owner \
         -C /out/plugin -cf - com.threadhub.channel-email-notifier \
-    | gzip -n -9 > /out/bundle/com.threadhub.channel-email-notifier-0.1.0.tar.gz
+    | gzip -n -9 > /out/bundle/com.threadhub.channel-email-notifier-0.2.0.tar.gz
 RUN install -d -m 0755 \
         /out/mailer-rootfs/etc/ssl/certs \
         /out/mailer-rootfs/licenses/threadhub-notifier \

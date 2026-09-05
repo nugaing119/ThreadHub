@@ -1,10 +1,10 @@
 {
   "id": "com.threadhub.channel-email-notifier",
   "name": "ThreadHub Channel Email Notifier",
-  "description": "Queues generic email notices for new public and private channel posts.",
+  "description": "Queues privacy-bounded project context email notices for public and private channel posts.",
   "homepage_url": "https://github.com/nugaing119/ThreadHub",
   "support_url": "https://github.com/nugaing119/ThreadHub/issues",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "min_server_version": "11.7.7",
   "server": {
     "executables": {

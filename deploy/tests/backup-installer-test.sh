@@ -241,7 +241,8 @@ test_configurator_adds_existing_source_without_replacing_backup_config() (
         'THN_SMTP_REPLY_TO_ADDRESS=reply@example.test' \
         'THN_SMTP_FEEDBACK_NAME=ThreadHub' \
         'THN_HMAC_SECRET=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' \
-        'THN_RATE_PER_MINUTE=10' > "${fixture}/existing-notifier.env"
+        'THN_RATE_PER_MINUTE=10' \
+        'THN_CONTENT_MODE=project_team_channel' > "${fixture}/existing-notifier.env"
     chmod 0600 "${fixture}/existing-notifier.env"
 
     [[ -f "${CONFIGURATOR}" ]]

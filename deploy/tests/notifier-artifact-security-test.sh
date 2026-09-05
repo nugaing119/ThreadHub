@@ -161,7 +161,7 @@ make_image_document() {
     config_name="${config_digest}.json"
     mv "${image_root}/config-pending.json" "${image_root}/${config_name}"
     jq -cn --arg config "${config_name}" \
-        '[{Config:$config,RepoTags:["threadhub/notifier-mailer:0.1.0"],Layers:["layer.tar"]}]' \
+        '[{Config:$config,RepoTags:["threadhub/notifier-mailer:0.2.0"],Layers:["layer.tar"]}]' \
         >"${image_root}/manifest.json"
     tar -cf "${temporary_dir}/image.tar" -C "${image_root}" \
         manifest.json "${config_name}" layer.tar
@@ -181,7 +181,7 @@ case "$1 $2 $3" in
     'image inspect --format')
         case "$4" in
             '{{.Id}}')
-                [[ "$5" == 'threadhub/notifier-mailer:0.1.0' ]] || exit 65
+                [[ "$5" == 'threadhub/notifier-mailer:0.2.0' ]] || exit 65
                 printf '%s\n' "${FIXTURE_IMAGE_ID}"
                 ;;
             '{{.Os}}/{{.Architecture}}'|'{{json .Config.Env}}')
@@ -234,7 +234,7 @@ run_gate() {
         CONTAINER_COMMAND=docker \
         "${fixture_verify_script}" \
         "${temporary_dir}/bundle.tar.gz" \
-        threadhub/notifier-mailer:0.1.0
+        threadhub/notifier-mailer:0.2.0
 }
 
 (

@@ -345,6 +345,7 @@ validate_notifier_env() {
     local channel_ids
     local hmac_secret
     local rate_per_minute
+    local content_mode
     local channel_id
     local seen_channel_ids=','
 
@@ -353,6 +354,7 @@ validate_notifier_env() {
     channel_ids="$(env_optional_value NOTIFIER_CHANNEL_IDS "${ENV_FILE}")"
     hmac_secret="$(env_value NOTIFIER_HMAC_SECRET "${ENV_FILE}")"
     rate_per_minute="$(env_value NOTIFIER_RATE_PER_MINUTE "${ENV_FILE}")"
+    content_mode="$(env_value NOTIFIER_CONTENT_MODE "${ENV_FILE}")"
 
     [[ "${enabled}" == "true" || "${enabled}" == "false" ]] \
         || die "NOTIFIER_ENABLED must be true or false"
@@ -383,6 +385,8 @@ validate_notifier_env() {
         || die "NOTIFIER_RATE_PER_MINUTE must be an integer from 1 through 60"
     ((rate_per_minute >= 1 && rate_per_minute <= 60)) \
         || die "NOTIFIER_RATE_PER_MINUTE must be an integer from 1 through 60"
+    [[ "${content_mode}" == "generic" || "${content_mode}" == "project_team_channel" ]] \
+        || die "NOTIFIER_CONTENT_MODE must be generic or project_team_channel"
 }
 
 validate_runtime_env() {

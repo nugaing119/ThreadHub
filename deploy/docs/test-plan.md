@@ -60,7 +60,7 @@ compartment와 `ap-singapore-1`을 명시한 신규 승인 없이는 실행하�
 | NF-FN-11 | 자동 | plugin unit Webhook·봇 작성 일반 글 |
 | NF-FN-12 | 수동 | 권한 있는 사용자의 이메일 링크 원문 이동 |
 | NF-FN-13 | 수동 | 제거된 사용자의 이메일 링크 접근 거부 |
-| NF-SEC-01 | 자동 | integration 일반 안내문만 확인 |
+| NF-SEC-01 | 자동 | 일반형 및 프로젝트 컨텍스트형 모두 본문·작성자·첨부파일 정보를 제외하는지 확인 |
 | NF-SEC-02 | 자동 | integration 수신자별 단일 envelope |
 | NF-SEC-03 | 자동 | unit SQLite·로그 최소 데이터 검사 |
 | NF-SEC-04 | 자동 | integration 잘못된 HMAC 거부 |

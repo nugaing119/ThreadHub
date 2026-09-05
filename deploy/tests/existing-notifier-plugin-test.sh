@@ -128,7 +128,7 @@ fixture_compose() {
                     ;;
                 enable)
                     version="$(jq -er '.version' "${target_root}/plugin.json")" || return 1
-                    if [[ "${FIXTURE_FAIL_NEW_ENABLE:-false}" == true && "${version}" == 0.1.0 ]]; then
+                    if [[ "${FIXTURE_FAIL_NEW_ENABLE:-false}" == true && "${version}" == 0.2.0 ]]; then
                         return 91
                     fi
                     printf 'active\n' > "${plugin_state}"
@@ -218,11 +218,11 @@ write_release_identity() {
     local source_commit
     source_commit="$(git -C "${REPOSITORY_ROOT}" rev-parse --verify 'HEAD^{commit}')"
     cat > "${release_dir}/release.env" <<EOF
-NOTIFIER_VERSION=0.1.0
+NOTIFIER_VERSION=0.2.0
 NOTIFIER_PLUGIN_ID=${plugin_id}
-NOTIFIER_PLUGIN_BUNDLE=notifier/dist/${plugin_id}-0.1.0.tar.gz
+NOTIFIER_PLUGIN_BUNDLE=notifier/dist/${plugin_id}-0.2.0.tar.gz
 NOTIFIER_PLUGIN_BUNDLE_SHA256=${bundle_sha}
-NOTIFIER_MAILER_IMAGE=threadhub/notifier-mailer:0.1.0
+NOTIFIER_MAILER_IMAGE=threadhub/notifier-mailer:0.2.0
 NOTIFIER_MAILER_IMAGE_ID=sha256:0000000000000000000000000000000000000000000000000000000000000000
 NOTIFIER_SOURCE_COMMIT=${source_commit}
 EOF
@@ -246,7 +246,7 @@ prepare_fixture() {
     plugin_runtime_state="${fixture}/plugin-runtime.state"
     reviewed_parent="${fixture}/reviewed"
     reviewed_root="${reviewed_parent}/com.threadhub.channel-email-notifier"
-    repository_bundle="${REPOSITORY_ROOT}/notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz"
+    repository_bundle="${REPOSITORY_ROOT}/notifier/dist/com.threadhub.channel-email-notifier-0.2.0.tar.gz"
     mkdir -p \
         "${release_dir}" "${notifier_root}/control" \
         "${plugins_root}" "${filestore_root}" "${reviewed_parent}" \
@@ -263,7 +263,7 @@ prepare_fixture() {
     printf 'running\n' > "${service_state}"
     printf 'missing\n' > "${plugin_state}"
     printf 'enabled\n' > "${plugin_runtime_state}"
-    create_reviewed_tree "${reviewed_root}" 0.1.0
+    create_reviewed_tree "${reviewed_root}" 0.2.0
     create_reviewed_bundle "${reviewed_parent}" "${repository_bundle}"
     bundle_sha="$(sha256_file "${repository_bundle}")"
     write_release_identity "${bundle_sha}"

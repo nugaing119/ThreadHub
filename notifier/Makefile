@@ -24,7 +24,8 @@ MAILER_PROBE_ENV := \
 	-e SMTP_FROM_ADDRESS=no-reply@example.test \
 	-e SMTP_REPLY_TO_ADDRESS=feedback@example.test \
 	-e SMTP_FEEDBACK_NAME=ThreadHub \
-	-e NOTIFIER_RATE_PER_MINUTE=10
+	-e NOTIFIER_RATE_PER_MINUTE=10 \
+	-e NOTIFIER_CONTENT_MODE=project_team_channel
 
 .PHONY: verify fmt-check mod-verify license-check vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-artifact-secrets verify-reproducible clean
 
@@ -81,7 +82,7 @@ verify-pins:
 verify-dockerfile:
 	@awk 'BEGIN { shell=0; pipeline=0 } \
 		$$0 == "SHELL [\"/bin/bash\", \"-o\", \"pipefail\", \"-c\"]" { shell=NR } \
-		index($$0, "| gzip -n -9 > /out/bundle/com.threadhub.channel-email-notifier-0.1.0.tar.gz") { pipeline=NR } \
+		index($$0, "| gzip -n -9 > /out/bundle/com.threadhub.channel-email-notifier-0.2.0.tar.gz") { pipeline=NR } \
 		END { if (shell == 0 || pipeline == 0 || shell >= pipeline) { print "Dockerfile bundle pipeline must use the exact bash pipefail SHELL" > "/dev/stderr"; exit 1 } }' Dockerfile
 
 plugin-bundle: verify-pins
@@ -144,7 +145,7 @@ verify-artifacts:
 		'package main' \
 		'import ("encoding/json"; "io"; "os")' \
 		'type manifest struct { ID string `json:"id"`; Name string `json:"name"`; Description string `json:"description"`; HomepageURL string `json:"homepage_url"`; SupportURL string `json:"support_url"`; Version string `json:"version"`; MinServerVersion string `json:"min_server_version"`; Server struct { Executables struct { LinuxAMD64 string `json:"linux-amd64"` } `json:"executables"` } `json:"server"` }' \
-		'func main() { f,e:=os.Open(os.Args[1]); if e!=nil { os.Exit(1) }; defer f.Close(); d:=json.NewDecoder(f); d.DisallowUnknownFields(); var m manifest; if d.Decode(&m)!=nil { os.Exit(1) }; var extra any; if d.Decode(&extra)!=io.EOF { os.Exit(1) }; if m.ID!="com.threadhub.channel-email-notifier" || m.Version!="0.1.0" || m.MinServerVersion!="11.7.7" || m.Server.Executables.LinuxAMD64!="server/dist/plugin-linux-amd64" { os.Exit(1) } }' \
+		'func main() { f,e:=os.Open(os.Args[1]); if e!=nil { os.Exit(1) }; defer f.Close(); d:=json.NewDecoder(f); d.DisallowUnknownFields(); var m manifest; if d.Decode(&m)!=nil { os.Exit(1) }; var extra any; if d.Decode(&extra)!=io.EOF { os.Exit(1) }; if m.ID!="com.threadhub.channel-email-notifier" || m.Version!="0.2.0" || m.MinServerVersion!="11.7.7" || m.Server.Executables.LinuxAMD64!="server/dist/plugin-linux-amd64" { os.Exit(1) } }' \
 		> "$$tmp/verify-manifest.go"; \
 	go run "$$tmp/verify-manifest.go" "$$plugin_root/plugin.json"; \
 	go version -m "$$plugin_root/server/dist/plugin-linux-amd64" > "$$tmp/plugin-buildinfo"; \

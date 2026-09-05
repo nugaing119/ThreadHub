@@ -14,6 +14,9 @@ func TestLoadAcceptsValidatedRuntimeConfiguration(t *testing.T) {
 	if cfg.SMTPPort != 587 || cfg.RatePerMinute != 10 || string(cfg.HMACSecret) != strings.Repeat("\x01", 32) {
 		t.Fatalf("Load() = %#v, want validated values", cfg)
 	}
+	if cfg.ContentMode != "project_team_channel" {
+		t.Fatalf("ContentMode = %q, want project_team_channel", cfg.ContentMode)
+	}
 }
 
 func TestSMTPConfigFingerprintBindsOnlyCredentialRelevantFields(t *testing.T) {
@@ -85,6 +88,19 @@ func TestLoadDefaultsAndValidatesControlFile(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultsLegacyContentModeToGenericAndRejectsUnknownMode(t *testing.T) {
+	values := testValues()
+	delete(values, "NOTIFIER_CONTENT_MODE")
+	cfg, err := Load(func(key string) string { return values[key] })
+	if err != nil || cfg.ContentMode != "generic" {
+		t.Fatalf("Load(default content mode) = %#v, %v; want generic", cfg, err)
+	}
+	values["NOTIFIER_CONTENT_MODE"] = "message_body"
+	if _, err := Load(func(key string) string { return values[key] }); err == nil {
+		t.Fatal("Load() accepted unknown content mode")
+	}
+}
+
 func TestLoadRejectsUnsafeConfigurationWithoutSecretLeakage(t *testing.T) {
 	t.Parallel()
 	const password = "password-that-must-not-escape"
@@ -136,5 +152,6 @@ func testValues() map[string]string {
 		"SMTP_REPLY_TO_ADDRESS":    "feedback@example.test",
 		"SMTP_FEEDBACK_NAME":       "ThreadHub 고객지원",
 		"NOTIFIER_RATE_PER_MINUTE": "10",
+		"NOTIFIER_CONTENT_MODE":    "project_team_channel",
 	}
 }

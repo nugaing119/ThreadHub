@@ -322,7 +322,11 @@ jobs:
           set -Eeuo pipefail
           artifact_dir="${RUNNER_TEMP}/threadhub-notifier-integration-artifacts"
           install -d -m 0755 "${artifact_dir}"
-          bundle_sha="$(sha256sum notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz | awk '{print $1}')"
+          notifier_version="$(awk -F= '$1 == "NOTIFIER_VERSION" { count++; value=$2 } END { if (count != 1 || value !~ /^[0-9]+\.[0-9]+\.[0-9]+$/) exit 1; print value }' deploy/versions.env)"
+          plugin_id="$(awk -F= '$1 == "NOTIFIER_PLUGIN_ID" { count++; value=$2 } END { if (count != 1 || value != "com.threadhub.channel-email-notifier") exit 1; print value }' deploy/versions.env)"
+          bundle_path="notifier/dist/${plugin_id}-${notifier_version}.tar.gz"
+          [[ -f "${bundle_path}" && ! -L "${bundle_path}" ]]
+          bundle_sha="$(sha256sum "${bundle_path}" | awk '{print $1}')"
           [[ "${bundle_sha}" =~ ^[a-f0-9]{64}$ ]]
           printf 'bundle_sha256=%s\n' "${bundle_sha}" >"${artifact_dir}/bundle-sha256.txt"
           chmod 0644 "${artifact_dir}/bundle-sha256.txt"

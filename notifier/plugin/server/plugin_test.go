@@ -498,11 +498,11 @@ func TestPluginManifestIsServerOnlyAndPinsTheApprovedContract(t *testing.T) {
 	if !reflect.DeepEqual(gotKeys, wantKeys) {
 		t.Fatalf("manifest keys = %v, want server-only %v", gotKeys, wantKeys)
 	}
-	if manifest["id"] != "com.threadhub.channel-email-notifier" || manifest["version"] != "0.1.0" || manifest["min_server_version"] != "11.7.7" {
+	if manifest["id"] != "com.threadhub.channel-email-notifier" || manifest["version"] != "0.2.0" || manifest["min_server_version"] != "11.7.7" {
 		t.Fatalf("manifest identity = %#v, want approved plugin/version baseline", manifest)
 	}
 	if manifest["name"] != "ThreadHub Channel Email Notifier" ||
-		manifest["description"] != "Queues generic email notices for new public and private channel posts." ||
+		manifest["description"] != "Queues privacy-bounded project context email notices for public and private channel posts." ||
 		manifest["homepage_url"] != "https://github.com/nugaing119/ThreadHub" ||
 		manifest["support_url"] != "https://github.com/nugaing119/ThreadHub/issues" {
 		t.Fatalf("manifest metadata = %#v, want approved fixed values", manifest)

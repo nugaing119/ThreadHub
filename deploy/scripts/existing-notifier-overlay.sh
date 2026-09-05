@@ -58,6 +58,7 @@ existing_notifier_render_override() {
       THREADHUB_DOMAIN: "${THN_DOMAIN:?set THN_DOMAIN}"
       NOTIFIER_MAILER_URL: http://threadhub-mailer:8080
       NOTIFIER_HMAC_SECRET: "${THN_HMAC_SECRET:?set THN_HMAC_SECRET}"
+      NOTIFIER_CONTENT_MODE: "${THN_CONTENT_MODE:?set THN_CONTENT_MODE}"
       NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
       NOTIFIER_POLL_EVERY: 1s
     volumes:
@@ -95,6 +96,7 @@ YAML
       NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
       NOTIFIER_QUEUE_PATH: /var/lib/threadhub-notifier/queue.db
       NOTIFIER_RATE_PER_MINUTE: "${THN_RATE_PER_MINUTE:?set THN_RATE_PER_MINUTE}"
+      NOTIFIER_CONTENT_MODE: "${THN_CONTENT_MODE:?set THN_CONTENT_MODE}"
       SMTP_SERVER: "${THN_SMTP_SERVER:?set THN_SMTP_SERVER}"
       SMTP_PORT: "${THN_SMTP_PORT:?set THN_SMTP_PORT}"
       SMTP_USERNAME: "${THN_SMTP_USERNAME:?set THN_SMTP_USERNAME}"
@@ -145,30 +147,34 @@ existing_notifier_verify_combined_model() {
     local service
     local notifier_root
     local notifier_version
-    local domain
-    local hmac
-    local smtp_ca_file
+	local domain
+	local hmac
+	local content_mode
+	local smtp_ca_file
 
     service="$(existing_notifier_value THN_MATTERMOST_SERVICE)"
     notifier_root="$(existing_notifier_value THN_DATA_ROOT)"
     notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")"
-    domain="$(existing_notifier_value THN_DOMAIN)"
-    hmac="$(existing_notifier_value THN_HMAC_SECRET)"
-    smtp_ca_file="$(existing_notifier_value THN_SMTP_CA_FILE)"
+	domain="$(existing_notifier_value THN_DOMAIN)"
+	hmac="$(existing_notifier_value THN_HMAC_SECRET)"
+	content_mode="$(existing_notifier_value THN_CONTENT_MODE)"
+	smtp_ca_file="$(existing_notifier_value THN_SMTP_CA_FILE)"
 
     jq -e \
         --arg service "${service}" \
         --arg notifier_root "${notifier_root}" \
         --arg mailer_image "threadhub/notifier-mailer:${notifier_version}" \
-        --arg domain "${domain}" \
-        --arg hmac "${hmac}" \
-        --arg smtp_ca_file "${smtp_ca_file}" '
+		--arg domain "${domain}" \
+		--arg hmac "${hmac}" \
+		--arg content_mode "${content_mode}" \
+		--arg smtp_ca_file "${smtp_ca_file}" '
         .services[$service] as $mm |
         .services["threadhub-mailer"] as $mailer |
         ($mm.environment.THREADHUB_DOMAIN == $domain) and
         ($mm.environment.MM_PLUGINSETTINGS_ENABLE == "true") and
         ($mm.environment.NOTIFIER_MAILER_URL == "http://threadhub-mailer:8080") and
-        ($mm.environment.NOTIFIER_HMAC_SECRET == $hmac) and
+		($mm.environment.NOTIFIER_HMAC_SECRET == $hmac) and
+		($mm.environment.NOTIFIER_CONTENT_MODE == $content_mode) and
         ($mm.environment.NOTIFIER_CONTROL_FILE == "/run/threadhub-notifier/state.json") and
         ($mm.environment.NOTIFIER_POLL_EVERY == "1s") and
         ([$mm.volumes[] | select(.type == "bind" and .source == ($notifier_root + "/control") and .target == "/run/threadhub-notifier" and .read_only == true)] | length == 1) and
@@ -181,7 +187,8 @@ existing_notifier_verify_combined_model() {
         ($mailer.group_add == ["3000"]) and
         ($mailer.read_only == true) and
         ($mailer.cap_drop == ["ALL"]) and
-        ($mailer.security_opt == ["no-new-privileges:true"]) and
+		($mailer.security_opt == ["no-new-privileges:true"]) and
+		($mailer.environment.NOTIFIER_CONTENT_MODE == $content_mode) and
         ($mailer.environment.SSL_CERT_FILE == "/run/threadhub-smtp-ca/ca.crt") and
         (($mailer.ports // []) | length == 0) and
         ([$mailer.volumes[] | select(.type == "bind" and .source == ($notifier_root + "/mailer") and .target == "/var/lib/threadhub-notifier" and ((.read_only // false) == false))] | length == 1) and

@@ -75,6 +75,7 @@ NOTIFIER_MODE=all_channels
 NOTIFIER_CHANNEL_IDS=
 NOTIFIER_HMAC_SECRET=${FIXTURE_HMAC}
 NOTIFIER_RATE_PER_MINUTE=10
+NOTIFIER_CONTENT_MODE=project_team_channel
 EOF
     chmod 0600 "${path}"
 }
@@ -1035,7 +1036,7 @@ test_status_normalizes_real_plugin_list_and_fails_closed() (
         esac
     }
 
-    NOTIFIER_TEST_PLUGIN_LIST='[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}]'
+    NOTIFIER_TEST_PLUGIN_LIST='[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}]'
     notifier_status_dispatch "${state_file}" > "${output}" || return 1
     [[ "$(grep -F -c 'plugin=active' "${output}")" == 1 ]] || return 1
 

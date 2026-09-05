@@ -20,7 +20,7 @@ mode="${1:-install}"
 plugin_id="${NOTIFIER_PLUGIN_ID:?notifier plugin ID is required}"
 notifier_version="${NOTIFIER_VERSION:?notifier version is required}"
 [[ "${plugin_id}" == com.threadhub.channel-email-notifier ]] || exit 2
-[[ "${notifier_version}" == 0.1.0 ]] || exit 2
+[[ "${notifier_version}" == 0.2.0 ]] || exit 2
 
 data_root=/threadhub-data
 reviewed_bundle=/reviewed/plugin.tar.gz

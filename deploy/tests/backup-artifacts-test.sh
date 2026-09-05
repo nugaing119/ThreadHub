@@ -33,7 +33,7 @@ MATTERMOST_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 POSTGRES_IMAGE_REPOSITORY=postgres
 POSTGRES_IMAGE_TAG=18.4
 POSTGRES_IMAGE_DIGEST=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
-NOTIFIER_VERSION=0.1.0
+NOTIFIER_VERSION=0.2.0
 EOF
 }
 
@@ -41,11 +41,11 @@ write_release() {
     local path="$1" source_commit="$2"
 
     cat > "${path}" <<EOF
-NOTIFIER_VERSION=0.1.0
+NOTIFIER_VERSION=0.2.0
 NOTIFIER_PLUGIN_ID=com.threadhub.channel-email-notifier
-NOTIFIER_PLUGIN_BUNDLE=notifier/dist/com.threadhub.channel-email-notifier-0.1.0.tar.gz
+NOTIFIER_PLUGIN_BUNDLE=notifier/dist/com.threadhub.channel-email-notifier-0.2.0.tar.gz
 NOTIFIER_PLUGIN_BUNDLE_SHA256=cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc
-NOTIFIER_MAILER_IMAGE=threadhub/notifier-mailer:0.1.0
+NOTIFIER_MAILER_IMAGE=threadhub/notifier-mailer:0.2.0
 NOTIFIER_MAILER_IMAGE_ID=sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 NOTIFIER_SOURCE_COMMIT=${source_commit}
 EOF
@@ -241,7 +241,7 @@ test_manifest_has_exact_schema_and_provenance() (
         digest:"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       } and
       .notifier == {
-        version:"0.1.0",
+        version:"0.2.0",
         mailer_image_id:"sha256:dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       } and
       (.artifacts | map(.name) == ["database.dump","mattermost-data.tar.zst","notifier-queue.tar.zst"]) and

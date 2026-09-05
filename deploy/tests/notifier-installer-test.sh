@@ -79,6 +79,7 @@ NOTIFIER_MODE=all_channels
 NOTIFIER_CHANNEL_IDS=
 NOTIFIER_HMAC_SECRET=1111111111111111111111111111111111111111111111111111111111111111
 NOTIFIER_RATE_PER_MINUTE=10
+NOTIFIER_CONTENT_MODE=project_team_channel
 EOF
 }
 
@@ -164,11 +165,12 @@ test_configure_adds_complete_defaults_without_disclosure() (
         || return 1
 
     [[ "$(portable_mode "${env_file}")" == 600 ]] || return 1
-    [[ "$(grep -c '^NOTIFIER_' "${env_file}")" == 5 ]] || return 1
+    [[ "$(grep -c '^NOTIFIER_' "${env_file}")" == 6 ]] || return 1
     [[ "$(awk -F= '$1 == "NOTIFIER_ENABLED" { print $2 }' "${env_file}")" == true ]] || return 1
     [[ "$(awk -F= '$1 == "NOTIFIER_MODE" { print $2 }' "${env_file}")" == all_channels ]] || return 1
     [[ -z "$(awk -F= '$1 == "NOTIFIER_CHANNEL_IDS" { print $2 }' "${env_file}")" ]] || return 1
     [[ "$(awk -F= '$1 == "NOTIFIER_RATE_PER_MINUTE" { print $2 }' "${env_file}")" == 10 ]] || return 1
+    [[ "$(awk -F= '$1 == "NOTIFIER_CONTENT_MODE" { print $2 }' "${env_file}")" == project_team_channel ]] || return 1
     generated_hmac="$(awk -F= '$1 == "NOTIFIER_HMAC_SECRET" { print $2 }' "${env_file}")"
     [[ "${generated_hmac}" =~ ^[a-f0-9]{64}$ ]] || return 1
     assert_private_output "${output}" "${generated_hmac}"
@@ -270,9 +272,18 @@ test_notifier_env_validation_enforces_modes_and_unique_ids() (
         -e 's/^NOTIFIER_MODE=.*/NOTIFIER_MODE=all_channels/' \
         "${env_file}"
     rm -f "${env_file}.bak"
-    if (validate_notifier_env) >/dev/null 2>&1; then
-        return 1
-    fi
+	if (validate_notifier_env) >/dev/null 2>&1; then
+		return 1
+	fi
+
+	sed -i.bak \
+		-e 's/^NOTIFIER_CHANNEL_IDS=.*/NOTIFIER_CHANNEL_IDS=/' \
+		-e 's/^NOTIFIER_CONTENT_MODE=.*/NOTIFIER_CONTENT_MODE=message_body/' \
+		"${env_file}"
+	rm -f "${env_file}.bak"
+	if (validate_notifier_env) >/dev/null 2>&1; then
+		return 1
+	fi
 )
 
 notifier_test_privileged() {
@@ -552,23 +563,23 @@ test_plugin_state_normalizes_real_mmctl_shape_and_rejects_ambiguity() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
     plugin_id=com.threadhub.channel-email-notifier
-    version=0.1.0
+    version=0.2.0
     # shellcheck source=../scripts/common.sh
     source "${TEST_DEPLOY_DIR}/scripts/common.sh"
     # shellcheck source=../scripts/notifier-lib.sh
     source "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh"
 
     printf '%s\n' \
-        '{"active":[{"id":"other","version":"2.0.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}' \
+        '{"active":[{"id":"other","version":"2.0.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}' \
         > "${fixture}/object.json"
     printf '%s\n' \
-        '[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}]' \
+        '[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}]' \
         > "${fixture}/singleton.json"
     notifier_plugin_list_is_exact_active "${fixture}/object.json" "${plugin_id}" "${version}" \
         || return 1
     notifier_plugin_list_is_exact_active "${fixture}/singleton.json" "${plugin_id}" "${version}" \
         || return 1
-    [[ "$(notifier_plugin_list_target_state "${fixture}/singleton.json" "${plugin_id}")" == $'active\t0.1.0' ]] \
+    [[ "$(notifier_plugin_list_target_state "${fixture}/singleton.json" "${plugin_id}")" == $'active\t0.2.0' ]] \
         || return 1
 
     while IFS='|' read -r name payload; do
@@ -582,15 +593,15 @@ empty-input|
 empty-wrapper|[]
 multi-wrapper|[{"active":[],"inactive":[]},{"active":[],"inactive":[]}]
 wrong-top-type|"not-an-object"
-unknown-envelope-key|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[],"extra":true}
+unknown-envelope-key|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[],"extra":true}
 wrong-entry-type|{"active":["com.threadhub.channel-email-notifier"],"inactive":[]}
-duplicate|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}
-wrong-version|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}
-inactive|{"active":[],"inactive":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}]}
+duplicate|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"},{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}
+wrong-version|{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.3.0"}],"inactive":[]}
+inactive|{"active":[],"inactive":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}]}
 malformed|{"active":
 EOF
     printf '%s\n' \
-        '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]} {}' \
+        '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]} {}' \
         > "${fixture}/trailing.json"
     ! notifier_plugin_list_is_exact_active \
         "${fixture}/trailing.json" "${plugin_id}" "${version}" >/dev/null 2>&1
@@ -613,7 +624,7 @@ test_successful_notifier_status_exits_zero_and_removes_temporary_diagnostics() (
     env_value() {
         case "$1" in
             NOTIFIER_PLUGIN_ID) printf '%s' com.threadhub.channel-email-notifier ;;
-            NOTIFIER_VERSION) printf '%s' 0.1.0 ;;
+            NOTIFIER_VERSION) printf '%s' 0.2.0 ;;
             *) return 1 ;;
         esac
     }
@@ -628,7 +639,7 @@ test_successful_notifier_status_exits_zero_and_removes_temporary_diagnostics() (
                 '{"pending":0,"sending":0,"sent":0,"failed":0,"oldest_pending_seconds":0,"last_success_at":0,"last_error_class":"","last_smtp_code":0}'
         else
             printf '%s\n' \
-                '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+                '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}'
         fi
     }
 
@@ -677,7 +688,7 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
             NOTIFIER_MODE) printf '%s' all_channels ;;
             NOTIFIER_CHANNEL_IDS) printf '%s' '' ;;
             NOTIFIER_PLUGIN_ID) printf '%s' com.threadhub.channel-email-notifier ;;
-            NOTIFIER_VERSION) printf '%s' 0.1.0 ;;
+            NOTIFIER_VERSION) printf '%s' 0.2.0 ;;
             *) return 1 ;;
         esac
     }
@@ -700,7 +711,7 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
         fi
         if [[ "$*" == *'mattermost'* ]]; then
             printf '%s\n' \
-                '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
+                '{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}'
         elif [[ "$*" == *'status --json'* ]]; then
             printf '%s\n' \
                 '{"pending":0,"sending":0,"sent":0,"failed":0,"oldest_pending_seconds":0,"last_success_at":0,"last_error_class":"","last_smtp_code":0}'
@@ -1007,7 +1018,7 @@ test_post_start_pair_verification_rejects_deleted_or_replaced_objects() (
     reviewed_root="${fixture}/reviewed/${plugin_id}"
     scratch="${fixture}/scratch"
 
-    make_reviewed_plugin_pair_fixture "${fixture}" 0.1.0 || return 1
+    make_reviewed_plugin_pair_fixture "${fixture}" 0.2.0 || return 1
     expected_sha="$(openssl dgst -sha256 "${bundle_target}" | awk '{print $NF}')"
     notifier_plugin_pair_is_exact \
         "${runtime_root}" "${bundle_target}" "${reviewed_root}" \
@@ -1047,7 +1058,7 @@ test_prior_pair_recovery_evidence_survives_post_start_deletion() (
     evidence_bundle="${fixture}/evidence/bundle.tar.gz"
     scratch="${fixture}/scratch"
 
-    make_reviewed_plugin_pair_fixture "${fixture}" 0.1.0 || return 1
+    make_reviewed_plugin_pair_fixture "${fixture}" 0.2.0 || return 1
     mkdir "${fixture}/evidence"
     expected_sha="$(openssl dgst -sha256 "${bundle_target}" | awk '{print $NF}')"
     notifier_plugin_preserve_pair \

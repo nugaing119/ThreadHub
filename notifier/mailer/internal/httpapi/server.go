@@ -7,7 +7,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"os"
 	"regexp"
 	"strconv"
 	"time"
@@ -23,22 +22,23 @@ const maxEventBody = 1 << 20
 var noncePattern = regexp.MustCompile(`^[0-9a-f]{32}$`)
 
 type handler struct {
-	queue    *store.SQLiteStore
-	controls *control.Watcher
-	secret   []byte
-	now      func() time.Time
-	domain   string
+	queue       *store.SQLiteStore
+	controls    *control.Watcher
+	secret      []byte
+	now         func() time.Time
+	domain      string
+	contentMode string
 }
 
 // NewHandler returns the complete network surface for the internal mailer.
-func NewHandler(queue *store.SQLiteStore, controls *control.Watcher, secret []byte, now func() time.Time, logger *logsafe.Logger) http.Handler {
+func NewHandler(queue *store.SQLiteStore, controls *control.Watcher, secret []byte, domain, contentMode string, now func() time.Time, logger *logsafe.Logger) http.Handler {
 	if now == nil {
 		now = time.Now
 	}
 	_ = logger // Requests are deliberately not logged; aggregate delivery telemetry is logged elsewhere.
 	h := &handler{
 		queue: queue, controls: controls, secret: append([]byte(nil), secret...),
-		now: now, domain: os.Getenv("THREADHUB_DOMAIN"),
+		now: now, domain: domain, contentMode: contentMode,
 	}
 	return http.HandlerFunc(h.dispatch)
 }
@@ -111,7 +111,8 @@ func (h *handler) acceptEvent(response http.ResponseWriter, request *http.Reques
 	var event protocol.Event
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&event); err != nil || requireJSONEnd(decoder) != nil || event.Validate(h.domain) != nil {
+	if err := decoder.Decode(&event); err != nil || requireJSONEnd(decoder) != nil ||
+		event.Validate(h.domain) != nil || event.ValidateContentMode(h.contentMode) != nil {
 		response.WriteHeader(http.StatusBadRequest)
 		return
 	}

@@ -214,6 +214,8 @@ func (f *recipientTestAPI) GetChannel(string) (*model.Channel, *model.AppError) 
 	return f.channel, f.channelErr
 }
 
+func (f *recipientTestAPI) GetTeam(string) (*model.Team, *model.AppError) { return nil, nil }
+
 func (f *recipientTestAPI) GetChannelMembers(_ string, page, perPage int) (model.ChannelMembers, *model.AppError) {
 	f.memberCalls = append(f.memberCalls, memberCall{page: page, perPage: perPage})
 	return append(model.ChannelMembers(nil), f.memberPages[page]...), f.memberErrPage[page]

@@ -71,7 +71,9 @@ case "$(notifier_env_key_state "${ENV_FILE}")" in
                 'NOTIFIER_MODE=all_channels' \
                 'NOTIFIER_CHANNEL_IDS='
             printf 'NOTIFIER_HMAC_SECRET=%s\n' "${hmac_secret}"
-            printf '%s\n' 'NOTIFIER_RATE_PER_MINUTE=10'
+            printf '%s\n' \
+                'NOTIFIER_RATE_PER_MINUTE=10' \
+                'NOTIFIER_CONTENT_MODE=project_team_channel'
         } >> "${temporary_env}"
         chmod 0600 "${temporary_env}"
         original_env_file="${ENV_FILE}"

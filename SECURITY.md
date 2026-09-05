@@ -35,8 +35,11 @@ vulnerability report를 제출해 주십시오.
 - notifier 큐의 수신자 주소·제어 파일·SMTP acceptance marker와 실제 알림 수신 결과
 - 백업 artifact·manifest, backup status·diagnostic, 버킷명과 백업 ID
 
-즉시 채널 이메일 알림은 메시지 본문, 채널·Team 이름, 작성자와 수신자 주소를
-일반 공개 문서·로그·상태 출력에 넣지 않습니다. 공개 시험 증거는
+즉시 채널 이메일 알림의 `project_team_channel` 모드는 프로젝트 도메인과 공개·비공개
+Team·채널 표시명을 OCI Email Delivery와 수신자 메일함에 전달합니다. 메시지 본문,
+작성자명, 첨부파일명과 다른 수신자 주소는 전달하지 않습니다. 채널명 자체가 기밀이면
+`generic` 모드를 사용합니다. Team·채널명과 수신자 주소는 일반 공개 문서·로그·상태
+출력에 넣지 않습니다. 공개 시험 증거는
 [공개 검증 결과 요약](./deploy/docs/test-results-public.md)의 고정 ID·SHA·통과/실패
 범위로 제한하고, 운영 식별자가 필요한 기록은 비공개 운영 기록에서만 보관합니다.
 

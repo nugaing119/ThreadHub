@@ -159,8 +159,7 @@ func TestAcceptEventDisabledOrDrainStoresNeitherNonceNorEvent(t *testing.T) {
 			watcher, stop := runWatcher(t, controlPath)
 			defer stop()
 			queue := openQueue(t, filepath.Join(dir, "queue.db"))
-			t.Setenv("THREADHUB_DOMAIN", "threadhub.example.test")
-			handler := NewHandler(queue, watcher, testSecret, func() time.Time { return testNow }, logsafe.New(nil))
+			handler := NewHandler(queue, watcher, testSecret, "threadhub.example.test", protocol.ContentModeGeneric, func() time.Time { return testNow }, logsafe.New(nil))
 
 			locked := performSignedRequest(t, handler, http.MethodPost, "application/json", validEventBody(), testNow.Unix(), testNonce, "")
 			if locked.Code != http.StatusLocked {
@@ -194,7 +193,7 @@ func TestAcceptEventUnavailableStoreReturnsNoAcknowledgement(t *testing.T) {
 	}
 
 	reopened := openQueue(t, path)
-	handler = NewHandler(reopened, watcher, testSecret, func() time.Time { return testNow }, logsafe.New(nil))
+	handler = NewHandler(reopened, watcher, testSecret, "threadhub.example.test", protocol.ContentModeGeneric, func() time.Time { return testNow }, logsafe.New(nil))
 	response = performSignedRequest(t, handler, http.MethodPost, "application/json", validEventBody(), testNow.Unix(), testNonce, "")
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("same nonce after store recovery status = %d, want 202", response.Code)
@@ -272,6 +271,37 @@ func TestResponsesAndLogsExcludeRequestSecretsAndContent(t *testing.T) {
 	}
 }
 
+func TestAcceptEventEnforcesConfiguredContentMode(t *testing.T) {
+	dir := t.TempDir()
+	controlPath := filepath.Join(dir, "state.json")
+	writeControl(t, controlPath, true, true)
+	watcher, stop := runWatcher(t, controlPath)
+	defer stop()
+
+	for _, test := range []struct {
+		name        string
+		mode        string
+		withContext bool
+		want        int
+	}{
+		{name: "generic accepts no context", mode: protocol.ContentModeGeneric, want: http.StatusAccepted},
+		{name: "generic rejects context", mode: protocol.ContentModeGeneric, withContext: true, want: http.StatusBadRequest},
+		{name: "project context requires context", mode: protocol.ContentModeProjectContext, want: http.StatusBadRequest},
+		{name: "project context accepts context", mode: protocol.ContentModeProjectContext, withContext: true, want: http.StatusAccepted},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			queue := openQueue(t, filepath.Join(dir, strings.ReplaceAll(test.name, " ", "-")+".db"))
+			handler := NewHandler(queue, watcher, testSecret, "threadhub.example.test", test.mode, func() time.Time { return testNow }, logsafe.New(nil))
+			body := validEventBodyWithContext(test.withContext)
+			nonce := protocol.HashIdentifier(testSecret, "content-mode-nonce", test.name)[:32]
+			response := performSignedRequest(t, handler, http.MethodPost, "application/json", body, testNow.Unix(), nonce, "")
+			if response.Code != test.want {
+				t.Fatalf("status = %d, want %d", response.Code, test.want)
+			}
+		})
+	}
+}
+
 func newTestHandler(t *testing.T, enabled bool) (http.Handler, *store.SQLiteStore, *control.Watcher) {
 	t.Helper()
 	return newTestHandlerAt(t, filepath.Join(t.TempDir(), "queue.db"), enabled)
@@ -289,13 +319,12 @@ func newTestHandlerWithLogger(t *testing.T, enabled bool, logger *logsafe.Logger
 
 func newTestHandlerAtWithLogger(t *testing.T, path string, enabled bool, logger *logsafe.Logger) (http.Handler, *store.SQLiteStore, *control.Watcher) {
 	t.Helper()
-	t.Setenv("THREADHUB_DOMAIN", "threadhub.example.test")
 	controlPath := filepath.Join(filepath.Dir(path), "state.json")
 	writeControl(t, controlPath, enabled, enabled)
 	watcher, stop := runWatcher(t, controlPath)
 	t.Cleanup(stop)
 	queue := openQueue(t, path)
-	return NewHandler(queue, watcher, testSecret, func() time.Time { return testNow }, logger), queue, watcher
+	return NewHandler(queue, watcher, testSecret, "threadhub.example.test", protocol.ContentModeGeneric, func() time.Time { return testNow }, logger), queue, watcher
 }
 
 func openQueue(t *testing.T, path string) *store.SQLiteStore {
@@ -309,11 +338,20 @@ func openQueue(t *testing.T, path string) *store.SQLiteStore {
 }
 
 func validEventBody() []byte {
+	return validEventBodyWithContext(false)
+}
+
+func validEventBodyWithContext(withContext bool) []byte {
 	event := protocol.Event{
 		EventID: testPostID, PostID: testPostID,
 		Permalink:  "https://threadhub.example.test/_redirect/pl/" + testPostID,
 		OccurredAt: testNow.UnixMilli(),
 		Recipients: []protocol.Recipient{{UserID: testUserID, Email: "recipient@example.test"}},
+	}
+	if withContext {
+		event.TeamName = "All"
+		event.ChannelName = "Mentor & Mentee"
+		event.EventType = protocol.EventTypeNewPost
 	}
 	body, err := json.Marshal(event)
 	if err != nil {

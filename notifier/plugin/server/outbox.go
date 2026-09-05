@@ -30,6 +30,7 @@ func (e *malformedOutboxError) Unwrap() error { return ErrMalformedOutbox }
 
 type MattermostAPI interface {
 	GetChannel(channelID string) (*model.Channel, *model.AppError)
+	GetTeam(teamID string) (*model.Team, *model.AppError)
 	GetChannelMembers(channelID string, page, perPage int) (model.ChannelMembers, *model.AppError)
 	GetUsersByIds(userIDs []string) ([]*model.User, *model.AppError)
 	KVSetWithOptions(string, []byte, model.PluginKVSetOptions) (bool, *model.AppError)
@@ -43,6 +44,9 @@ type OutboxEvent struct {
 	ChannelID    string `json:"channel_id"`
 	AuthorUserID string `json:"author_user_id"`
 	CreateAt     int64  `json:"create_at"`
+	IsReply      bool   `json:"is_reply,omitempty"`
+	TeamName     string `json:"-"`
+	ChannelName  string `json:"-"`
 }
 
 type StoredEvent struct {
@@ -63,7 +67,7 @@ func NewOutboxEvent(post *model.Post) OutboxEvent {
 	if post == nil {
 		return OutboxEvent{}
 	}
-	return OutboxEvent{PostID: post.Id, ChannelID: post.ChannelId, AuthorUserID: post.UserId, CreateAt: post.CreateAt}
+	return OutboxEvent{PostID: post.Id, ChannelID: post.ChannelId, AuthorUserID: post.UserId, CreateAt: post.CreateAt, IsReply: post.RootId != ""}
 }
 
 func (o *Outbox) Put(event OutboxEvent) error {
@@ -128,6 +132,7 @@ func decodeOutboxEvent(key string, raw []byte) (OutboxEvent, error) {
 		ChannelID    *string `json:"channel_id"`
 		AuthorUserID *string `json:"author_user_id"`
 		CreateAt     *int64  `json:"create_at"`
+		IsReply      *bool   `json:"is_reply"`
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -142,7 +147,11 @@ func decodeOutboxEvent(key string, raw []byte) (OutboxEvent, error) {
 	if encoded.PostID == nil || encoded.ChannelID == nil || encoded.AuthorUserID == nil || encoded.CreateAt == nil || *encoded.PostID == "" || *encoded.ChannelID == "" || *encoded.AuthorUserID == "" || key != outboxPrefix+*encoded.PostID {
 		return OutboxEvent{}, ErrMalformedOutbox
 	}
-	return OutboxEvent{PostID: *encoded.PostID, ChannelID: *encoded.ChannelID, AuthorUserID: *encoded.AuthorUserID, CreateAt: *encoded.CreateAt}, nil
+	isReply := false
+	if encoded.IsReply != nil {
+		isReply = *encoded.IsReply
+	}
+	return OutboxEvent{PostID: *encoded.PostID, ChannelID: *encoded.ChannelID, AuthorUserID: *encoded.AuthorUserID, CreateAt: *encoded.CreateAt, IsReply: isReply}, nil
 }
 
 func (o *Outbox) Complete(stored StoredEvent) error {

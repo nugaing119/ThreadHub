@@ -41,5 +41,3 @@ CREATE TABLE IF NOT EXISTS service_state (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
-
-INSERT OR IGNORE INTO schema_version(version) VALUES (1);

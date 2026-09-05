@@ -501,7 +501,7 @@ existing_notifier_setup_write_env_value() {
 existing_notifier_setup_configure_interactively() (
     local project_dir compose_file compose_env service selected_plugins_root data_root
     local notifier_root domain smtp_server smtp_ca_file smtp_username smtp_password
-    local smtp_from smtp_reply feedback rate hmac temporary_env
+    local smtp_from smtp_reply feedback rate content_mode hmac temporary_env
 
     [[ -t 0 ]] || {
         existing_notifier_setup_action_required \
@@ -526,6 +526,7 @@ existing_notifier_setup_configure_interactively() (
     existing_notifier_setup_prompt_value smtp_reply 'Reply-to address'
     existing_notifier_setup_prompt_value feedback 'Sender display name' ThreadHub
     existing_notifier_setup_prompt_value rate 'Maximum emails per minute' 10
+    existing_notifier_setup_prompt_value content_mode 'Email content mode (generic or project_team_channel)' project_team_channel
     hmac="$(openssl rand -hex 32)"
     temporary_env="$(mktemp "${EXISTING_NOTIFIER_ENV_FILE}.tmp.XXXXXX")"
     trap 'rm -f -- "${temporary_env}"' EXIT HUP INT TERM
@@ -549,6 +550,7 @@ existing_notifier_setup_configure_interactively() (
         existing_notifier_setup_write_env_value THN_SMTP_FEEDBACK_NAME "${feedback}"
         existing_notifier_setup_write_env_value THN_HMAC_SECRET "${hmac}"
         existing_notifier_setup_write_env_value THN_RATE_PER_MINUTE "${rate}"
+        existing_notifier_setup_write_env_value THN_CONTENT_MODE "${content_mode}"
     } > "${temporary_env}"
     chmod 0600 "${temporary_env}"
     EXISTING_NOTIFIER_ENV_FILE="${temporary_env}" existing_notifier_validate_config

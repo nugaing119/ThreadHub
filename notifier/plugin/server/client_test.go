@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattermost/mattermost/server/public/model"
 	"github.com/nugaing119/ThreadHub/notifier/protocol"
 )
 
@@ -76,6 +77,38 @@ func TestMailerClientSendsOneMinimalSignedRequest(t *testing.T) {
 	}
 	if requestCount != 1 {
 		t.Fatalf("request count = %d, want 1", requestCount)
+	}
+}
+
+func TestMailerClientSignsResolvedProjectContextAndReplyType(t *testing.T) {
+	secret := bytes.Repeat([]byte{0x42}, 32)
+	var received protocol.Event
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		if err := json.NewDecoder(request.Body).Decode(&received); err != nil {
+			t.Errorf("decode event: %v", err)
+		}
+		response.WriteHeader(http.StatusAccepted)
+	}))
+	defer server.Close()
+	baseURL, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	contextAPI := &messageContextTestAPI{
+		channel: &model.Channel{Id: testChannelID, TeamId: "teamidabcdefghijklmnopqrst", DisplayName: "Mentor & Mentee", Type: model.ChannelTypePrivate},
+		team:    &model.Team{Id: "teamidabcdefghijklmnopqrst", DisplayName: "All"},
+	}
+	client := NewMailerClient(baseURL, "threadhub.example.test", secret, &http.Client{}, contextAPI).
+		WithContentMode(protocol.ContentModeProjectContext)
+	client.now = func() time.Time { return time.Date(2026, 8, 27, 5, 6, 7, 0, time.UTC) }
+	client.nonceReader = bytes.NewReader(bytes.Repeat([]byte{0x11}, 16))
+	event := testOutboxEvent(testPostID)
+	event.IsReply = true
+	if err := client.Enqueue(context.Background(), event, testRecipients(1)); err != nil {
+		t.Fatalf("Enqueue() error = %v", err)
+	}
+	if received.TeamName != "All" || received.ChannelName != "Mentor & Mentee" || received.EventType != protocol.EventTypeThreadReply {
+		t.Fatalf("context = %#v, want resolved Team/channel/reply type", received)
 	}
 }
 
@@ -307,6 +340,21 @@ type roundTripperFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripperFunc) RoundTrip(request *http.Request) (*http.Response, error) {
 	return f(request)
+}
+
+type messageContextTestAPI struct {
+	channel    *model.Channel
+	team       *model.Team
+	channelErr *model.AppError
+	teamErr    *model.AppError
+}
+
+func (f *messageContextTestAPI) GetChannel(string) (*model.Channel, *model.AppError) {
+	return f.channel, f.channelErr
+}
+
+func (f *messageContextTestAPI) GetTeam(string) (*model.Team, *model.AppError) {
+	return f.team, f.teamErr
 }
 
 func newTestMailerClient(t *testing.T, rawURL string, secret []byte, now time.Time) *MailerClient {

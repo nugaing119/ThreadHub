@@ -118,6 +118,7 @@ services:
       THREADHUB_DOMAIN: "${THREADHUB_DOMAIN:?set THREADHUB_DOMAIN in deploy/.env}"
       NOTIFIER_MAILER_URL: http://threadhub-mailer:8080
       NOTIFIER_HMAC_SECRET: "${NOTIFIER_HMAC_SECRET:?set NOTIFIER_HMAC_SECRET in deploy/.env}"
+      NOTIFIER_CONTENT_MODE: "${NOTIFIER_CONTENT_MODE:-generic}"
       NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
       NOTIFIER_POLL_EVERY: 1s
 
@@ -179,6 +180,7 @@ services:
       NOTIFIER_CONTROL_FILE: /run/threadhub-notifier/state.json
       NOTIFIER_QUEUE_PATH: /var/lib/threadhub-notifier/queue.db
       NOTIFIER_RATE_PER_MINUTE: "${NOTIFIER_RATE_PER_MINUTE:-10}"
+      NOTIFIER_CONTENT_MODE: "${NOTIFIER_CONTENT_MODE:-generic}"
       SMTP_SERVER: "${SMTP_SERVER:?set SMTP_SERVER in deploy/.env}"
       SMTP_PORT: "${SMTP_PORT:-587}"
       SMTP_USERNAME: "${SMTP_USERNAME:?set SMTP_USERNAME in deploy/.env}"

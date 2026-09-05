@@ -27,6 +27,7 @@ notifier_env_key_state() {
         NOTIFIER_CHANNEL_IDS
         NOTIFIER_HMAC_SECRET
         NOTIFIER_RATE_PER_MINUTE
+        NOTIFIER_CONTENT_MODE
     )
 
     for key in "${keys[@]}"; do

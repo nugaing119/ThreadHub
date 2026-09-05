@@ -35,7 +35,7 @@ var (
 )
 
 //go:embed schema.sql
-var schemaV1 string
+var schemaBootstrap string
 
 type DeliveryKey struct {
 	EventHash     string
@@ -43,10 +43,11 @@ type DeliveryKey struct {
 }
 
 type Delivery struct {
-	Key                    DeliveryKey
-	Email, Permalink       string
-	AttemptCount           int
-	AcceptedAt, OccurredAt time.Time
+	Key                              DeliveryKey
+	Email, Permalink                 string
+	TeamName, ChannelName, EventType string
+	AttemptCount                     int
+	AcceptedAt, OccurredAt           time.Time
 }
 
 type AcceptResult struct {
@@ -170,17 +171,56 @@ func (s *SQLiteStore) initialize(ctx context.Context) error {
 			return fmt.Errorf("configure sqlite: %w", err)
 		}
 	}
-	if _, err := s.db.ExecContext(ctx, schemaV1); err != nil {
+	if _, err := s.db.ExecContext(ctx, schemaBootstrap); err != nil {
 		return fmt.Errorf("create sqlite schema: %w", err)
 	}
 	var count, version int
 	if err := s.db.QueryRowContext(ctx, "SELECT count(*), COALESCE(max(version), 0) FROM schema_version").Scan(&count, &version); err != nil {
 		return fmt.Errorf("read sqlite schema version: %w", err)
 	}
-	if count != 1 || version != 1 {
+	if count == 0 {
+		if _, err := s.db.ExecContext(ctx, "INSERT INTO schema_version(version) VALUES (1)"); err != nil {
+			return fmt.Errorf("initialize sqlite schema version: %w", err)
+		}
+		count, version = 1, 1
+	}
+	if count != 1 {
+		return fmt.Errorf("unsupported sqlite schema version")
+	}
+	if version == 1 {
+		if err := s.migrateV1ToV2(ctx); err != nil {
+			return err
+		}
+		version = 2
+	}
+	if version != 2 {
 		return fmt.Errorf("unsupported sqlite schema version")
 	}
 	return s.verifyPragmas(ctx)
+}
+
+func (s *SQLiteStore) migrateV1ToV2(ctx context.Context) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin sqlite v2 migration: %w", err)
+	}
+	defer tx.Rollback()
+	for _, statement := range []string{
+		"ALTER TABLE events ADD COLUMN team_name TEXT",
+		"ALTER TABLE events ADD COLUMN channel_name TEXT",
+		"ALTER TABLE events ADD COLUMN event_type TEXT CHECK(event_type IS NULL OR event_type IN ('new_post', 'thread_reply'))",
+	} {
+		if _, err := tx.ExecContext(ctx, statement); err != nil {
+			return fmt.Errorf("migrate sqlite schema to v2: %w", err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE schema_version SET version = 2 WHERE version = 1"); err != nil {
+		return fmt.Errorf("record sqlite schema v2: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit sqlite schema v2: %w", err)
+	}
+	return nil
 }
 
 func (s *SQLiteStore) verifyPragmas(ctx context.Context) error {
@@ -229,8 +269,10 @@ func (s *SQLiteStore) Accept(ctx context.Context, nonceHash string, event protoc
 
 	eventHash := protocol.HashIdentifier(s.secret, "event", event.EventID)
 	result, err = tx.ExecContext(ctx, `INSERT OR IGNORE INTO events(
-		event_hash, post_id, permalink, occurred_at_ms, accepted_at_ms
-	) VALUES(?, ?, ?, ?, ?)`, eventHash, event.PostID, event.Permalink, event.OccurredAt, now.UnixMilli())
+		event_hash, post_id, permalink, occurred_at_ms, accepted_at_ms,
+		team_name, channel_name, event_type
+	) VALUES(?, ?, ?, ?, ?, ?, ?, ?)`, eventHash, event.PostID, event.Permalink, event.OccurredAt, now.UnixMilli(),
+		nullIfEmpty(event.TeamName), nullIfEmpty(event.ChannelName), nullIfEmpty(event.EventType))
 	if err != nil {
 		return AcceptResult{}, err
 	}
@@ -239,13 +281,18 @@ func (s *SQLiteStore) Accept(ctx context.Context, nonceHash string, event protoc
 		return AcceptResult{}, err
 	}
 	if eventInserted == 0 {
-		var postID, permalink sql.NullString
+		var postID, permalink, teamName, channelName, eventType sql.NullString
 		var occurredAt int64
-		if err := tx.QueryRowContext(ctx, `SELECT post_id, permalink, occurred_at_ms
-			FROM events WHERE event_hash = ?`, eventHash).Scan(&postID, &permalink, &occurredAt); err != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT post_id, permalink, occurred_at_ms,
+			team_name, channel_name, event_type FROM events WHERE event_hash = ?`, eventHash).Scan(
+			&postID, &permalink, &occurredAt, &teamName, &channelName, &eventType,
+		); err != nil {
 			return AcceptResult{}, err
 		}
-		if occurredAt != event.OccurredAt || postID.Valid && postID.String != event.PostID || permalink.Valid && permalink.String != event.Permalink {
+		if occurredAt != event.OccurredAt || postID.Valid &&
+			(postID.String != event.PostID || !nullableStringEquals(permalink, event.Permalink) ||
+				!nullableStringEquals(teamName, event.TeamName) || !nullableStringEquals(channelName, event.ChannelName) ||
+				!nullableStringEquals(eventType, event.EventType)) {
 			return AcceptResult{}, ErrConflict
 		}
 		if err := tx.Commit(); err != nil {
@@ -281,6 +328,7 @@ func (s *SQLiteStore) ClaimDue(ctx context.Context, now time.Time, lease time.Du
 	var delivery Delivery
 	var acceptedAt, occurredAt int64
 	err = tx.QueryRowContext(ctx, `SELECT d.event_hash, d.recipient_hash, d.email, e.permalink,
+		COALESCE(e.team_name, ''), COALESCE(e.channel_name, ''), COALESCE(e.event_type, ''),
 		d.attempt_count, e.accepted_at_ms, e.occurred_at_ms
 		FROM deliveries d JOIN events e USING(event_hash)
 		WHERE d.status = 'pending' AND d.next_attempt_at_ms <= ?
@@ -288,6 +336,7 @@ func (s *SQLiteStore) ClaimDue(ctx context.Context, now time.Time, lease time.Du
 		ORDER BY d.next_attempt_at_ms, e.accepted_at_ms, d.event_hash, d.recipient_hash
 		LIMIT 1`, now.UnixMilli()).Scan(
 		&delivery.Key.EventHash, &delivery.Key.RecipientHash, &delivery.Email, &delivery.Permalink,
+		&delivery.TeamName, &delivery.ChannelName, &delivery.EventType,
 		&delivery.AttemptCount, &acceptedAt, &occurredAt,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -557,9 +606,21 @@ func requireOneRow(result sql.Result) error {
 	return nil
 }
 
+func nullIfEmpty(value string) any {
+	if value == "" {
+		return nil
+	}
+	return value
+}
+
+func nullableStringEquals(stored sql.NullString, value string) bool {
+	return stored.Valid == (value != "") && (!stored.Valid || stored.String == value)
+}
+
 func scrubEventIfComplete(ctx context.Context, tx *sql.Tx, eventHash string, nowMS int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE events SET
-		post_id = NULL, permalink = NULL, terminal_at_ms = COALESCE(terminal_at_ms, ?)
+		post_id = NULL, permalink = NULL, team_name = NULL, channel_name = NULL,
+		event_type = NULL, terminal_at_ms = COALESCE(terminal_at_ms, ?)
 		WHERE event_hash = ? AND NOT EXISTS (
 			SELECT 1 FROM deliveries WHERE event_hash = ? AND email IS NOT NULL
 		)`, nowMS, eventHash, eventHash)
@@ -568,7 +629,8 @@ func scrubEventIfComplete(ctx context.Context, tx *sql.Tx, eventHash string, now
 
 func scrubAllCompleteEvents(ctx context.Context, tx *sql.Tx, nowMS int64) error {
 	_, err := tx.ExecContext(ctx, `UPDATE events SET
-		post_id = NULL, permalink = NULL, terminal_at_ms = COALESCE(terminal_at_ms, ?)
+		post_id = NULL, permalink = NULL, team_name = NULL, channel_name = NULL,
+		event_type = NULL, terminal_at_ms = COALESCE(terminal_at_ms, ?)
 		WHERE terminal_at_ms IS NULL AND NOT EXISTS (
 			SELECT 1 FROM deliveries WHERE deliveries.event_hash = events.event_hash AND email IS NOT NULL
 		)`, nowMS)
