@@ -252,19 +252,26 @@ test_manifest_has_exact_schema_and_provenance() (
     backup_validate_set "${set_dir}" "${VALID_ID}"
 )
 
-test_git_provenance_never_takes_optional_repository_locks() (
+test_git_provenance_uses_scoped_trust_without_optional_repository_locks() (
+    before_global_safe_directories="$(command git config --global --get-all safe.directory 2>/dev/null || true)"
     # shellcheck source=/dev/null
     source "${BACKUP_COMMON}"
     # shellcheck source=/dev/null
     source "${BACKUP_ARTIFACTS}"
+    expected_git_repository="$(cd -- "${REPOSITORY_ROOT}" && pwd -P)"
     git() {
         [[ "${GIT_OPTIONAL_LOCKS:-}" == 0 ]] || return 1
+        [[ "$1" == -c && "$2" == "safe.directory=${expected_git_repository}" \
+            && "$3" == -C && "$4" == "${expected_git_repository}" ]] || return 1
+        shift 4
         if [[ "$*" == *'rev-parse --verify HEAD^{commit}'* ]]; then
             printf '%s\n' aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
         fi
     }
 
     [[ "$(backup_artifact_git_commit)" == aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ]]
+    after_global_safe_directories="$(command git config --global --get-all safe.directory 2>/dev/null || true)"
+    [[ "${after_global_safe_directories}" == "${before_global_safe_directories}" ]]
 )
 
 test_corrupt_extra_and_mismatched_sets_fail_closed() (
@@ -440,8 +447,8 @@ run_test 'generated backup ID is private and strict' test_generated_id_is_privat
 run_test 'GNU tar positional options precede the file list' test_gnu_tar_positional_options_precede_file_list
 run_test 'artifact creation uses only fixed sources and names' test_artifact_creation_uses_fixed_sources_and_names
 run_test 'manifest has exact schema provenance and a valid set' test_manifest_has_exact_schema_and_provenance
-run_test 'Git provenance never takes optional repository locks' \
-    test_git_provenance_never_takes_optional_repository_locks
+run_test 'Git provenance uses exact command-scoped trust without optional repository locks' \
+    test_git_provenance_uses_scoped_trust_without_optional_repository_locks
 run_test 'corrupt extra and mismatched sets fail closed' test_corrupt_extra_and_mismatched_sets_fail_closed
 run_test 'dirty or mismatched provenance is rejected' test_dirty_or_mismatched_provenance_is_rejected
 run_test 'restore compatibility does not require a live notifier release' test_restore_compatibility_does_not_require_live_release

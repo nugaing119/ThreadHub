@@ -108,24 +108,38 @@ backup_artifact_copy_release() {
     fi
 }
 
+backup_artifact_git() {
+    local repository_physical
+
+    [[ "${REPOSITORY_ROOT}" == /* && -d "${REPOSITORY_ROOT}" \
+        && ! -L "${REPOSITORY_ROOT}" ]] || return 20
+    repository_physical="$(cd -- "${REPOSITORY_ROOT}" && pwd -P)" || return 20
+    [[ "${repository_physical}" == /* && -d "${repository_physical}" \
+        && ! -L "${repository_physical}" ]] || return 20
+
+    GIT_OPTIONAL_LOCKS=0 git \
+        -c "safe.directory=${repository_physical}" \
+        -C "${repository_physical}" "$@"
+}
+
 backup_artifact_git_commit() {
     local source_commit
 
     case "${BACKUP_ARTIFACT_SOURCE_COMMIT_MODE}" in
         current)
-            source_commit="$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+            source_commit="$(backup_artifact_git \
                 rev-parse --verify 'HEAD^{commit}' 2>/dev/null)" || return 20
             ;;
         release)
             source_commit="$(backup_artifact_release_value \
                 "${BACKUP_ARTIFACT_RELEASE_FILE}" NOTIFIER_SOURCE_COMMIT)" || return 20
-            GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" \
+            backup_artifact_git \
                 cat-file -e "${source_commit}^{commit}" 2>/dev/null || return 20
             ;;
         *) return 20 ;;
     esac
     [[ "${source_commit}" =~ ^[a-f0-9]{40}$|^[a-f0-9]{64}$ ]] || return 20
-    [[ -z "$(GIT_OPTIONAL_LOCKS=0 git -C "${REPOSITORY_ROOT}" status --porcelain=v1 \
+    [[ -z "$(backup_artifact_git status --porcelain=v1 \
         --untracked-files=all --ignore-submodules=none 2>/dev/null)" ]] || return 20
     printf '%s\n' "${source_commit}"
 }
