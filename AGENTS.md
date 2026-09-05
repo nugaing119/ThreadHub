@@ -11,8 +11,11 @@ instance without guessing deployment values or exposing credentials.
    paths uniform.
 2. Confirm the target is a fresh Ubuntu 24.04 AMD64 VM with 2 OCPU, 16GB RAM,
    and at least 50GB of boot storage.
-3. Read `deploy/docs/quick-install.md`, then run
-   `./deploy/scripts/validate.sh` before changing the target VM.
+3. Read `deploy/docs/quick-install.md`. If a fresh Ubuntu target has neither
+   Docker Compose nor Ruby, the only target change allowed before validation is
+   installing the documented Ubuntu `ruby` validator dependency. Then run
+   `./deploy/scripts/validate.sh` before any ThreadHub runtime, network, secret,
+   or persistent-data change.
 4. Never display, copy into chat, commit, or run `docker compose config` without
    `--quiet` against `deploy/.env`.
 5. If `deploy/.env` does not exist, use an interactive terminal to run

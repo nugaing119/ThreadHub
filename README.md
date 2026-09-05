@@ -100,10 +100,15 @@ Mattermost 본체와 Mailer는 같은 프로젝트 SMTP 설정을 사용합니�
 따릅니다.
 
 ```bash
+sudo apt-get update
+sudo apt-get install -y ruby
 ./deploy/scripts/validate.sh
 ```
 
-로컬에 Docker가 없으면 YAML과 셸 구문을 검사하고, GitHub Actions에서 Docker Compose, ShellCheck, 고정 이미지 manifest와 NGINX 설정을 추가 검증합니다.
+`validate.sh`의 정확한 Compose 모델 검증에는 Docker Compose 또는 Ruby 중 하나가
+필요합니다. 깨끗한 Ubuntu 24.04에서는 위 `ruby` 패키지를 먼저 설치합니다. 이미 Docker
+Compose가 있는 호스트에는 Ruby가 필요하지 않습니다. GitHub Actions에서는 Docker
+Compose, ShellCheck, 고정 이미지 manifest와 NGINX 설정을 추가 검증합니다.
 
 ## 보안
 
