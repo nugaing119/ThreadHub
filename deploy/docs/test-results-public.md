@@ -90,14 +90,40 @@ artifact에는 다음 비밀정보 없는 필드만 기록됩니다. 이 설명�
 시험 계정, 게시물, 파일과 채널은 종료 후 식별해 정리했습니다. 실제 토큰,
 사용자 이메일, 게시물 내용과 운영 수량은 이 공개 문서에 기록하지 않습니다.
 
-## 4. 한글 검색 성능
+## 4. 신규 프로젝트 생성·폐기 라이브 검증
+
+2026-09-05에 `4909de77252f0dea01a4c992cf23a15f4283ccea` 기준으로 기존 운영
+인스턴스와 분리된 폐기 가능한 프로젝트를 생성해 다음 한 사이클을 확인했습니다.
+
+- Ubuntu 24.04 AMD64, 2 OCPU, 16GB와 신규 Boot Volume에서 저장소 검증 후
+  설치 마법사 `[READY]` 통과
+- 프로젝트 전용 DNS, NSG, 예약 공인 IP, SMTP IAM user/group/policy/credential,
+  Approved Sender와 비공개 Object Storage bucket 구성
+- 공유 Dynamic Group exception에 exact 시험 VM OCID만 임시 추가하고,
+  `request.principal.id`와 exact bucket 조건으로 다른 프로젝트 접근 차단
+- public/private 채널의 root 글, 스레드, 첨부파일, 한글 검색과 notifier 메일 링크를
+  운영자 수동 확인
+- 두 번의 수동 백업에서 매번 정확한 원격 5개 객체, SHA-256, 서비스 복구와 5분 이내
+  쓰기 중단 gate 통과
+- notifier drain 뒤 pending/sending/failed 0과 delivery 비활성 상태에서 완전 폐기
+- lifecycle rule, 모든 backup object, bucket, 프로젝트 IAM·Email Delivery·DNS·VM,
+  Boot Volume, 예약 공인 IP와 NSG의 잔여 없음 확인
+- 공유 Dynamic Group의 기존 운영 VM clause와 두 운영 HTTPS 응답 정상 확인
+
+이 사이클은 폐기 경로 검증이 목적이므로 신규 VM restore acceptance는 수행하지 않았고
+backup timer도 활성화하지 않았습니다. System Admin MFA도 해당 시험 프로젝트의 명시적
+위험 수용에 따라 생략했습니다. 따라서 이 결과만으로 정기 백업 readiness나 MFA 인수를
+주장하지 않습니다. 실제 도메인, 이메일, OCID, IP, bucket 이름, backup ID와 운영 수량은
+비공개 기록에만 보관했습니다.
+
+## 5. 한글 검색 성능
 
 실제 프로젝트 데이터와 분리한 폐기 가능한 시험 채널에서 대표 누적 게시물을
 생성해 CJK 부분 문자열 검색을 반복 측정했습니다. 설정한 3초 기준을 충족했으며,
 시험 데이터는 측정 후 제거했습니다. 실제 게시물 수와 상세 측정 원본은 비공개
 검증 기록에서 관리합니다.
 
-## 5. 프로젝트 Team 구조
+## 6. 프로젝트 Team 구조
 
 초대 전용 프로젝트 Team과 다음 네 Team 공개 채널의 자동 참여를 검증했습니다.
 
@@ -112,7 +138,7 @@ Team 공개 채널은 인터넷 공개가 아니라 해당 Team 멤버에게만 
 `reconcile-team-channels.sh`는 대상 Team URL 이름을 명시적으로 받아 기존 멤버의
 누락된 채널 참여를 보완합니다.
 
-## 6. 공개 문서 경계
+## 7. 공개 문서 경계
 
 다음 증거는 공개 저장소에 커밋하지 않습니다.
 
