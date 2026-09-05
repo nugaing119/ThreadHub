@@ -4,6 +4,8 @@
 프로젝트 컨텍스트 안내 이메일을 추가하는 절차입니다. 새 ThreadHub 설치 절차가 아닙니다. 신규
 VM은 [배포 모델과 신규 프로젝트 표준](./deployment-models.md)의 canonical fresh와
 [빠른 설치 가이드](./quick-install.md)를 사용합니다.
+신규·기존 인스턴스의 공통 목표 상태와 운영 데이터 보호 gate는
+[CRS-1 표준](./canonical-runtime-standard.md)을 따릅니다.
 
 플러그인과 Mailer의 역할, 분리 이유, 데이터·장애·라이선스 경계는 적용 전에
 [알림 아키텍처](./notifier-architecture.md)에서 확인합니다.

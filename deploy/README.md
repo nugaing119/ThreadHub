@@ -41,6 +41,7 @@ deploy/
 │   └── validate.sh
 └── docs/
     ├── deployment-models.md
+    ├── canonical-runtime-standard.md
     ├── quick-install.md
     ├── backup-restore.md
     ├── existing-mattermost-notifier.md
@@ -87,6 +88,11 @@ Docker Compose가 설치되어 있으면 실제 `docker compose config`를 실�
 새 프로젝트의 표준은 [배포 모델과 신규 프로젝트 표준](./docs/deployment-models.md)의
 canonical fresh이며, 새 VM의 권장 진입점은 대화형 설치 마법사입니다. 기존 운영
 Mattermost에는 이 경로를 사용하지 않습니다.
+
+신규·기존 인스턴스의 공통 목표 상태, 허용되는 프로젝트별 값과 운영 데이터 보호
+gate는 [표준 목표 상태와 기존 인스턴스 수렴 기준](./docs/canonical-runtime-standard.md)을
+따릅니다. 기존 버전은 검증된 공통 migration이 준비되기 전까지 hostname별 수동
+명령으로 변경하지 않습니다.
 
 ```bash
 ./deploy/scripts/setup-wizard.sh

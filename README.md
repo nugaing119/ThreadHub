@@ -31,6 +31,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - [ThreadHub 제품 요구사항 정의서 v4.3 Final](./docs/threadhub-prd-v4.3-final.md)
 - [ThreadHub MVP 구축 및 검증 계획서](./docs/threadhub-mvp-build-validation-plan.md)
 - [배포 모델과 신규 프로젝트 표준](./deploy/docs/deployment-models.md)
+- [표준 목표 상태와 기존 인스턴스 수렴 기준](./deploy/docs/canonical-runtime-standard.md)
 
 제품 범위와 인수조건은 PRD를 기준으로 하며, 배포 단계와 시험 절차는 구축·검증 계획서를 따릅니다.
 
@@ -60,6 +61,9 @@ ThreadHub/
 adoption 경로를 사용하며, 단순한 구조 통일을 위한 in-place migration은 하지 않습니다.
 선택 기준과 프로젝트별 OCI 리소스 경계는
 [배포 모델과 신규 프로젝트 표준](./deploy/docs/deployment-models.md)을 따릅니다.
+신규·기존 인스턴스가 공통으로 만족해야 할 목표 상태와 기존 운영 데이터 보호 gate는
+[표준 목표 상태와 기존 인스턴스 수렴 기준](./deploy/docs/canonical-runtime-standard.md)을
+따릅니다. hostname별 전용 설치·업그레이드 경로는 만들지 않습니다.
 
 새 Ubuntu 24.04 AMD64 VM에서는 설치 마법사가 프로젝트 도메인과 OCI SMTP 값을
 안전하게 입력받고, PostgreSQL 비밀번호 생성부터 Docker·Mattermost·NGINX·HTTPS
