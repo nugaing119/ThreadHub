@@ -159,6 +159,10 @@ trap의 재시작·health도 별도의 하나의 300초 복구 deadline으로 �
 상태 출력, 진단 파일, manifest 또는 백업 내용을 채팅·Issue·공개 CI 로그에
 붙여 넣지 않는다.
 
+백업의 Git provenance 조회는 systemd의 root 실행에서도 소유권이 다른 배포 저장소를
+읽을 수 있도록 현재 저장소의 물리 절대 경로만 command-scoped `safe.directory`로
+지정한다. 전역 또는 시스템 Git 설정은 변경하지 않는다.
+
 ## 7. 폐기 가능한 신규 VM 복구 시험
 
 타이머 활성화 전에 운영 소스와 분리된 폐기 가능한 Ubuntu 24.04 AMD64 VM에서

@@ -175,6 +175,9 @@ sudo ./deploy/scripts/backup-status.sh
 commit을 provenance로 사용하며 현재 저장소에 그 commit이 없거나 working tree가
 dirty하면 실패합니다. Mattermost와 Mailer는 snapshot 구간에만 중지하며, 실패
 trap에서도 재시작과 health를 검증합니다.
+systemd의 root 실행에서 저장소 소유자가 달라도 provenance를 읽을 수 있도록 정확한
+저장소 물리 경로만 command-scoped Git `safe.directory`로 지정하며, 전역 Git 설정은
+변경하지 않습니다.
 
 최초 수동 백업과 분리된 폐기 VM 복구시험이 끝날 때까지 timer remains disabled입니다.
 복구는 기존 base Compose 경로에 덮어쓰지 않고 정규 신규 설치의 new or empty
