@@ -1009,6 +1009,7 @@ THN_SMTP_REPLY_TO_ADDRESS=feedback@integration.invalid
 THN_SMTP_FEEDBACK_NAME=ThreadHub
 THN_HMAC_SECRET=${hmac_secret}
 THN_RATE_PER_MINUTE=60
+THN_CONTENT_MODE=generic
 EOF
 chmod 0600 "${adoption_env}"
 
