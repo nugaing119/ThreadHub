@@ -278,7 +278,7 @@ expected_mailer_env = {
 assert(mailer_env == expected_mailer_env, "Mailer environment must contain only the required runtime values")
 RUBY
 else
-    die "Docker Compose or Ruby is required for exact notifier Compose-model validation; CI must provide Docker Compose"
+    die "Docker Compose or Ruby is required for exact notifier Compose-model validation. On fresh Ubuntu 24.04 run: sudo apt-get update && sudo apt-get install -y ruby"
 fi
 log "Notifier Compose isolation, mounts, settings and hardening are valid"
 

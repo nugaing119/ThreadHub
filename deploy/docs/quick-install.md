@@ -15,7 +15,8 @@ fresh installation only 절차입니다. 기존 프로젝트 데이터를 이전
 접속하거나 값을 덧붙이는 절차가 아닙니다.
 
 1. fresh Ubuntu 24.04 AMD64 VM(2 OCPU, 16GB RAM, Boot Volume 50GB 이상) 기준을 확인합니다.
-2. 저장소에서 `./deploy/scripts/validate.sh`를 실행합니다.
+2. 깨끗한 Ubuntu에 Docker Compose와 Ruby가 모두 없다면 검증 전용 의존성인
+   Ubuntu `ruby` 패키지를 설치한 뒤 `./deploy/scripts/validate.sh`를 실행합니다.
 3. 프로젝트 DNS와 Email Delivery를 준비합니다.
 4. 숨김 SMTP 입력과 generated HMAC으로 설정을 만듭니다.
 5. build/install을 실행합니다.
@@ -45,8 +46,16 @@ OCI 리소스가 아직 없다면 [OCI 인프라 준비](./oci-provisioning.md)�
 ```bash
 git clone https://github.com/nugaing119/ThreadHub.git
 cd ThreadHub
+sudo apt-get update
+sudo apt-get install -y ruby
 ./deploy/scripts/validate.sh
 ```
+
+`validate.sh`의 정확한 Compose 모델 검증에는 Docker Compose 또는 Ruby 중 하나가
+필요합니다. 완전히 새로운 Ubuntu 24.04에는 둘 다 없을 수 있으므로 위 `ruby` 설치를
+먼저 수행합니다. 이 패키지 설치는 검증기를 실행하기 위한 준비일 뿐이며 ThreadHub
+컨테이너, `/srv/threadhub` 데이터 또는 `deploy/.env`를 생성하지 않습니다. Docker
+Compose가 이미 정상 설치된 호스트에서는 `ruby`를 별도로 설치하지 않아도 됩니다.
 
 ## 3. 대화형 설치와 notifier 활성화
 
