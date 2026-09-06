@@ -114,7 +114,7 @@ reset_fixture
 sed -i.bak 's/BK-LIVE-06/BK-LIVE-PENDING/g' \
     "${fixture_root}/deploy/docs/test-results-public.md"
 rm -f "${fixture_root}/deploy/docs/test-results-public.md.bak"
-assert_contract_failure 'pending scheduled execution was claimed without its test ID'
+assert_contract_failure 'scheduled systemd execution evidence lost its test ID'
 
 reset_fixture
 sed -i.bak 's/| result |/| result | bucket |/' \

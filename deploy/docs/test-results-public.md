@@ -134,10 +134,12 @@ Ubuntu 24.04 AMD64 VM에 복구해 다음을 확인했습니다.
 `threadhub-backup.service`를 수동 실행해 snapshot·service recovery·daily/weekly upload와
 원격 검증, 5분 이내 중단, HTTPS·notifier·데이터 기준 유지를 확인했습니다.
 
-이 결과로 `BK-LIVE-01`~`BK-LIVE-05`를 통과했습니다. 수정 이후 다음 예약시각의 자동
-실행은 아직 도래하지 않았으므로 `BK-LIVE-06`은 통과로 주장하지 않으며, 실제 성공 후
-비공개 운영 기록을 갱신합니다. 실제 운영 식별자·백업 ID·데이터 크기·사용자와 게시물
-수량은 공개하지 않습니다.
+이후 2026-09-07 03:00 KST 예약시각에 timer 발화시각과 service 시작시각이 일치했고,
+동일한 `threadhub-backup.service`가 snapshot·service recovery·daily upload·원격 검증을
+5분 이내에 완료했습니다. Mattermost·PostgreSQL·Mailer health, HTTPS, notifier 상태와
+원본의 비밀정보 비노출 데이터·파일 기준 집계도 그대로 유지됐습니다. 이 결과로
+`BK-LIVE-01`~`BK-LIVE-06`까지 통과했습니다. 실제 운영 식별자·백업 ID·데이터 크기·
+사용자와 게시물 수량은 공개하지 않습니다.
 
 ## 6. 한글 검색 성능
 

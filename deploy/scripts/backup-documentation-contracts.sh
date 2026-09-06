@@ -191,7 +191,8 @@ validate_backup_documentation_contracts() {
     notifier_docs_require_terms "${deploy_dir}/docs/test-results-public.md" \
         'live systemd backup evidence' '기존 운영형 백업·복구 라이브 검증' \
         'writer 정지 전에 fail-closed' 'command-scoped `safe.directory`' \
-        '`BK-LIVE-06`은 통과로 주장하지 않으며' || return 1
+        'timer 발화시각과 service 시작시각이 일치' \
+        '`BK-LIVE-01`~`BK-LIVE-06`까지 통과' || return 1
     backup_docs_validate_public_schema "${deploy_dir}/docs/test-results-public.md" || return 1
     notifier_docs_require_terms "${prd}" 'PRD backup baseline' \
         'v4.3 Final' 'G-12' 'RPO 24시간' 'RTO 4시간' \
