@@ -31,7 +31,7 @@ MATTERMOST_IMAGE_REPOSITORY=mattermost/mattermost-team-edition
 MATTERMOST_IMAGE_TAG=11.7.7
 MATTERMOST_IMAGE_DIGEST=sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 POSTGRES_IMAGE_REPOSITORY=postgres
-POSTGRES_IMAGE_TAG=18.4
+POSTGRES_IMAGE_TAG=18.6-alpine
 POSTGRES_IMAGE_DIGEST=sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb
 NOTIFIER_VERSION=0.2.0
 EOF
@@ -237,7 +237,7 @@ test_manifest_has_exact_schema_and_provenance() (
         digest:"sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       } and
       .images.postgres == {
-        repository:"postgres", tag:"18.4",
+        repository:"postgres", tag:"18.6-alpine",
         digest:"sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
       } and
       .notifier == {

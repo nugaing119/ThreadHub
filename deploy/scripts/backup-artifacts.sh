@@ -163,7 +163,7 @@ backup_artifact_compatibility_json() {
         && "${mattermost_tag}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ \
         && "${mattermost_digest}" =~ ^sha256:[a-f0-9]{64}$ \
         && "${postgres_repository}" == postgres \
-        && "${postgres_tag}" =~ ^[0-9]+\.[0-9]+$ \
+        && "${postgres_tag}" =~ ^[0-9]+\.[0-9]+(-alpine)?$ \
         && "${postgres_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] || return 20
 
     jq -S -c -n \
