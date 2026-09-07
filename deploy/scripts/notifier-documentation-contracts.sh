@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 # This library is sourced by validate.sh and notifier-documentation-test.sh.
+# Backticks below are literal Markdown terms required by the documentation contract.
+# shellcheck disable=SC2016
 
 notifier_docs_fail() {
     printf '%s\n' "[threadhub] ERROR: $*" >&2

@@ -769,11 +769,11 @@ test_runtime_mailer_host_port_validation_fails_closed() (
 
     notifier_service_has_no_host_port_bindings threadhub-mailer
     bindings='{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}'
-    ! notifier_service_has_no_host_port_bindings threadhub-mailer
+    if notifier_service_has_no_host_port_bindings threadhub-mailer; then return 1; fi
     bindings=null
-    ! notifier_service_has_no_host_port_bindings threadhub-mailer
+    if notifier_service_has_no_host_port_bindings threadhub-mailer; then return 1; fi
     compose() { return 1; }
-    ! notifier_service_has_no_host_port_bindings threadhub-mailer
+    if notifier_service_has_no_host_port_bindings threadhub-mailer; then return 1; fi
 )
 
 test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (

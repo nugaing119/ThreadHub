@@ -2,7 +2,8 @@
 
 # Installer phase functions are replaced by deterministic test hooks.
 # Negative assertions intentionally use `! command` inside isolated tests.
-# shellcheck disable=SC2016,SC2034,SC2235,SC2251,SC2329
+# Assignments intentionally live inside independent subshell test fixtures.
+# shellcheck disable=SC2016,SC2030,SC2031,SC2034,SC2235,SC2251,SC2329
 
 set -Eeuo pipefail
 

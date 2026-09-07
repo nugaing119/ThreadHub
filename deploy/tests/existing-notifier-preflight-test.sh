@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 
+# Fixture setup and each assertion intentionally run in isolated subshells.
+# shellcheck disable=SC2030,SC2031
+
 set -Eeuo pipefail
 
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

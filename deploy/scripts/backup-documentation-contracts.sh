@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 # This library is sourced by validate.sh and backup-documentation-test.sh.
+# Backticks below are literal Markdown terms required by the documentation contract.
+# shellcheck disable=SC2016
 
 if ! declare -F notifier_docs_require_file >/dev/null 2>&1; then
     # shellcheck source=notifier-documentation-contracts.sh
