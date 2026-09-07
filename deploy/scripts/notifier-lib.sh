@@ -16,6 +16,21 @@ notifier_mattermost_service() {
     printf '%s\n' "${NOTIFIER_MATTERMOST_SERVICE:-mattermost}"
 }
 
+notifier_service_has_no_host_port_bindings() {
+    local service container_id port_bindings
+
+    [[ "$#" -eq 1 ]] || return 1
+    service="$1"
+    [[ "${service}" =~ ^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,62}$ ]] || return 1
+    ((${#DOCKER_COMMAND[@]} > 0)) || return 1
+    container_id="$(notifier_compose ps -q "${service}" 2>/dev/null)" || return 1
+    [[ "${container_id}" =~ ^[a-f0-9]{12,64}$ ]] || return 1
+    port_bindings="$("${DOCKER_COMMAND[@]}" inspect \
+        --format '{{json .HostConfig.PortBindings}}' "${container_id}" 2>/dev/null)" \
+        || return 1
+    [[ "${port_bindings}" == '{}' ]]
+}
+
 notifier_env_key_state() {
     local file="$1"
     local key

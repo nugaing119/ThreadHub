@@ -104,7 +104,7 @@ notifier_control_dispatch() (
     "${SCRIPT_DIR}/health-check.sh" >/dev/null
     notifier_compose exec -T "$(notifier_mailer_service)" \
         /threadhub-mailer healthcheck >/dev/null
-    [[ -z "$(notifier_compose port "$(notifier_mailer_service)")" ]] \
+    notifier_service_has_no_host_port_bindings "$(notifier_mailer_service)" \
         || die "Notifier Mailer unexpectedly publishes a host port"
     notifier_smtp_marker_is_current "${marker_file}" \
         || die "Current SMTP credentials have not passed notifier SMTP acceptance"

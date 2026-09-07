@@ -678,6 +678,7 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
     source "${TEST_DEPLOY_DIR}/scripts/notifier-control.sh"
     SCRIPT_DIR="${fake_scripts}"
     SUDO_COMMAND=(notifier_test_privileged)
+    DOCKER_COMMAND=(notifier_test_activation_docker)
 
     validate_runtime_env() { :; }
     init_docker() { :; }
@@ -705,9 +706,16 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
             return 2
         fi
     }
+    notifier_test_activation_docker() {
+        [[ "$1" == inspect && "$2" == --format \
+            && "$3" == '{{json .HostConfig.PortBindings}}' \
+            && "$4" =~ ^[a-f0-9]{64}$ ]] || return 1
+        printf '%s\n' '{}'
+    }
     compose() {
-        if [[ "${1:-}" == port ]]; then
-            return 0
+        if [[ "$*" == 'ps -q threadhub-mailer' ]]; then
+            printf '%064d\n' 0
+            return
         fi
         if [[ "$*" == *'mattermost'* ]]; then
             printf '%s\n' \
@@ -741,6 +749,31 @@ test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
         printf 'temporary notifier control directory was not removed\n' >&2
         return 1
     fi
+)
+
+test_runtime_mailer_host_port_validation_fails_closed() (
+    # shellcheck source=../scripts/notifier-lib.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-lib.sh"
+    DOCKER_COMMAND=(notifier_test_port_docker)
+    bindings='{}'
+    compose() {
+        [[ "$*" == 'ps -q threadhub-mailer' ]] || return 1
+        printf '%064d\n' 0
+    }
+    notifier_test_port_docker() {
+        [[ "$1" == inspect && "$2" == --format \
+            && "$3" == '{{json .HostConfig.PortBindings}}' \
+            && "$4" =~ ^[a-f0-9]{64}$ ]] || return 1
+        printf '%s\n' "${bindings}"
+    }
+
+    notifier_service_has_no_host_port_bindings threadhub-mailer
+    bindings='{"8080/tcp":[{"HostIp":"127.0.0.1","HostPort":"18080"}]}'
+    ! notifier_service_has_no_host_port_bindings threadhub-mailer
+    bindings=null
+    ! notifier_service_has_no_host_port_bindings threadhub-mailer
+    compose() { return 1; }
+    ! notifier_service_has_no_host_port_bindings threadhub-mailer
 )
 
 test_all_plugin_state_consumers_use_the_shared_fail_closed_parser() (
@@ -1199,6 +1232,9 @@ run_test \
 run_test \
     'successful notifier activation exits zero and removes temporary diagnostics' \
     test_successful_notifier_activation_exits_zero_and_removes_temporary_diagnostics
+run_test \
+    'runtime Mailer host-port validation fails closed' \
+    test_runtime_mailer_host_port_validation_fails_closed
 run_test \
     'all production plugin-state consumers use the shared fail-closed parser' \
     test_all_plugin_state_consumers_use_the_shared_fail_closed_parser
