@@ -142,8 +142,16 @@ if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; 
           "MM_SERVICESETTINGS_ENABLEINCOMINGWEBHOOKS",
           "MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS",
           "MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION",
-          "MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS"
+          "MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS",
+          "MM_SERVICESETTINGS_ENABLETESTING"
         ] | all(. as $key | $mattermost.environment[$key] == "false")) and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_ENABLE == "true") and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_PERSEC == "10") and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_MAXBURST == "100") and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_MEMORYSTORESIZE == "250") and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_VARYBYREMOTEADDR == "true") and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_VARYBYUSER == "true") and
+        ($mattermost.environment.MM_RATELIMITSETTINGS_VARYBYHEADER == "X-Real-IP") and
         (($mailer.ports // []) | length == 0) and
         (.networks.notifier.internal == true) and
         (($postgres.networks | keys) == ["database"]) and
@@ -220,9 +228,18 @@ assert(mm_env["MM_PLUGINSETTINGS_ENABLE"] == "true", "Mattermost plugin executio
   MM_SERVICESETTINGS_ENABLEOUTGOINGWEBHOOKS
   MM_SERVICESETTINGS_ENABLEBOTACCOUNTCREATION
   MM_SERVICESETTINGS_ENABLEUSERACCESSTOKENS
+  MM_SERVICESETTINGS_ENABLETESTING
 ].each do |key|
   assert(mm_env[key] == "false", "#{key} must remain disabled")
 end
+
+assert(mm_env["MM_RATELIMITSETTINGS_ENABLE"] == "true", "Mattermost API rate limiting must be enabled")
+assert(mm_env["MM_RATELIMITSETTINGS_PERSEC"] == "10", "Mattermost API rate must be fixed")
+assert(mm_env["MM_RATELIMITSETTINGS_MAXBURST"] == "100", "Mattermost API burst must be fixed")
+assert(mm_env["MM_RATELIMITSETTINGS_MEMORYSTORESIZE"] == "250", "Mattermost rate-limit store must match the small deployment")
+assert(mm_env["MM_RATELIMITSETTINGS_VARYBYREMOTEADDR"] == "true", "Mattermost rate limiting must vary by remote address")
+assert(mm_env["MM_RATELIMITSETTINGS_VARYBYUSER"] == "true", "Mattermost rate limiting must vary by authenticated user")
+assert(mm_env["MM_RATELIMITSETTINGS_VARYBYHEADER"] == "X-Real-IP", "Mattermost rate limiting must trust only the NGINX-controlled client header")
 
 assert(!mailer.key?("ports"), "Mailer must not publish a host port")
 assert(compose.dig("networks", "notifier", "internal") == true, "notifier network must be internal")

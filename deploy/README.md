@@ -48,6 +48,7 @@ deploy/
     ├── oci-provisioning.md
     ├── oci-email-delivery.md
     ├── notifier-architecture.md
+    ├── security-validation.md
     ├── setup.md
     ├── admin-guide.md
     ├── operations-checklist.md
@@ -74,6 +75,8 @@ deploy/
   SQLite 영구 큐, 재시도·속도 제한과 OCI SMTP 전송을 담당합니다. 분리 이유와 데이터·
   라이선스 경계는 [알림 아키텍처](./docs/notifier-architecture.md)를 따릅니다.
 - `destroy.sh`는 컨테이너만 내리며 bind mount 데이터를 삭제하지 않습니다.
+- Mattermost 유료 기능을 보안 통제로 간주하거나 라이선스 gate를 우회하지 않으며,
+  신규 고객 투입 전 [보안 검증 기준](./docs/security-validation.md)을 적용합니다.
 
 ## 로컬 정적 검증
 

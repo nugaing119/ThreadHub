@@ -8,6 +8,8 @@ fresh installation only 절차입니다. 기존 프로젝트 데이터를 이전
 [기존 Mattermost notifier 적용 가이드](./existing-mattermost-notifier.md)를 따릅니다.
 플러그인과 Mailer를 함께 사용하는 이유와 데이터·장애·라이선스 경계는
 [알림 아키텍처](./notifier-architecture.md)를 먼저 확인합니다.
+신규 고객 데이터 투입 전 보안·라이선스 gate는
+[보안 검증 기준](./security-validation.md)을 함께 따릅니다.
 
 ## 1. 설치 순서와 준비해야 할 값
 

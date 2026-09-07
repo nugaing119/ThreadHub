@@ -4,6 +4,7 @@
 
 - [ThreadHub MVP 구축 및 검증 계획서](../../docs/threadhub-mvp-build-validation-plan.md)
 - [ThreadHub PRD v4.3 Final](../../docs/threadhub-prd-v4.3-final.md)
+- [ThreadHub 보안 검증 기준](./security-validation.md)
 
 ## 자동·반자동 시험
 
@@ -22,6 +23,11 @@
 | 기존 Mattermost notifier 채택 real-image integration | `./notifier/integration/run-existing-adoption.sh` (Linux Docker CI 환경) |
 | 백업 unit·보안 계약 | `./deploy/tests/backup-*.sh`와 `validate.sh` |
 | 백업 real-image integration | `sudo ./deploy/integration/backup/run.sh` (폐기 가능한 Ubuntu 24.04 AMD64 Docker 환경) |
+| OWASP 보안 검증 | exact-digest 이미지 취약점 검토, 폐기 인스턴스 ZAP baseline, OCI Logging·Monitoring 증거 |
+
+OWASP Top 10은 위험 분류이며 자동 통과 인증이 아니다. ASVS 5.0.0 적용 항목,
+자동 결과, 수동 권한 시험과 승인된 예외를 함께 기록한다. Critical/High finding은
+수정·오탐 입증 또는 기한이 있는 명시적 위험 수용 전까지 고객 사용을 차단한다.
 
 ## Backup test families
 

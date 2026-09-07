@@ -15,8 +15,8 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - 정보 공유 경계당 독립 OCI Compute VM 1대
 - AMD 기반 x86_64, 2 OCPU, 16GB RAM, 200GB Boot Volume
 - Ubuntu Server 24.04 LTS
-- Mattermost Team Edition 11.7.7
-- PostgreSQL 18.4
+- Mattermost Team Edition 11.7.10 ESR
+- PostgreSQL 18.6
 - NGINX와 Let’s Encrypt
 - OCI Email Delivery
 - 즉시 채널 이메일 알림(프로젝트 도메인·Team·채널·새 글/답글 유형, 수신자별 단일 SMTP envelope)
@@ -24,7 +24,8 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - 웹, 데스크톱, 공식 iOS·Android 앱 지원
 - 모바일 푸시 기본 비활성화
 - 일일 OCI Object Storage 백업과 수동 복구(선택적·별도 인수 gate)
-- 중앙 로깅, 모니터링과 고가용성 미구성
+- 신규 표준 배포의 OCI Logging·Monitoring·Notification 보안 운영 기준
+- 고가용성 미구성
 
 ## 문서
 
@@ -32,6 +33,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - [ThreadHub MVP 구축 및 검증 계획서](./docs/threadhub-mvp-build-validation-plan.md)
 - [배포 모델과 신규 프로젝트 표준](./deploy/docs/deployment-models.md)
 - [표준 목표 상태와 기존 인스턴스 수렴 기준](./deploy/docs/canonical-runtime-standard.md)
+- [OWASP·ASVS 기반 보안 및 라이선스 검증 기준](./deploy/docs/security-validation.md)
 
 제품 범위와 인수조건은 PRD를 기준으로 하며, 배포 단계와 시험 절차는 구축·검증 계획서를 따릅니다.
 

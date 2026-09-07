@@ -295,8 +295,8 @@ go_digest="$(version_value GO_BUILDER_IMAGE_DIGEST)" || abort_run NF-HARNESS-con
 notifier_version="$(version_value NOTIFIER_VERSION)" || abort_run NF-HARNESS-config
 plugin_id="$(version_value NOTIFIER_PLUGIN_ID)" || abort_run NF-HARNESS-config
 
-[[ "${mattermost_repository}" == mattermost/mattermost-team-edition && "${mattermost_tag}" == 11.7.7 ]] || abort_run NF-HARNESS-config
-[[ "${postgres_repository}" == postgres && "${postgres_tag}" == 18.4 ]] || abort_run NF-HARNESS-config
+[[ "${mattermost_repository}" == mattermost/mattermost-team-edition && "${mattermost_tag}" == 11.7.10 ]] || abort_run NF-HARNESS-config
+[[ "${postgres_repository}" == postgres && "${postgres_tag}" == 18.6 ]] || abort_run NF-HARNESS-config
 [[ "${go_repository}" == golang && "${go_tag}" == 1.25.14-bookworm ]] || abort_run NF-HARNESS-config
 [[ "${notifier_version}" == 0.2.0 && "${plugin_id}" == com.threadhub.channel-email-notifier ]] || abort_run NF-HARNESS-config
 for digest in "${mattermost_digest}" "${postgres_digest}" "${go_digest}"; do

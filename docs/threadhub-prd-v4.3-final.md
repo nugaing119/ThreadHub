@@ -955,8 +955,8 @@ ThreadHub의 “이력 유지”는 정상 영속성과 최근 검증 성공 bac
 | 초기 VM 사양 | 2 OCPU, 16GB RAM |
 | Boot Volume | 200GB (신규 기본값, 더 큰 용량 허용) |
 | 운영체제 | Ubuntu Server 24.04 LTS |
-| Mattermost | `mattermost/mattermost-team-edition:11.7.7` |
-| PostgreSQL | `postgres:18.4` 또는 승인된 명시적 18.4 변형 태그 |
+| Mattermost | `mattermost/mattermost-team-edition:11.7.10` ESR |
+| PostgreSQL | `postgres:18.6` 또는 승인된 명시적 18.6 변형 태그 |
 | Docker Engine | 29.6.2 목표 기준 |
 | Docker Compose | Docker Compose Plugin |
 | 리버스 프록시 | Ubuntu 저장소 NGINX, 호스트 설치 |
@@ -1169,7 +1169,7 @@ PostgreSQL 공식 이미지는 18부터 볼륨 정의 기준을 `/var/lib/postgr
 ```yaml
 services:
   postgres:
-    image: postgres:18.4
+    image: postgres:18.6
     volumes:
       - /srv/threadhub/postgres:/var/lib/postgresql
 ```
@@ -1178,7 +1178,7 @@ services:
 
 ## 15.3 Mattermost 저장 규칙
 
-Mattermost Team Edition 11.7.7 공식 이미지는 기본적으로 UID/GID `2000:2000`의 `mattermost` 사용자로 실행한다. 최초 기동 전에 다음 조건을 충족해야 한다.
+Mattermost Team Edition 11.7.10 공식 이미지는 기본적으로 UID/GID `2000:2000`의 `mattermost` 사용자로 실행한다. 최초 기동 전에 다음 조건을 충족해야 한다.
 
 - `/srv/threadhub/mattermost` 아래 6개 영구 디렉터리를 생성한다.
 - 고정 이미지 Digest의 실행 UID/GID를 확인한다.
@@ -1191,7 +1191,7 @@ Mattermost Team Edition 11.7.7 공식 이미지는 기본적으로 UID/GID `2000
 ```yaml
 services:
   mattermost:
-    image: mattermost/mattermost-team-edition:11.7.7
+    image: mattermost/mattermost-team-edition:11.7.10
     volumes:
       - /srv/threadhub/mattermost/config:/mattermost/config:rw
       - /srv/threadhub/mattermost/data:/mattermost/data:rw
@@ -1539,7 +1539,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 ## 19.1 판정 원칙
 
 - 설정 파일의 존재가 아니라 실제 사용자 동작으로 판정한다.
-- 정확한 Mattermost Team Edition 11.7.7 이미지와 기록된 Digest를 기준으로 시험한다.
+- 정확한 Mattermost Team Edition 11.7.10 이미지와 기록된 AMD64 Digest를 기준으로 시험한다.
 - 고객 파일럿 필수 항목은 시험 결과와 근거를 남긴다.
 - 기능 제한을 수용하는 경우 제한, 영향, 보완 통제와 승인자를 기록한다.
 - 명시적 No-Go 조건이 하나라도 남아 있으면 고객 파일럿을 시작하지 않는다.
@@ -1793,7 +1793,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 
 | ID | 위험 | 영향 | 대응 또는 보완 통제 | 고객 파일럿 차단 |
 | --- | --- | --- | --- | --- |
-| R-01 | CJK 검색 기능 미동작 | 핵심 이력 검색 실패 | 정확한 11.7.7 이미지와 합의 말뭉치 시험 | 예 |
+| R-01 | CJK 검색 기능 미동작 | 핵심 이력 검색 실패 | 정확한 11.7.10 이미지와 합의 말뭉치 시험 | 예 |
 | R-02 | 선행 와일드카드 CJK 검색 성능 저하 | 게시물 누적 시 검색 지연 | 대표 데이터 규모 측정, 사용량 제한, 필요 시 후속 대안 검토 | 조건부 |
 | R-03 | 초대 없는 가입 설정 오류 | 비인가 사용자 접근 | 가입 경로별 시험, 설정 변경 후 회귀시험 | 예 |
 | R-04 | Team 초대 URL 유출·미회수 | 링크 소지자의 가입 | URL 비배포, 코드 재생성, 이전 URL 무효화 시험 | 예 |
@@ -1897,7 +1897,7 @@ threadhub-deploy/
 2. 정보 공유 경계에 맞는 독립 OCI VM이 생성되어 있다.
 3. VM은 AMD 기반 x86_64, 2 OCPU, 16GB RAM과 200GB Boot Volume 기준을 충족한다.
 4. Ubuntu 24.04 LTS에 NGINX, Certbot, Docker Engine과 Compose Plugin이 설치되어 있다.
-5. Mattermost Team Edition 11.7.7과 PostgreSQL 18.4가 같은 VM에서 실행된다.
+5. Mattermost Team Edition 11.7.10과 PostgreSQL 18.6이 같은 VM에서 실행된다.
 6. 컨테이너 이미지 태그와 실제 Digest가 기록되어 있다.
 7. 지정 도메인으로 유효한 HTTPS 접속이 가능하고 HTTP가 HTTPS로 전환된다.
 8. NGINX의 Mattermost HTTP·WebSocket 프록시가 정상 동작한다.
@@ -2059,9 +2059,9 @@ threadhub-deploy/
 ├── NGINX
 ├── Certbot + Let’s Encrypt
 └── Docker Compose
-    ├── Mattermost Team Edition 11.7.7
+    ├── Mattermost Team Edition 11.7.10 ESR
     │   └── ThreadHub notifier plugin
-    ├── PostgreSQL 18.4
+    ├── PostgreSQL 18.6
     └── ThreadHub Mailer
 ```
 

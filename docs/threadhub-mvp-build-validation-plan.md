@@ -174,8 +174,8 @@ ThreadHub는 운영 중 프로젝트 대화 이력을 제공하지만, 영구 �
 | 구성요소 | 기준 |
 | --- | --- |
 | Ubuntu | Ubuntu Server 24.04 LTS |
-| Mattermost | mattermost/mattermost-team-edition:11.7.7 |
-| PostgreSQL | postgres:18.4 또는 고정된 명시적 변형 태그 |
+| Mattermost | mattermost/mattermost-team-edition:11.7.10 ESR |
+| PostgreSQL | postgres:18.6 또는 고정된 명시적 변형 태그 |
 | Docker Engine | 29.6.2 |
 | Docker Compose | Docker Compose Plugin |
 | NGINX | Ubuntu 저장소 버전 |
@@ -268,7 +268,7 @@ Team이나 비공개 채널만으로 서로 신뢰하지 않는 고객 조직을
     │        ▼                       │
     │ Mattermost Team Edition        │
     │ ├── notifier plugin            │
-    │ └── PostgreSQL 18.4            │
+    │ └── PostgreSQL 18.6            │
     │        │ HMAC·내부 network     │
     │        ▼                       │
     │ ThreadHub Mailer               │
@@ -326,7 +326,7 @@ PostgreSQL 공식 이미지는 18부터 볼륨 정의를 /var/lib/postgresql로 
 
     services:
       postgres:
-        image: postgres:18.4
+        image: postgres:18.6
         volumes:
           - /srv/threadhub/postgres:/var/lib/postgresql
 
@@ -351,7 +351,7 @@ Mattermost 공식 컨테이너 배포 구성과 동일하게 다음 경로를 �
 
     services:
       mattermost:
-        image: mattermost/mattermost-team-edition:11.7.7
+        image: mattermost/mattermost-team-edition:11.7.10
         volumes:
           - /srv/threadhub/mattermost/config:/mattermost/config:rw
           - /srv/threadhub/mattermost/data:/mattermost/data:rw
@@ -360,7 +360,7 @@ Mattermost 공식 컨테이너 배포 구성과 동일하게 다음 경로를 �
           - /srv/threadhub/mattermost/client/plugins:/mattermost/client/plugins:rw
           - /srv/threadhub/mattermost/bleve-indexes:/mattermost/bleve-indexes:rw
 
-공식 Mattermost Team Edition 11.7.7 이미지는 기본적으로 `mattermost` 사용자로 실행한다. 최초 기동 전에 위 디렉터리를 생성하고 UID/GID `2000:2000`으로 설정한다.
+공식 Mattermost Team Edition 11.7.10 이미지는 기본적으로 `mattermost` 사용자로 실행한다. 최초 기동 전에 위 디렉터리를 생성하고 UID/GID `2000:2000`으로 설정한다.
 
     sudo mkdir -p /srv/threadhub/mattermost/{config,data,logs,plugins,client/plugins,bleve-indexes}
     sudo chown -R 2000:2000 /srv/threadhub/mattermost
@@ -1311,10 +1311,10 @@ System Scheme 적용 후 고객 Member 계정으로 다시 시험한다. 정확�
 
 1. 프로젝트가 아니라 정보 공유 경계별로 VM을 분리하는 원칙이 충분한가?
 2. 최대 50명·단기·일반 대화라는 조건에서 Team Edition 선택이 합리적인가?
-3. Mattermost Team Edition 11.7.7의 System Scheme에서 계획한 Member 권한이 실제로 모두 차단되는가?
+3. Mattermost Team Edition 11.7.10의 System Scheme에서 계획한 Member 권한이 실제로 모두 차단되는가?
 4. 일부 Member 권한을 System Scheme으로 제한할 수 없다면 초대 기능 일시 활성화 방식이 충분한가?
 5. 한글 검색 기능 또는 성능이 합의 기준에 미달할 경우 무료 범위 안의 현실적인 대안이 있는가?
-6. PostgreSQL 18.4 볼륨 설계에 누락된 부분이 있는가?
+6. PostgreSQL 18.6 볼륨 설계에 누락된 부분이 있는가?
 7. RPO 24시간·수동 RTO 4시간과 5분 이내 중단 목표가 제한 고객 파일럿에 적절한가?
 8. 전 사용자 MFA 강제 없이 System Admin 계정에 운영 절차로 MFA를 적용하는 방식이 충분한가?
 9. 모바일 푸시 비활성화 방식에 누락된 설정이 있는가?
