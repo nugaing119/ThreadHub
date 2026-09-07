@@ -53,7 +53,7 @@ CRS-1은 다음 두 프로필만 지원한다. hostname이나 고객 이름별 �
 
 ### 플랫폼과 데이터
 
-- Ubuntu 24.04 AMD64, 2 OCPU, 16GB RAM, Boot Volume 50GB 이상
+- Ubuntu 24.04 AMD64, 2 OCPU, 16GB RAM, Boot Volume 기본 200GB 이상
 - `deploy/versions.env`의 Mattermost Team Edition, PostgreSQL과 Docker 고정 버전
 - PostgreSQL과 Mattermost의 명시적 영구 bind mount
 - PostgreSQL host port 없음, Mattermost 8065는 `127.0.0.1`에만 bind

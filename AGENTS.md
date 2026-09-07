@@ -10,7 +10,9 @@ instance without guessing deployment values or exposing credentials.
    Mattermost, and never perform an in-place layout migration merely to make
    paths uniform.
 2. Confirm the target is a fresh Ubuntu 24.04 AMD64 VM with 2 OCPU, 16GB RAM,
-   and at least 50GB of boot storage.
+   and a 200GB boot volume. A larger boot volume is allowed, but a smaller one
+   is not the canonical fresh default and requires the user to correct the VM
+   before installation continues.
 3. Read `deploy/docs/quick-install.md`. If a fresh Ubuntu target has neither
    Docker Compose nor Ruby, the only target change allowed before validation is
    installing the documented Ubuntu `ruby` validator dependency. Then run

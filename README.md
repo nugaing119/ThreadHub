@@ -13,7 +13,7 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 ## 핵심 기준
 
 - 정보 공유 경계당 독립 OCI Compute VM 1대
-- AMD 기반 x86_64, 2 OCPU, 16GB RAM
+- AMD 기반 x86_64, 2 OCPU, 16GB RAM, 200GB Boot Volume
 - Ubuntu Server 24.04 LTS
 - Mattermost Team Edition 11.7.7
 - PostgreSQL 18.4

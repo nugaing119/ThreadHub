@@ -227,10 +227,12 @@ validate_notifier_documentation_contracts() {
     notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
         'fresh and existing adoption separation' \
         'fresh installation only' 'existing-mattermost-notifier.md' \
+        'Boot Volume 200GB' '200GB보다 작게 만들지 않습니다' \
         'NOTIFIER_MODE=all_channels' '나중에 만든 채널도' '이전 게시물은 발송하지 않습니다' \
         '고객 사용자를 초대하기 전에' 'allowlist 파일럿' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/deployment-models.md" \
         'canonical fresh all-channel default' \
+        'Boot Volume 기본 200GB' \
         '신규 설치 기본 목표는 `all_channels`' 'activation cutoff 이후 생성되는 채널도' \
         '게시 시점의 해당 채널 멤버' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/notifier-architecture.md" \

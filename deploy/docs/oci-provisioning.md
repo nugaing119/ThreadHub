@@ -45,7 +45,7 @@ OCI의 public subnet 요구조건은 [Public IP Addresses](https://docs.oracle.c
 | 아키텍처 | AMD x86_64 |
 | OCPU | 2 |
 | 메모리 | 16GB |
-| Boot Volume | 50GB 이상 |
+| Boot Volume | 200GB (신규 기본값, 더 큰 용량 허용) |
 | Subnet | Public Subnet |
 | SSH | 공개키 인증 |
 
@@ -97,7 +97,7 @@ DNS가 아직 전파되지 않아도 설치 마법사는 컨테이너까지 구�
 ## 6. 설치 시작 전 체크리스트
 
 - [ ] 정확한 compartment와 region을 확인함
-- [ ] Ubuntu 24.04 AMD64, 2 OCPU, 16GB VM을 생성함
+- [ ] Ubuntu 24.04 AMD64, 2 OCPU, 16GB, 200GB Boot Volume VM을 생성함
 - [ ] Reserved Public IP를 VM에 연결함
 - [ ] TCP 22·80·443만 필요한 범위로 허용함
 - [ ] 프로젝트 hostname A 레코드를 추가함

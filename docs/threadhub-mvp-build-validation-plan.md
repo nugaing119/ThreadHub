@@ -183,7 +183,7 @@ ThreadHub는 운영 중 프로젝트 대화 이력을 제공하지만, 영구 �
 | SMTP | OCI Email Delivery |
 | CPU | x86_64(AMD) |
 | VM | 2 OCPU, 16GB RAM |
-| Boot Volume | 50GB 이상 |
+| Boot Volume | 200GB (신규 기본값, 더 큰 용량 허용) |
 | 데이터 저장 | VM의 명시적 영구 경로 |
 | 이미지 정책 | 태그와 Digest 모두 기록 |
 
@@ -688,7 +688,7 @@ Mattermost는 System Permission Scheme을 Team Edition에 제공하며, v11.7.7 
 - OCI Compute VM 생성
 - Ubuntu 24.04 LTS 적용
 - AMD 기반 x86_64, 2 OCPU·16GB RAM 구성
-- Boot Volume 50GB 이상 구성
+- Boot Volume 200GB 구성
 - 예약 공인 IP 연결
 - Public Subnet 연결
 - NSG 구성

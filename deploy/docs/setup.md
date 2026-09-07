@@ -25,7 +25,7 @@
 | CPU | AMD 기반 x86_64 |
 | OCPU | 2 |
 | 메모리 | 16GB |
-| Boot Volume | 50GB 이상 |
+| Boot Volume | 200GB (신규 기본값, 더 큰 용량 허용) |
 | 공인 IP | 예약 공인 IP 권장 |
 | Subnet | Public Subnet |
 

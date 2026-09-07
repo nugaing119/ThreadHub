@@ -953,7 +953,7 @@ ThreadHub의 “이력 유지”는 정상 영속성과 최근 검증 성공 bac
 | VM | OCI Compute VM 1대 |
 | CPU 아키텍처 | AMD 기반 x86_64 |
 | 초기 VM 사양 | 2 OCPU, 16GB RAM |
-| Boot Volume | 50GB 이상 |
+| Boot Volume | 200GB (신규 기본값, 더 큰 용량 허용) |
 | 운영체제 | Ubuntu Server 24.04 LTS |
 | Mattermost | `mattermost/mattermost-team-edition:11.7.7` |
 | PostgreSQL | `postgres:18.4` 또는 승인된 명시적 18.4 변형 태그 |
@@ -986,7 +986,7 @@ Docker Engine 29.6.2가 대상 Ubuntu 저장소에서 제공되지 않으면 임
 
 ## 13.3 자원 기준과 확장
 
-초기 자원은 AMD 기반 x86_64, 2 OCPU, 16GB RAM, Boot Volume 50GB 이상으로 한다.
+초기 자원은 AMD 기반 x86_64, 2 OCPU, 16GB RAM, Boot Volume 200GB로 한다.
 
 수직 확장 검토 신호:
 
@@ -1895,7 +1895,7 @@ threadhub-deploy/
 
 1. 본 PRD와 구축·검증 계획서가 승인된 기준선으로 저장되어 있다.
 2. 정보 공유 경계에 맞는 독립 OCI VM이 생성되어 있다.
-3. VM은 AMD 기반 x86_64, 2 OCPU, 16GB RAM과 50GB 이상 Boot Volume 기준을 충족한다.
+3. VM은 AMD 기반 x86_64, 2 OCPU, 16GB RAM과 200GB Boot Volume 기준을 충족한다.
 4. Ubuntu 24.04 LTS에 NGINX, Certbot, Docker Engine과 Compose Plugin이 설치되어 있다.
 5. Mattermost Team Edition 11.7.7과 PostgreSQL 18.4가 같은 VM에서 실행된다.
 6. 컨테이너 이미지 태그와 실제 Digest가 기록되어 있다.

@@ -42,7 +42,7 @@ existing adoption은 열등하거나 임시로 방치된 구성이라는 뜻이 
 
 새 프로젝트는 다음 기준을 하나의 배포 단위로 사용한다.
 
-- Ubuntu 24.04 AMD64, 2 OCPU, 16GB RAM, Boot Volume 50GB 이상인 새 VM
+- Ubuntu 24.04 AMD64, 2 OCPU, 16GB RAM, Boot Volume 기본 200GB인 새 VM
 - 정보 공유 경계당 독립 VM과 프로젝트별 hostname A 레코드
 - 저장소의 고정 이미지 태그·Digest와 단일 Compose
 - 프로젝트별 `deploy/.env`, PostgreSQL 비밀번호와 notifier HMAC

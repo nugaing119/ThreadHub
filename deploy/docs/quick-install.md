@@ -14,7 +14,8 @@ fresh installation only 절차입니다. 기존 프로젝트 데이터를 이전
 새 인스턴스의 순서는 다음과 같습니다. 기존 VM·`deploy/.env`·`/srv/threadhub`에
 접속하거나 값을 덧붙이는 절차가 아닙니다.
 
-1. fresh Ubuntu 24.04 AMD64 VM(2 OCPU, 16GB RAM, Boot Volume 50GB 이상) 기준을 확인합니다.
+1. fresh Ubuntu 24.04 AMD64 VM(2 OCPU, 16GB RAM, Boot Volume 200GB) 기준을 확인합니다.
+   더 큰 Boot Volume은 허용하지만 신규 canonical fresh를 200GB보다 작게 만들지 않습니다.
 2. 깨끗한 Ubuntu에 Docker Compose와 Ruby가 모두 없다면 검증 전용 의존성인
    Ubuntu `ruby` 패키지를 설치한 뒤 `./deploy/scripts/validate.sh`를 실행합니다.
 3. 프로젝트 DNS와 Email Delivery를 준비합니다.
