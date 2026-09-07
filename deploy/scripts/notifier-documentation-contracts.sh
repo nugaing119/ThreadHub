@@ -226,7 +226,18 @@ validate_notifier_documentation_contracts() {
         'pending=0' 'sending=0' 'failed=0' '전체 채널을 활성화하지 않고' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
         'fresh and existing adoption separation' \
-        'fresh installation only' 'existing-mattermost-notifier.md' || return 1
+        'fresh installation only' 'existing-mattermost-notifier.md' \
+        'NOTIFIER_MODE=all_channels' '나중에 만든 채널도' '이전 게시물은 발송하지 않습니다' \
+        '고객 사용자를 초대하기 전에' 'allowlist 파일럿' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/deployment-models.md" \
+        'canonical fresh all-channel default' \
+        '신규 설치 기본 목표는 `all_channels`' 'activation cutoff 이후 생성되는 채널도' \
+        '게시 시점의 해당 채널 멤버' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/notifier-architecture.md" \
+        'all-channel recipient boundary' \
+        '나중에 생성한 공개·비공개 채널도 자동으로 포함한다' \
+        '모든 Team 사용자를 일괄 수신자로 삼는다는 뜻이' \
+        '과거 글을 소급 발송하지 않고' 'allowlist 파일럿' || return 1
 
     notifier_docs_require_section_order "${deploy_dir}/docs/operations-checklist.md" \
         '### 종료·credential 교체 전 queue 처리' 'close delivery sequence' \

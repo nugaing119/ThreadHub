@@ -85,6 +85,17 @@ Delivery와 수신자 메일함에 남으면 안 되는 프로젝트는 활성�
 일회성 SMTP acceptance가 현재 자격 증명에 대해 성공하고, 빈 pre-activation queue와
 정확한 Runtime=Running plugin을 확인한 뒤 activation cutoff를 기록할 때만 발송합니다.
 
+canonical fresh의 기본 목표는 `NOTIFIER_MODE=all_channels`입니다. activation cutoff 이후
+모든 공개·비공개 채널의 새 글과 스레드 답글을 자동으로 포함하며, 나중에 만든 채널도
+별도 channel ID 등록 없이 같은 규칙을 적용합니다. 수신자는 게시 시점의 현재 채널
+멤버로 제한하고 작성자·비활성 사용자·봇은 제외합니다. DM·그룹 DM·시스템 글과 cutoff
+이전 게시물은 발송하지 않습니다. 고객 사용자를 초대하기 전에 공개·비공개 시험 채널로
+수신자 경계, 원문 링크와 SPF/DKIM 수동 인수시험을 완료합니다.
+
+이 기본값은 데이터가 없는 신규 인스턴스에만 적용합니다. 기존 운영 Mattermost는
+모든 채널을 즉시 대상으로 삼지 않고, 별도 적용 가이드에 따라 allowlist 파일럿을
+완료한 뒤 운영 책임자가 `all_channels`를 명시 승인해야 합니다.
+
 마법사는 실제 `.env` 값을 출력하지 않습니다.
 
 notifier v0.1.0으로 이미 운영 중인 canonical 설치는 이 빠른 설치 절차로 덮어쓰지

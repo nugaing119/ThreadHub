@@ -131,6 +131,12 @@ outbox에 기록합니다. 별도 Mailer는 HMAC 서명 입력을 검증하고 S
 DM과 group DM은 제외하며 두 모드 모두 메시지 본문·작성자명·첨부파일명은 포함하지
 않습니다. Team·채널명과 수신자 주소는 상태 출력·로그에 넣지 않습니다.
 
+canonical fresh 신규 설치의 대상 모드는 기본 `all_channels`입니다. activation cutoff
+이후 새로 생성한 공개·비공개 채널도 자동 포함되며 별도 channel ID 등록은 필요하지
+않습니다. 다만 수신자는 언제나 해당 채널의 현재 멤버로 제한됩니다. 고객 초대 전에
+공개·비공개 시험 채널로 수신 경계를 확인하고, 기존 운영 인스턴스는 allowlist 파일럿과
+운영 책임자의 명시 승인 없이 `all_channels`로 전환하지 않습니다.
+
 전달은 at-least-once이며 SMTP가 수락한 뒤 상태 기록 전에 프로세스가 중단되면 드물게
 duplicate 이메일이 생길 수 있습니다. exactly-once 전달은 보장하지 않습니다. 실제
 수신 권한, inbox, 링크, SPF/DKIM은 [빠른 설치 가이드](./quick-install.md)의 수동

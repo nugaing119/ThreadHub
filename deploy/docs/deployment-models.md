@@ -48,7 +48,10 @@ existing adoption은 열등하거나 임시로 방치된 구성이라는 뜻이 
 - 프로젝트별 `deploy/.env`, PostgreSQL 비밀번호와 notifier HMAC
 - 프로젝트별 SMTP IAM 사용자·그룹·Credential과 exact Approved Sender
 - 프로젝트별 Public Access 차단 Object Storage 버킷, lifecycle와 최소 권한 policy
-- SMTP acceptance와 allowlist 수동시험 후 전체 채널 알림 활성화
+- 신규 설치 기본 목표는 `all_channels`; SMTP acceptance와 정확한 plugin·빈 queue 검증
+  후 activation cutoff를 기록하고, 고객 초대 전 공개·비공개 채널 수동 인수시험 완료
+- activation cutoff 이후 생성되는 채널도 별도 allowlist 없이 자동 포함하며 수신자는
+  게시 시점의 해당 채널 멤버로 제한
 - 최초 원격 백업과 폐기 가능한 VM 복구시험 후에만 백업 timer 활성화
 
 설치 마법사의 `[READY]`는 기본 서비스의 자동 검증 완료만 뜻한다. 받은편지함 링크,
