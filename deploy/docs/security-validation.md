@@ -35,8 +35,11 @@ Level 1의 적용 가능한 항목을 구체적인 검증 기준으로 사용한
 1. 저장소 gate: `validate.sh`, ShellCheck, Gitleaks 전체 이력, `govulncheck`, notifier
    unit/race와 real-image integration이 통과한다.
 2. 공급망 gate: Mattermost·PostgreSQL·Go builder는 정확한 AMD64 digest로 고정하고,
-   배포 시점에 지원되는 최신 ESR patch와 PostgreSQL minor를 사용한다. 실행 이미지의
-   알려진 Critical/High 취약점은 이미지 스캔 결과와 vendor 상태를 검토한다.
+   배포 시점에 지원되는 Mattermost 보안 패치와 PostgreSQL minor를 사용한다. 안정성을
+   위해 ESR을 우선하되, 최신 ESR에 외부에서 도달 가능한 Critical/High 취약점이 남고
+   지원 중인 Team Edition 기능 릴리스에서 수정된 경우에는 격리된 복제 DB 시험 후 해당
+   기능 릴리스를 사용할 수 있다. 실행 이미지의 알려진 Critical/High 취약점은 이미지
+   스캔 결과와 vendor 상태를 검토한다.
 3. 런타임 gate: `install-status.sh`, `health-check.sh`, `readiness-check.sh`, 공개 포트,
    SSH, TLS, 보안 헤더, 컨테이너 격리, 로그 수집과 경보를 확인한다.
 4. 애플리케이션 gate: 폐기 가능한 무데이터 시험 인스턴스에서 수동 인증·권한 시험과
@@ -48,6 +51,15 @@ No-Go다.
 - 패치 또는 설정 수정 후 재시험 통과
 - upstream 오탐 또는 도달 불가능 경로임을 재현 가능한 증거로 확인
 - 보완 통제, 소유자, 만료일과 재검토일이 있는 명시적 위험 수용
+
+ESR에서 기능 릴리스로 이동하는 것은 Enterprise 기능 활성화나 라이선스 변경을 뜻하지
+않는다. 이동 대상도 반드시 공식 `mattermost/mattermost-team-edition` 이미지여야 하며,
+라이선스 키와 Enterprise Trial이 없는 상태를 다시 확인한다. 기능 릴리스는 ESR보다
+업데이트 주기가 짧으므로 지원 종료 전에 다음 지원 릴리스 또는 보안 수정 ESR로 이동할
+운영 일정을 함께 기록한다.
+
+버전별 판정 증거와 현재 예외는
+[`security-image-review-2026-09-07.md`](security-image-review-2026-09-07.md)에 기록한다.
 
 ## 3. OWASP Top 10:2025 대응표
 
@@ -110,4 +122,3 @@ ZAP baseline은 로그인하지 않은 공개 표면의 수동(passive) 결과�
 - 관리자 MFA, 초대, 비밀번호 재설정, Member 권한과 비공개 채널 경계
 - CJK, 모바일, SMTP inbox/link/SPF/DKIM
 - 최초 원격 백업과 별도 폐기 VM 복구시험
-

@@ -29,11 +29,11 @@ run_test() {
 
 test_harness_has_real_image_and_acceptance_contracts() {
     [[ -x "${HARNESS}" ]]
-    [[ "$(awk -F= '$1 == "MATTERMOST_IMAGE_TAG" { print $2 }' "${DEPLOY_DIR}/versions.env")" == 11.7.10 ]]
-    [[ "$(awk -F= '$1 == "POSTGRES_IMAGE_TAG" { print $2 }' "${DEPLOY_DIR}/versions.env")" == 18.6 ]]
+    [[ "$(awk -F= '$1 == "MATTERMOST_IMAGE_TAG" { print $2 }' "${DEPLOY_DIR}/versions.env")" == 11.10.1 ]]
+    [[ "$(awk -F= '$1 == "POSTGRES_IMAGE_TAG" { print $2 }' "${DEPLOY_DIR}/versions.env")" == 18.6-alpine ]]
     for contract in \
-        'Mattermost Team Edition 11.7.10' \
-        'PostgreSQL 18.6' \
+        'Mattermost Team Edition 11.10.1' \
+        'PostgreSQL 18.6 Alpine' \
         'source-root-unchanged' \
         'notifier-old-mail-not-sent' \
         'service-downtime-at-most-300' \

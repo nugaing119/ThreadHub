@@ -18,6 +18,9 @@ fresh installation only 절차입니다. 기존 프로젝트 데이터를 이전
 
 1. fresh Ubuntu 24.04 AMD64 VM(2 OCPU, 16GB RAM, Boot Volume 200GB) 기준을 확인합니다.
    더 큰 Boot Volume은 허용하지만 신규 canonical fresh를 200GB보다 작게 만들지 않습니다.
+   canonical runtime은 공식 Mattermost Team Edition 11.10.1과 PostgreSQL
+   18.6 Alpine의 검증된 AMD64 digest를 사용합니다. Mattermost 라이선스 키,
+   Enterprise Trial 또는 유료 기능은 활성화하지 않습니다.
 2. 깨끗한 Ubuntu에 Docker Compose와 Ruby가 모두 없다면 검증 전용 의존성인
    Ubuntu `ruby` 패키지를 설치한 뒤 `./deploy/scripts/validate.sh`를 실행합니다.
 3. 프로젝트 DNS와 Email Delivery를 준비합니다.
@@ -94,6 +97,11 @@ canonical fresh의 기본 목표는 `NOTIFIER_MODE=all_channels`입니다. activ
 멤버로 제한하고 작성자·비활성 사용자·봇은 제외합니다. DM·그룹 DM·시스템 글과 cutoff
 이전 게시물은 발송하지 않습니다. 고객 사용자를 초대하기 전에 공개·비공개 시험 채널로
 수신자 경계, 원문 링크와 SPF/DKIM 수동 인수시험을 완료합니다.
+
+PostgreSQL 18.6 Alpine은 데이터가 없는 신규 설치의 표준입니다. Debian 기반 PostgreSQL로
+이미 초기화된 `/srv/threadhub/postgres`에 Alpine 태그를 바로 적용하면 안 됩니다. 기존
+인스턴스 전환은 논리 백업, 보존된 기존 데이터 디렉터리, 새 빈 Alpine 데이터 디렉터리와
+복원 검증을 갖춘 별도 승인 작업으로만 수행합니다.
 
 이 기본값은 데이터가 없는 신규 인스턴스에만 적용합니다. 기존 운영 Mattermost는
 모든 채널을 즉시 대상으로 삼지 않고, 별도 적용 가이드에 따라 allowlist 파일럿을

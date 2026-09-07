@@ -289,14 +289,17 @@ mattermost_digest="$(version_value MATTERMOST_IMAGE_DIGEST)" || abort_run NF-HAR
 postgres_repository="$(version_value POSTGRES_IMAGE_REPOSITORY)" || abort_run NF-HARNESS-config
 postgres_tag="$(version_value POSTGRES_IMAGE_TAG)" || abort_run NF-HARNESS-config
 postgres_digest="$(version_value POSTGRES_IMAGE_DIGEST)" || abort_run NF-HARNESS-config
+postgres_runtime_uid="$(version_value POSTGRES_RUNTIME_UID)" || abort_run NF-HARNESS-config
+postgres_runtime_gid="$(version_value POSTGRES_RUNTIME_GID)" || abort_run NF-HARNESS-config
 go_repository="$(version_value GO_BUILDER_IMAGE_REPOSITORY)" || abort_run NF-HARNESS-config
 go_tag="$(version_value GO_BUILDER_IMAGE_TAG)" || abort_run NF-HARNESS-config
 go_digest="$(version_value GO_BUILDER_IMAGE_DIGEST)" || abort_run NF-HARNESS-config
 notifier_version="$(version_value NOTIFIER_VERSION)" || abort_run NF-HARNESS-config
 plugin_id="$(version_value NOTIFIER_PLUGIN_ID)" || abort_run NF-HARNESS-config
 
-[[ "${mattermost_repository}" == mattermost/mattermost-team-edition && "${mattermost_tag}" == 11.7.10 ]] || abort_run NF-HARNESS-config
-[[ "${postgres_repository}" == postgres && "${postgres_tag}" == 18.6 ]] || abort_run NF-HARNESS-config
+[[ "${mattermost_repository}" == mattermost/mattermost-team-edition && "${mattermost_tag}" == 11.10.1 ]] || abort_run NF-HARNESS-config
+[[ "${postgres_repository}" == postgres && "${postgres_tag}" == 18.6-alpine ]] || abort_run NF-HARNESS-config
+[[ "${postgres_runtime_uid}" == 70 && "${postgres_runtime_gid}" == 70 ]] || abort_run NF-HARNESS-config
 [[ "${go_repository}" == golang && "${go_tag}" == 1.25.14-bookworm ]] || abort_run NF-HARNESS-config
 [[ "${notifier_version}" == 0.2.0 && "${plugin_id}" == com.threadhub.channel-email-notifier ]] || abort_run NF-HARNESS-config
 for digest in "${mattermost_digest}" "${postgres_digest}" "${go_digest}"; do
@@ -339,6 +342,8 @@ chmod 0640 "${control_file}"
     printf 'POSTGRES_IMAGE_REPOSITORY=%s\n' "${postgres_repository}"
     printf 'POSTGRES_IMAGE_TAG=%s\n' "${postgres_tag}"
     printf 'POSTGRES_IMAGE_DIGEST=%s\n' "${postgres_digest}"
+    printf 'POSTGRES_RUNTIME_UID=%s\n' "${postgres_runtime_uid}"
+    printf 'POSTGRES_RUNTIME_GID=%s\n' "${postgres_runtime_gid}"
     printf 'GO_BUILDER_IMAGE_REPOSITORY=%s\n' "${go_repository}"
     printf 'GO_BUILDER_IMAGE_TAG=%s\n' "${go_tag}"
     printf 'GO_BUILDER_IMAGE_DIGEST=%s\n' "${go_digest}"

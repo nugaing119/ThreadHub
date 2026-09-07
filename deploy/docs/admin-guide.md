@@ -24,7 +24,7 @@ sudo docker exec threadhub-mattermost-1 \
 
 ## 2. System Scheme
 
-정확한 Team Edition 11.7.10 이미지의 System Console에서 System Scheme을 편집합니다.
+정확한 Team Edition 11.10.1 이미지의 System Console에서 System Scheme을 편집합니다.
 
 일반 Member에게서 우선 제거할 권한:
 

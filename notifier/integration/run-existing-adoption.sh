@@ -931,12 +931,14 @@ runtime_parent="/var/tmp/threadhub-existing-adoption-${project_name}"
 : >"${diagnostic_file}"
 chmod 0600 "${diagnostic_file}"
 
-mattermost_repository="$(version_value MATTERMOST_IMAGE_REPOSITORY)" || fail NF-ADOPT-01
-mattermost_tag="$(version_value MATTERMOST_IMAGE_TAG)" || fail NF-ADOPT-01
-mattermost_digest="$(version_value MATTERMOST_IMAGE_DIGEST)" || fail NF-ADOPT-01
-postgres_repository="$(version_value POSTGRES_IMAGE_REPOSITORY)" || fail NF-ADOPT-01
-postgres_tag="$(version_value POSTGRES_IMAGE_TAG)" || fail NF-ADOPT-01
-postgres_digest="$(version_value POSTGRES_IMAGE_DIGEST)" || fail NF-ADOPT-01
+# This harness proves adoption into the original supported legacy deployment,
+# independently of the moving canonical-fresh baseline in versions.env.
+mattermost_repository=mattermost/mattermost-team-edition
+mattermost_tag=11.7.7
+mattermost_digest=sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1
+postgres_repository=postgres
+postgres_tag=18.4
+postgres_digest=sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf
 go_repository="$(version_value GO_BUILDER_IMAGE_REPOSITORY)" || fail NF-ADOPT-01
 go_tag="$(version_value GO_BUILDER_IMAGE_TAG)" || fail NF-ADOPT-01
 go_digest="$(version_value GO_BUILDER_IMAGE_DIGEST)" || fail NF-ADOPT-01

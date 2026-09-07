@@ -26,6 +26,8 @@ for variable in \
     POSTGRES_IMAGE_REPOSITORY \
     POSTGRES_IMAGE_TAG \
     POSTGRES_IMAGE_DIGEST \
+    POSTGRES_RUNTIME_UID \
+    POSTGRES_RUNTIME_GID \
     NOTIFIER_VERSION \
     NOTIFIER_PLUGIN_ID \
     GO_BUILDER_IMAGE_REPOSITORY \
@@ -44,6 +46,8 @@ done
 
 mattermost_digest="$(env_value MATTERMOST_IMAGE_DIGEST "${VERSIONS_FILE}")"
 postgres_digest="$(env_value POSTGRES_IMAGE_DIGEST "${VERSIONS_FILE}")"
+postgres_runtime_uid="$(env_value POSTGRES_RUNTIME_UID "${VERSIONS_FILE}")"
+postgres_runtime_gid="$(env_value POSTGRES_RUNTIME_GID "${VERSIONS_FILE}")"
 go_builder_digest="$(env_value GO_BUILDER_IMAGE_DIGEST "${VERSIONS_FILE}")"
 go_builder_index_digest="$(env_value GO_BUILDER_IMAGE_INDEX_DIGEST "${VERSIONS_FILE}")"
 if ! notifier_created_by_history_pin="$(LC_ALL=C awk -v key='NOTIFIER_MAILER_CREATED_BY_HISTORY_SHA256' '
@@ -67,6 +71,8 @@ fi
     || die "MATTERMOST_IMAGE_DIGEST is invalid"
 [[ "${postgres_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "POSTGRES_IMAGE_DIGEST is invalid"
+[[ "${postgres_runtime_uid}" =~ ^[0-9]+$ && "${postgres_runtime_gid}" =~ ^[0-9]+$ ]] \
+    || die "PostgreSQL runtime UID/GID is invalid"
 [[ "${go_builder_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \
     || die "GO_BUILDER_IMAGE_DIGEST is invalid"
 [[ "${go_builder_index_digest}" =~ ^sha256:[a-f0-9]{64}$ ]] \

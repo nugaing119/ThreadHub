@@ -15,8 +15,8 @@ Mattermost Team Edition을 기반으로 하며, 정보 공유 경계마다 독�
 - 정보 공유 경계당 독립 OCI Compute VM 1대
 - AMD 기반 x86_64, 2 OCPU, 16GB RAM, 200GB Boot Volume
 - Ubuntu Server 24.04 LTS
-- Mattermost Team Edition 11.7.10 ESR
-- PostgreSQL 18.6
+- Mattermost Team Edition 11.10.1 (official Team Edition security baseline)
+- PostgreSQL 18.6 Alpine
 - NGINX와 Let’s Encrypt
 - OCI Email Delivery
 - 즉시 채널 이메일 알림(프로젝트 도메인·Team·채널·새 글/답글 유형, 수신자별 단일 SMTP envelope)

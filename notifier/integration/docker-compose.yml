@@ -27,7 +27,8 @@ services:
         /integration/threadhub/mattermost/plugins
         /integration/threadhub/mattermost/client
         /integration/threadhub/mattermost/client/plugins &&
-        chown -R 999:999 /integration/postgres &&
+        chown -R ${POSTGRES_RUNTIME_UID:?load versions}:${POSTGRES_RUNTIME_GID:?load versions}
+        /integration/postgres &&
         chown -R 2000:2000 /integration/threadhub/mattermost &&
         find /integration/threadhub/mattermost -type d -exec chmod 0750 '{}' + &&
         chown -R 0:0 /integration/threadhub/notifier &&

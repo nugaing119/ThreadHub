@@ -919,7 +919,7 @@ ThreadHub의 “이력 유지”는 정상 영속성과 최근 검증 성공 bac
 | --- | --- |
 | NFR-MNT-001 | 운영체제, Docker, Compose, NGINX, Mattermost와 PostgreSQL 버전을 기록해야 한다. |
 | NFR-MNT-002 | Docker 이미지에 `latest` 태그를 사용하지 않아야 한다. |
-| NFR-MNT-003 | Mattermost ESR 패치 버전을 명시적으로 고정해야 한다. |
+| NFR-MNT-003 | 보안 검증을 통과한 공식 Mattermost Team Edition 패치 버전과 Digest를 명시적으로 고정해야 한다. |
 | NFR-MNT-004 | PostgreSQL 메이저·패치 버전을 명시적으로 고정해야 한다. |
 | NFR-MNT-005 | 사용한 Docker 이미지 태그와 Digest를 모두 기록해야 한다. |
 | NFR-MNT-006 | Docker Compose와 NGINX 설정을 버전 관리해야 한다. |
@@ -955,8 +955,8 @@ ThreadHub의 “이력 유지”는 정상 영속성과 최근 검증 성공 bac
 | 초기 VM 사양 | 2 OCPU, 16GB RAM |
 | Boot Volume | 200GB (신규 기본값, 더 큰 용량 허용) |
 | 운영체제 | Ubuntu Server 24.04 LTS |
-| Mattermost | `mattermost/mattermost-team-edition:11.7.10` ESR |
-| PostgreSQL | `postgres:18.6` 또는 승인된 명시적 18.6 변형 태그 |
+| Mattermost | `mattermost/mattermost-team-edition:11.10.1` 공식 Team Edition 보안 기준선 |
+| PostgreSQL | `postgres:18.6-alpine` 공식 Alpine 변형 |
 | Docker Engine | 29.6.2 목표 기준 |
 | Docker Compose | Docker Compose Plugin |
 | 리버스 프록시 | Ubuntu 저장소 NGINX, 호스트 설치 |
@@ -975,7 +975,11 @@ Ubuntu 24.04 LTS의 수명주기 기준은 [Ubuntu 24.04 LTS 릴리스 정보](h
 ## 13.2 버전 고정 정책
 
 - Ubuntu 24.04 LTS 계열을 유지한다.
-- Mattermost 11.7.x ESR 계열에서 검증된 패치 버전을 사용한다.
+- 유지보수 안정성을 위해 ESR을 우선하되, 최신 ESR에 도달 가능한 Critical/High
+  취약점이 남고 지원 중인 공식 Team Edition 기능 릴리스가 이를 수정하면 격리된
+  DB 이전·기능·라이선스 시험 후 해당 릴리스를 보안 예외 기준선으로 사용할 수 있다.
+- 현재 기준선은 공식 Team Edition 11.10.1이다. 이는 Enterprise 라이선스나 유료 기능
+  활성화를 뜻하지 않으며, 지원 종료 전에 후속 지원 릴리스 또는 보안 수정 ESR을 검토한다.
 - PostgreSQL 18.x 계열에서 검증된 패치 버전을 사용한다.
 - Docker Engine은 배포 시점에 공식 저장소에서 설치 가능한 명시적 29.x 패치 버전을 사용한다.
 - 기준 버전과 다른 패치 버전을 채택하면 변경 사유, 보안 검토와 재시험 결과를 기록한다.
@@ -1163,13 +1167,15 @@ PostgreSQL 공식 이미지는 18부터 볼륨 정의 기준을 `/var/lib/postgr
 - 공식 entrypoint가 최초 기동 시 초기화와 권한 설정을 수행하게 한다.
 - 고정한 이미지 Digest에서 실제 `PGDATA`, mount와 쓰기 가능 여부를 확인한다.
 - 메이저 버전 변경은 `pg_dump/restore` 또는 `pg_upgrade` 계획과 검증 후 수행한다.
+- Debian과 Alpine 사이의 이미지 계열 전환도 기존 데이터 디렉터리 재사용을 금지하고,
+  논리 덤프를 새 빈 데이터 디렉터리에 복원한 뒤 원본 경로를 보존하는 별도 작업으로 수행한다.
 
 기준 예시:
 
 ```yaml
 services:
   postgres:
-    image: postgres:18.6
+    image: postgres:18.6-alpine
     volumes:
       - /srv/threadhub/postgres:/var/lib/postgresql
 ```
@@ -1178,7 +1184,7 @@ services:
 
 ## 15.3 Mattermost 저장 규칙
 
-Mattermost Team Edition 11.7.10 공식 이미지는 기본적으로 UID/GID `2000:2000`의 `mattermost` 사용자로 실행한다. 최초 기동 전에 다음 조건을 충족해야 한다.
+Mattermost Team Edition 11.10.1 공식 이미지는 기본적으로 UID/GID `2000:2000`의 `mattermost` 사용자로 실행한다. 최초 기동 전에 다음 조건을 충족해야 한다.
 
 - `/srv/threadhub/mattermost` 아래 6개 영구 디렉터리를 생성한다.
 - 고정 이미지 Digest의 실행 UID/GID를 확인한다.
@@ -1191,7 +1197,7 @@ Mattermost Team Edition 11.7.10 공식 이미지는 기본적으로 UID/GID `200
 ```yaml
 services:
   mattermost:
-    image: mattermost/mattermost-team-edition:11.7.10
+    image: mattermost/mattermost-team-edition:11.10.1
     volumes:
       - /srv/threadhub/mattermost/config:/mattermost/config:rw
       - /srv/threadhub/mattermost/data:/mattermost/data:rw
@@ -1539,7 +1545,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 ## 19.1 판정 원칙
 
 - 설정 파일의 존재가 아니라 실제 사용자 동작으로 판정한다.
-- 정확한 Mattermost Team Edition 11.7.10 이미지와 기록된 AMD64 Digest를 기준으로 시험한다.
+- 정확한 Mattermost Team Edition 11.10.1 이미지와 기록된 AMD64 Digest를 기준으로 시험한다.
 - 고객 파일럿 필수 항목은 시험 결과와 근거를 남긴다.
 - 기능 제한을 수용하는 경우 제한, 영향, 보완 통제와 승인자를 기록한다.
 - 명시적 No-Go 조건이 하나라도 남아 있으면 고객 파일럿을 시작하지 않는다.
@@ -1793,7 +1799,7 @@ ThreadHub는 소규모·단기 프로젝트용 단일 인스턴스로 운영한�
 
 | ID | 위험 | 영향 | 대응 또는 보완 통제 | 고객 파일럿 차단 |
 | --- | --- | --- | --- | --- |
-| R-01 | CJK 검색 기능 미동작 | 핵심 이력 검색 실패 | 정확한 11.7.10 이미지와 합의 말뭉치 시험 | 예 |
+| R-01 | CJK 검색 기능 미동작 | 핵심 이력 검색 실패 | 정확한 11.10.1 이미지와 합의 말뭉치 시험 | 예 |
 | R-02 | 선행 와일드카드 CJK 검색 성능 저하 | 게시물 누적 시 검색 지연 | 대표 데이터 규모 측정, 사용량 제한, 필요 시 후속 대안 검토 | 조건부 |
 | R-03 | 초대 없는 가입 설정 오류 | 비인가 사용자 접근 | 가입 경로별 시험, 설정 변경 후 회귀시험 | 예 |
 | R-04 | Team 초대 URL 유출·미회수 | 링크 소지자의 가입 | URL 비배포, 코드 재생성, 이전 URL 무효화 시험 | 예 |
@@ -1897,7 +1903,7 @@ threadhub-deploy/
 2. 정보 공유 경계에 맞는 독립 OCI VM이 생성되어 있다.
 3. VM은 AMD 기반 x86_64, 2 OCPU, 16GB RAM과 200GB Boot Volume 기준을 충족한다.
 4. Ubuntu 24.04 LTS에 NGINX, Certbot, Docker Engine과 Compose Plugin이 설치되어 있다.
-5. Mattermost Team Edition 11.7.10과 PostgreSQL 18.6이 같은 VM에서 실행된다.
+5. Mattermost Team Edition 11.10.1과 PostgreSQL 18.6 Alpine이 같은 VM에서 실행된다.
 6. 컨테이너 이미지 태그와 실제 Digest가 기록되어 있다.
 7. 지정 도메인으로 유효한 HTTPS 접속이 가능하고 HTTP가 HTTPS로 전환된다.
 8. NGINX의 Mattermost HTTP·WebSocket 프록시가 정상 동작한다.
@@ -1973,7 +1979,7 @@ threadhub-deploy/
 
 기능 또는 에디션 동작이 불명확할 때 다음 순서로 판단한다.
 
-1. 정확한 v11.7.7 태그의 Mattermost 공식 소스
+1. 현재 고정한 v11.10.1 태그의 Mattermost 공식 소스
 2. Mattermost 공식 제품·관리·배포 문서
 3. Mattermost 공식 Docker 저장소와 고정 이미지의 runtime metadata
 4. PostgreSQL·Docker·OCI·Ubuntu의 공식 문서
@@ -1986,6 +1992,7 @@ threadhub-deploy/
 ### Mattermost 제품과 운영
 
 - [Mattermost Editions and Offerings](https://docs.mattermost.com/product-overview/editions-and-offerings.html)
+- [Mattermost v11.10.1 공식 소스 태그](https://github.com/mattermost/mattermost/tree/v11.10.1)
 - [Mattermost v11.7.7 공식 소스 태그](https://github.com/mattermost/mattermost/tree/v11.7.7)
 - [인증 설정](https://docs.mattermost.com/administration-guide/configure/authentication-configuration-settings.html)
 - [사이트 설정](https://docs.mattermost.com/administration-guide/configure/site-configuration-settings.html)
@@ -2059,9 +2066,9 @@ threadhub-deploy/
 ├── NGINX
 ├── Certbot + Let’s Encrypt
 └── Docker Compose
-    ├── Mattermost Team Edition 11.7.10 ESR
+    ├── Mattermost Team Edition 11.10.1
     │   └── ThreadHub notifier plugin
-    ├── PostgreSQL 18.6
+    ├── PostgreSQL 18.6 Alpine
     └── ThreadHub Mailer
 ```
 

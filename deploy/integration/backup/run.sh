@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# Real-image proof: Mattermost Team Edition 11.7.10 and PostgreSQL 18.6.
+# Real-image proof: Mattermost Team Edition 11.10.1 and PostgreSQL 18.6 Alpine.
 # The only successful public result is BK-INTEGRATION-pass.
 # Run only on a disposable Ubuntu 24.04 AMD64 runner with no ThreadHub state.
 
