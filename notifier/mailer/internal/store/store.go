@@ -69,6 +69,17 @@ type Status struct {
 	LastSMTPCode                                                        int
 }
 
+type Inspection struct {
+	SchemaVersion int   `json:"schema_version"`
+	Events        int64 `json:"events"`
+	Nonces        int64 `json:"nonces"`
+	Pending       int64 `json:"pending"`
+	Sending       int64 `json:"sending"`
+	Sent          int64 `json:"sent"`
+	Failed        int64 `json:"failed"`
+	Cancelled     int64 `json:"cancelled"`
+}
+
 type Store interface {
 	Accept(ctx context.Context, nonceHash string, event protocol.Event, now time.Time) (AcceptResult, error)
 	ClaimDue(ctx context.Context, now time.Time, lease time.Duration) (*Delivery, error)
@@ -85,6 +96,65 @@ type Store interface {
 type SQLiteStore struct {
 	db     *sql.DB
 	secret []byte
+}
+
+func Inspect(path string) (Inspection, error) {
+	if !filepath.IsAbs(path) {
+		return Inspection{}, ErrInvalidStore
+	}
+	if err := requirePrivateRegularDatabase(path); err != nil {
+		return Inspection{}, err
+	}
+	query := url.Values{}
+	query.Set("mode", "ro")
+	query.Add("_pragma", "query_only(1)")
+	query.Add("_pragma", "busy_timeout(5000)")
+	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		return Inspection{}, fmt.Errorf("inspect sqlite: %w", err)
+	}
+	defer db.Close()
+
+	var inspection Inspection
+	var versionCount int
+	if err := db.QueryRow("SELECT count(*), COALESCE(max(version), 0) FROM schema_version").Scan(&versionCount, &inspection.SchemaVersion); err != nil {
+		return Inspection{}, fmt.Errorf("inspect sqlite schema version: %w", err)
+	}
+	if versionCount != 1 || (inspection.SchemaVersion != 1 && inspection.SchemaVersion != 2) {
+		return Inspection{}, fmt.Errorf("unsupported sqlite schema version")
+	}
+	if err := db.QueryRow("SELECT count(*) FROM events").Scan(&inspection.Events); err != nil {
+		return Inspection{}, fmt.Errorf("inspect sqlite events: %w", err)
+	}
+	if err := db.QueryRow("SELECT count(*) FROM nonces").Scan(&inspection.Nonces); err != nil {
+		return Inspection{}, fmt.Errorf("inspect sqlite nonces: %w", err)
+	}
+	var unexpectedStatuses int64
+	if err := db.QueryRow(`SELECT count(*) FROM deliveries WHERE status NOT IN (
+		'pending', 'sending', 'sent', 'failed_permanent', 'failed_exhausted', 'cancelled'
+	)`).Scan(&unexpectedStatuses); err != nil {
+		return Inspection{}, fmt.Errorf("inspect sqlite delivery statuses: %w", err)
+	}
+	if unexpectedStatuses != 0 {
+		return Inspection{}, errors.New("inspect sqlite delivery statuses: unsupported status")
+	}
+	if err := db.QueryRow(`SELECT
+		COALESCE(sum(CASE WHEN status = 'pending' THEN 1 ELSE 0 END), 0),
+		COALESCE(sum(CASE WHEN status = 'sending' THEN 1 ELSE 0 END), 0),
+		COALESCE(sum(CASE WHEN status = 'sent' THEN 1 ELSE 0 END), 0),
+		COALESCE(sum(CASE WHEN status IN ('failed_permanent', 'failed_exhausted') THEN 1 ELSE 0 END), 0),
+		COALESCE(sum(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END), 0)
+		FROM deliveries`).Scan(
+		&inspection.Pending,
+		&inspection.Sending,
+		&inspection.Sent,
+		&inspection.Failed,
+		&inspection.Cancelled,
+	); err != nil {
+		return Inspection{}, fmt.Errorf("inspect sqlite deliveries: %w", err)
+	}
+	return inspection, nil
 }
 
 func Open(path string, secret []byte) (*SQLiteStore, error) {
@@ -116,19 +186,8 @@ func Open(path string, secret []byte) (*SQLiteStore, error) {
 }
 
 func prepareDatabaseFile(path string) error {
-	parentInfo, err := os.Lstat(filepath.Dir(path))
-	if err != nil {
-		return fmt.Errorf("inspect sqlite parent: %w", err)
-	}
-	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
-		return ErrUnsafePath
-	}
-	if info, err := os.Lstat(path); err == nil {
-		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
-			return ErrUnsafePath
-		}
-	} else if !errors.Is(err, os.ErrNotExist) {
-		return fmt.Errorf("inspect sqlite file: %w", err)
+	if err := validateDatabasePath(path, true); err != nil {
+		return err
 	}
 
 	fd, err := syscall.Open(path, syscall.O_CREAT|syscall.O_RDWR|syscall.O_CLOEXEC|syscall.O_NOFOLLOW, 0o600)
@@ -150,6 +209,42 @@ func prepareDatabaseFile(path string) error {
 	}
 	if !info.Mode().IsRegular() || info.Mode().Perm() != 0o600 {
 		return ErrUnsafePath
+	}
+	return nil
+}
+
+func requirePrivateRegularDatabase(path string) error {
+	if err := validateDatabasePath(path, false); err != nil {
+		return err
+	}
+	info, err := os.Lstat(path)
+	if err != nil {
+		return fmt.Errorf("inspect sqlite file: %w", err)
+	}
+	if info.Mode().Perm() != 0o600 {
+		return ErrUnsafePath
+	}
+	return nil
+}
+
+func validateDatabasePath(path string, allowMissing bool) error {
+	parentInfo, err := os.Lstat(filepath.Dir(path))
+	if err != nil {
+		return fmt.Errorf("inspect sqlite parent: %w", err)
+	}
+	if parentInfo.Mode()&os.ModeSymlink != 0 || !parentInfo.IsDir() {
+		return ErrUnsafePath
+	}
+	if info, err := os.Lstat(path); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+			return ErrUnsafePath
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		if !allowMissing {
+			return ErrUnsafePath
+		}
+	} else {
+		return fmt.Errorf("inspect sqlite file: %w", err)
 	}
 	return nil
 }

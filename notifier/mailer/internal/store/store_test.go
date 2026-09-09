@@ -96,6 +96,232 @@ func TestOpenMigratesExistingSchemaV1WithoutDroppingQueuedData(t *testing.T) {
 	}
 }
 
+func TestInspectReportsSchemaV1WithoutMigrating(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	if _, err := db.Exec(schemaBootstrap); err != nil {
+		t.Fatalf("bootstrap v1 schema: %v", err)
+	}
+	if _, err := db.Exec("INSERT INTO schema_version(version) VALUES (1)"); err != nil {
+		t.Fatalf("record v1 schema: %v", err)
+	}
+	eventHash := strings.Repeat("a", 64)
+	if _, err := db.Exec(`INSERT INTO events(event_hash, occurred_at_ms, accepted_at_ms)
+		VALUES(?, 1, 1)`, eventHash); err != nil {
+		t.Fatalf("seed v1 event: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO deliveries(
+		event_hash, recipient_hash, status, next_attempt_at_ms, updated_at_ms)
+		VALUES(?, ?, 'pending', 1, 1)`, eventHash, strings.Repeat("b", 64)); err != nil {
+		t.Fatalf("seed v1 delivery: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close v1 database: %v", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("chmod v1 database: %v", err)
+	}
+
+	got, err := Inspect(path)
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if got.SchemaVersion != 1 || got.Events != 1 || got.Pending != 1 {
+		t.Fatalf("Inspect() = %+v, want schema=1 events=1 pending=1", got)
+	}
+
+	db, err = sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("reopen v1 database: %v", err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.QueryRow("SELECT version FROM schema_version").Scan(&version); err != nil {
+		t.Fatalf("read schema version after inspection: %v", err)
+	}
+	if version != 1 {
+		t.Fatalf("inspection migrated schema to %d, want 1", version)
+	}
+}
+
+func TestInspectReportsOnlySafeAggregatesForSchemaV2(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.db")
+	store := openTestStore(t, path)
+	if err := store.Close(); err != nil {
+		t.Fatalf("close schema v2 store: %v", err)
+	}
+
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	eventHash := strings.Repeat("c", 64)
+	if _, err := db.Exec(`INSERT INTO events(event_hash, occurred_at_ms, accepted_at_ms)
+		VALUES(?, 1, 1)`, eventHash); err != nil {
+		t.Fatalf("seed event: %v", err)
+	}
+	statuses := []string{"pending", "sending", "sent", "failed_permanent", "failed_exhausted", "cancelled"}
+	for index, status := range statuses {
+		recipientHash := strings.Repeat(string(rune('d'+index)), 64)
+		if _, err := db.Exec(`INSERT INTO deliveries(
+			event_hash, recipient_hash, status, next_attempt_at_ms, updated_at_ms)
+			VALUES(?, ?, ?, 1, 1)`, eventHash, recipientHash, status); err != nil {
+			t.Fatalf("seed %s delivery: %v", status, err)
+		}
+	}
+	if _, err := db.Exec("INSERT INTO nonces(nonce_hash, expires_at_ms) VALUES(?, 1)", strings.Repeat("f", 64)); err != nil {
+		t.Fatalf("seed nonce: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close seeded database: %v", err)
+	}
+
+	got, err := Inspect(path)
+	if err != nil {
+		t.Fatalf("Inspect() error = %v", err)
+	}
+	if got.SchemaVersion != 2 || got.Events != 1 || got.Nonces != 1 ||
+		got.Pending != 1 || got.Sending != 1 || got.Sent != 1 ||
+		got.Failed != 2 || got.Cancelled != 1 {
+		t.Fatalf("Inspect() = %+v, want schema=2 events=1 nonces=1 and fixed delivery aggregates", got)
+	}
+}
+
+func TestInspectRejectsUnsafeDatabasePathsAndModes(t *testing.T) {
+	t.Run("relative path", func(t *testing.T) {
+		if _, err := Inspect("queue.db"); !errors.Is(err, ErrInvalidStore) {
+			t.Fatalf("Inspect(relative) error = %v, want ErrInvalidStore", err)
+		}
+	})
+
+	t.Run("mode other than 0600", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "queue.db")
+		store := openTestStore(t, path)
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		if err := os.Chmod(path, 0o640); err != nil {
+			t.Fatalf("Chmod() error = %v", err)
+		}
+		if _, err := Inspect(path); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("Inspect(mode 0640) error = %v, want ErrUnsafePath", err)
+		}
+	})
+
+	t.Run("symlink file", func(t *testing.T) {
+		dir := t.TempDir()
+		realPath := filepath.Join(dir, "real.db")
+		store := openTestStore(t, realPath)
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		linkedPath := filepath.Join(dir, "linked.db")
+		if err := os.Symlink(realPath, linkedPath); err != nil {
+			t.Fatalf("Symlink() error = %v", err)
+		}
+		if _, err := Inspect(linkedPath); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("Inspect(symlink file) error = %v, want ErrUnsafePath", err)
+		}
+	})
+
+	t.Run("symlink parent", func(t *testing.T) {
+		dir := t.TempDir()
+		realParent := filepath.Join(dir, "real")
+		if err := os.Mkdir(realParent, 0o700); err != nil {
+			t.Fatalf("Mkdir() error = %v", err)
+		}
+		realPath := filepath.Join(realParent, "queue.db")
+		store := openTestStore(t, realPath)
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		linkedParent := filepath.Join(dir, "linked")
+		if err := os.Symlink(realParent, linkedParent); err != nil {
+			t.Fatalf("Symlink() error = %v", err)
+		}
+		if _, err := Inspect(filepath.Join(linkedParent, "queue.db")); !errors.Is(err, ErrUnsafePath) {
+			t.Fatalf("Inspect(symlink parent) error = %v, want ErrUnsafePath", err)
+		}
+	})
+}
+
+func TestInspectRejectsUnexpectedDeliveryStatus(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "queue.db")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	for _, statement := range []string{
+		"CREATE TABLE schema_version (version INTEGER PRIMARY KEY)",
+		"INSERT INTO schema_version(version) VALUES (2)",
+		"CREATE TABLE events (event_hash TEXT PRIMARY KEY)",
+		"CREATE TABLE nonces (nonce_hash TEXT PRIMARY KEY)",
+		"CREATE TABLE deliveries (status TEXT NOT NULL)",
+		"INSERT INTO deliveries(status) VALUES ('unexpected')",
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("Exec(%q) error = %v", statement, err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		t.Fatalf("Chmod() error = %v", err)
+	}
+
+	if _, err := Inspect(path); err == nil {
+		t.Fatal("Inspect(unexpected delivery status) error = nil")
+	}
+}
+
+func TestInspectRejectsUnsupportedCorruptOrAmbiguousSchema(t *testing.T) {
+	t.Run("unsupported version", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "queue.db")
+		store := openTestStore(t, path)
+		if _, err := store.db.Exec("UPDATE schema_version SET version = 3"); err != nil {
+			t.Fatalf("set unsupported version: %v", err)
+		}
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		if _, err := Inspect(path); err == nil {
+			t.Fatal("Inspect(unsupported version) error = nil")
+		}
+	})
+
+	t.Run("multiple version rows", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "queue.db")
+		store := openTestStore(t, path)
+		if _, err := store.db.Exec("INSERT INTO schema_version(version) VALUES (1)"); err != nil {
+			t.Fatalf("insert second schema version: %v", err)
+		}
+		if err := store.Close(); err != nil {
+			t.Fatalf("Close() error = %v", err)
+		}
+		if _, err := Inspect(path); err == nil {
+			t.Fatal("Inspect(multiple versions) error = nil")
+		}
+	})
+
+	t.Run("corrupt schema", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "queue.db")
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			t.Fatalf("create corrupt database: %v", err)
+		}
+		if err := file.Close(); err != nil {
+			t.Fatalf("close corrupt database: %v", err)
+		}
+		if _, err := Inspect(path); err == nil {
+			t.Fatal("Inspect(corrupt schema) error = nil")
+		}
+	})
+}
+
 func TestOpenEnforcesPrivateRegularFileAndRejectsSymlinks(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "queue.db")

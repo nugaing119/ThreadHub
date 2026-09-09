@@ -35,12 +35,17 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 		{name: "status json", args: []string{"status", "--json"}, want: "status"},
 		{name: "smtp recipient stdin", args: []string{"smtp-test", "--recipient-stdin"}, want: "smtp-test"},
 		{name: "backup alert json stdin", args: []string{"backup-alert", "--json-stdin"}, want: "backup-alert"},
+		{name: "queue inspect json", args: []string{"queue-inspect", "--json"}, want: "queue-inspect"},
 		{name: "retry failed", args: []string{"retry-failed"}, want: "retry-failed"},
 		{name: "cancel failed", args: []string{"cancel-failed"}, want: "cancel-failed"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			var called string
 			operations := commandOperations{
+				inspectQueue: func(string) (store.Inspection, error) {
+					called = "queue-inspect"
+					return store.Inspection{}, nil
+				},
 				serve:       func(context.Context, config.Config) error { called = "serve"; return nil },
 				healthcheck: func(context.Context, config.Config) error { called = "healthcheck"; return nil },
 				status: func(context.Context, config.Config) (store.Status, error) {
@@ -77,11 +82,82 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 		{"status", "--json", "extra"}, {"smtp-test"}, {"smtp-test", "recipient@example.test"},
 		{"smtp-test", "--recipient-stdin", "recipient@example.test"}, {"config-fingerprint"},
 		{"backup-alert"}, {"backup-alert", "--recipient-stdin"}, {"backup-alert", "--json-stdin", "extra"},
+		{"queue-inspect"}, {"queue-inspect", "--json", "extra"}, {"queue-inspect", "--text"},
 		{"config-fingerprint", "--json", "extra"}, {"retry-failed", "extra"}, {"cancel-failed", "extra"},
 	} {
 		if err := runCommand(context.Background(), args, strings.NewReader("recipient@example.test\n"), io.Discard, testEnvironment, commandOperations{}); err == nil {
 			t.Errorf("runCommand(%v) error = nil, want exact syntax rejection", args)
 		}
+	}
+}
+
+func TestQueueInspectRunsWithoutConfigurationAndEmitsExactJSON(t *testing.T) {
+	const protected = "smtp-password-must-not-appear"
+	configurationRead := false
+	getenv := func(string) string {
+		configurationRead = true
+		return protected
+	}
+	want := store.Inspection{
+		SchemaVersion: 2,
+		Events:        3,
+		Nonces:        4,
+		Pending:       5,
+		Sending:       6,
+		Sent:          7,
+		Failed:        8,
+		Cancelled:     9,
+	}
+	var inspectedPath string
+	operations := commandOperations{inspectQueue: func(path string) (store.Inspection, error) {
+		inspectedPath = path
+		return want, nil
+	}}
+	var stdout bytes.Buffer
+	if err := runCommand(context.Background(), []string{"queue-inspect", "--json"}, strings.NewReader(""), &stdout, getenv, operations); err != nil {
+		t.Fatalf("runCommand(queue-inspect) error = %v", err)
+	}
+	if configurationRead {
+		t.Fatal("queue-inspect loaded configuration")
+	}
+	if inspectedPath != "/var/lib/threadhub-notifier/queue.db" {
+		t.Fatalf("queue-inspect path = %q", inspectedPath)
+	}
+	const wantJSON = "{\"schema_version\":2,\"events\":3,\"nonces\":4,\"pending\":5,\"sending\":6,\"sent\":7,\"failed\":8,\"cancelled\":9}\n"
+	if stdout.String() != wantJSON {
+		t.Fatalf("queue-inspect stdout = %q, want %q", stdout.String(), wantJSON)
+	}
+	if strings.Contains(stdout.String(), protected) {
+		t.Fatal("queue-inspect disclosed protected environment content")
+	}
+}
+
+func TestQueueInspectFailureIsGenericAndDoesNotLoadConfiguration(t *testing.T) {
+	const protected = "private-queue-detail-must-not-appear"
+	configurationRead := false
+	getenv := func(string) string {
+		configurationRead = true
+		return protected
+	}
+	operations := commandOperations{inspectQueue: func(string) (store.Inspection, error) {
+		return store.Inspection{}, errors.New(protected)
+	}}
+	var stdout, stderr bytes.Buffer
+	exitCode := runMain(context.Background(), []string{"queue-inspect", "--json"}, strings.NewReader(""), &stdout, &stderr, getenv, operations)
+	if exitCode != 1 {
+		t.Fatalf("runMain(queue-inspect failure) exit = %d, want 1", exitCode)
+	}
+	if configurationRead {
+		t.Fatal("failed queue-inspect loaded configuration")
+	}
+	if stdout.Len() != 0 {
+		t.Fatalf("failed queue-inspect stdout = %q, want empty", stdout.String())
+	}
+	if stderr.String() != "threadhub-mailer: command failed\n" {
+		t.Fatalf("failed queue-inspect stderr = %q", stderr.String())
+	}
+	if strings.Contains(stdout.String()+stderr.String(), protected) {
+		t.Fatal("failed queue-inspect disclosed protected detail")
 	}
 }
 

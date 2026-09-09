@@ -39,6 +39,8 @@ var (
 	errSMTPAcceptance = errors.New("SMTP server did not return final 250 acceptance")
 )
 
+const queueInspectionPath = "/var/lib/threadhub-notifier/queue.db"
+
 type smtpAcceptanceError struct {
 	result smtpclient.Result
 }
@@ -46,6 +48,7 @@ type smtpAcceptanceError struct {
 func (e *smtpAcceptanceError) Error() string { return errSMTPAcceptance.Error() }
 
 type commandOperations struct {
+	inspectQueue   func(string) (store.Inspection, error)
 	serve          func(context.Context, config.Config) error
 	healthcheck    func(context.Context, config.Config) error
 	status         func(context.Context, config.Config) (store.Status, error)
@@ -104,6 +107,16 @@ func runCommand(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 	command, err := parseCommand(args)
 	if err != nil {
 		return err
+	}
+	if command == "queue-inspect" {
+		if operations.inspectQueue == nil {
+			return errUsage
+		}
+		inspection, err := operations.inspectQueue(queueInspectionPath)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(inspection)
 	}
 	if getenv == nil {
 		return errUsage
@@ -210,6 +223,8 @@ func parseCommand(args []string) (string, error) {
 		return "backup-alert", nil
 	case len(args) == 2 && args[0] == "config-fingerprint" && args[1] == "--json":
 		return "config-fingerprint", nil
+	case len(args) == 2 && args[0] == "queue-inspect" && args[1] == "--json":
+		return "queue-inspect", nil
 	case len(args) == 1 && args[0] == "retry-failed":
 		return "retry-failed", nil
 	case len(args) == 1 && args[0] == "cancel-failed":
@@ -296,10 +311,15 @@ func safeSMTPCode(value int) int {
 
 func productionOperations() commandOperations {
 	return commandOperations{
-		serve: defaultServe, healthcheck: defaultHealthcheck, status: defaultStatus,
+		inspectQueue: defaultInspectQueue,
+		serve:        defaultServe, healthcheck: defaultHealthcheck, status: defaultStatus,
 		smtpAcceptance: defaultSMTPAcceptance, backupAlert: defaultBackupAlert,
 		retryFailed: defaultRetryFailed, cancelFailed: defaultCancelFailed,
 	}
+}
+
+func defaultInspectQueue(path string) (store.Inspection, error) {
+	return store.Inspect(path)
 }
 
 func defaultStatus(ctx context.Context, cfg config.Config) (store.Status, error) {
