@@ -128,3 +128,517 @@ existing_notifier_v010_v020_prepare_target_config() (
     printf '%s\n' "THN_CONTENT_MODE=${EXISTING_NOTIFIER_V020_CONTENT_MODE}" >> "${destination}"
     [[ "$(existing_notifier_v010_v020_config_state "${destination}")" == target ]]
 )
+
+existing_notifier_v010_v020_capture_identity() {
+    local path="$1"
+
+    if "${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${path}" >/dev/null 2>&1; then
+        "${SUDO_COMMAND[@]}" stat -c '%u:%g:%a' "${path}"
+    else
+        "${SUDO_COMMAND[@]}" stat -f '%u:%g:%Lp' "${path}"
+    fi
+}
+
+existing_notifier_v010_v020_capture_create_attempt() {
+    "${SUDO_COMMAND[@]}" install -d -o root -g root -m 0700 "$1"
+}
+
+existing_notifier_v010_v020_capture_record_phase() {
+    local attempt_root="$1"
+    local phase="$2"
+    local temporary_file
+
+    case "${phase}" in
+        attempt-created|control-disabled|mailer-stopped|queue-inspected-v1|queue-captured|source-plugin-pair-captured|source-mailer-image-saved|source-release-captured|source-override-captured|source-env-captured|source-control-captured|baseline-captured|complete) ;;
+        *) return 2 ;;
+    esac
+    temporary_file="$(mktemp)" || return 1
+    jq -n --arg profile "${EXISTING_NOTIFIER_V010_V020_ID}" --arg phase "${phase}" \
+        '{schema:1,profile:$profile,phase:$phase,rollback_disposition:"not_started"}' \
+        > "${temporary_file}" || { rm -f -- "${temporary_file}"; return 1; }
+    chmod 0600 "${temporary_file}"
+    if ! "${SUDO_COMMAND[@]}" install -m 0600 "${temporary_file}" "${attempt_root}/phase.json"; then
+        rm -f -- "${temporary_file}"
+        return 1
+    fi
+    rm -f -- "${temporary_file}"
+}
+
+existing_notifier_v010_v020_capture_prepare_attempt() {
+    local attempt_root="$1"
+    local migration_root
+
+    migration_root="$(dirname "${attempt_root}")"
+    "${SUDO_COMMAND[@]}" test -d "${migration_root}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${migration_root}" \
+        && [[ "$(existing_notifier_v010_v020_capture_identity "${migration_root}")" == 0:0:700 ]] \
+        || return 1
+    "${SUDO_COMMAND[@]}" test ! -e "${attempt_root}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_create_attempt "${attempt_root}"
+}
+
+v010_v020_capture_control_is_disabled() {
+    local control_file
+
+    control_file="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/control/state.json"
+    "${SUDO_COMMAND[@]}" test -f "${control_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${control_file}" \
+        && [[ "$(existing_notifier_v010_v020_capture_identity "${control_file}")" == 0:3000:640 ]] \
+        && "${SUDO_COMMAND[@]}" jq -e '
+          type == "object" and
+          (keys == ["activated_at","channel_ids","delivery_enabled","enabled","mode"]) and
+          .enabled == false and .delivery_enabled == false and
+          (.mode == "all_channels" or .mode == "allowlist") and
+          (.channel_ids | type == "array") and
+          (.activated_at | type == "number" and floor == . and . >= 0)
+        ' "${control_file}" >/dev/null 2>&1
+}
+
+v010_v020_capture_mailer_is_stopped() {
+    local output_file
+
+    output_file="$(mktemp)" || return 1
+    chmod 0600 "${output_file}"
+    if ! existing_notifier_v010_v020_compose_combined ps -q threadhub-mailer > "${output_file}"; then
+        rm -f -- "${output_file}"
+        return 1
+    fi
+    if [[ -s "${output_file}" ]]; then
+        rm -f -- "${output_file}"
+        return 1
+    fi
+    rm -f -- "${output_file}"
+}
+
+existing_notifier_v010_v020_queue_inspection_is_valid() {
+    local inspection_file="$1"
+
+    [[ -f "${inspection_file}" && ! -L "${inspection_file}" ]] || return 1
+    jq -e '
+      type == "object" and
+      (keys == ["cancelled","events","failed","nonces","pending","schema_version","sending","sent"]) and
+      ([.schema_version,.events,.nonces,.pending,.sending,.sent,.failed,.cancelled] |
+        all(type == "number" and floor == . and . >= 0)) and
+      (.schema_version == 1 or .schema_version == 2)
+    ' "${inspection_file}" >/dev/null 2>&1
+}
+
+existing_notifier_v010_v020_run_queue_inspector() {
+    local output_file="$1"
+    local source_mailer
+
+    source_mailer="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/mailer"
+    "${DOCKER_COMMAND[@]}" run --rm --pull never --network none --read-only \
+        --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
+        --mount "type=bind,src=${source_mailer},dst=/var/lib/threadhub-notifier,readonly" \
+        "threadhub/notifier-mailer:${EXISTING_NOTIFIER_V020_VERSION}" \
+        queue-inspect --json > "${output_file}"
+}
+
+v010_v020_capture_inspect_queue_v1() {
+    local attempt_root="$1"
+    local temporary_dir
+    local inspection_file
+    local destination
+
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    inspection_file="${temporary_dir}/queue-inspection.json"
+    destination="${attempt_root}/queue-inspection.json"
+    if ! existing_notifier_v010_v020_run_queue_inspector "${inspection_file}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    chmod 0600 "${inspection_file}"
+    if ! existing_notifier_v010_v020_queue_inspection_is_valid "${inspection_file}" \
+        || [[ "$(jq -er '.schema_version' "${inspection_file}")" != 1 ]] \
+        || "${SUDO_COMMAND[@]}" test -e "${destination}" \
+        || "${SUDO_COMMAND[@]}" test -L "${destination}" \
+        || ! "${SUDO_COMMAND[@]}" install -m 0600 "${inspection_file}" "${destination}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    rm -rf -- "${temporary_dir}"
+}
+
+v010_v020_capture_queue() {
+    local attempt_root="$1"
+    local source_mailer
+    local destination
+    local entries_file
+    local path
+    local name
+    local failed=0
+
+    source_mailer="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/mailer"
+    destination="${attempt_root}/source/mailer"
+    "${SUDO_COMMAND[@]}" test -d "${source_mailer}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${source_mailer}" \
+        && [[ "$(existing_notifier_v010_v020_capture_identity "${source_mailer}")" == 65532:65532:700 ]] \
+        || return 1
+    "${SUDO_COMMAND[@]}" test ! -e "${destination}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${destination}" || return 1
+    entries_file="$(mktemp)" || return 1
+    chmod 0600 "${entries_file}"
+    "${SUDO_COMMAND[@]}" find "${source_mailer}" -mindepth 1 -maxdepth 1 -print > "${entries_file}" || {
+        rm -f -- "${entries_file}"
+        return 1
+    }
+    while IFS= read -r path; do
+        name="${path##*/}"
+        case "${name}" in queue.db|queue.db-wal|queue.db-shm) ;; *) failed=1; break ;; esac
+        "${SUDO_COMMAND[@]}" test -f "${path}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${path}" \
+            && [[ "$(existing_notifier_v010_v020_capture_identity "${path}")" == 65532:65532:600 ]] \
+            || { failed=1; break; }
+    done < "${entries_file}"
+    if (( failed != 0 )); then
+        rm -f -- "${entries_file}"
+        return 1
+    fi
+    grep -Fx "${source_mailer}/queue.db" "${entries_file}" >/dev/null || {
+        rm -f -- "${entries_file}"
+        return 1
+    }
+    "${SUDO_COMMAND[@]}" install -d -m 0700 "${destination}" || {
+        rm -f -- "${entries_file}"
+        return 1
+    }
+    while IFS= read -r path; do
+        name="${path##*/}"
+        if ! "${SUDO_COMMAND[@]}" install -m 0600 "${path}" "${destination}/${name}" \
+            || ! "${SUDO_COMMAND[@]}" cmp -s "${path}" "${destination}/${name}"; then
+            failed=1
+            break
+        fi
+    done < "${entries_file}"
+    rm -f -- "${entries_file}"
+    (( failed == 0 ))
+}
+
+existing_notifier_v010_v020_capture_copy_file() {
+    local source_file="$1"
+    local destination="$2"
+
+    "${SUDO_COMMAND[@]}" test -f "${source_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${source_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -e "${destination}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${destination}" \
+        && "${SUDO_COMMAND[@]}" install -m 0600 "${source_file}" "${destination}" \
+        && "${SUDO_COMMAND[@]}" cmp -s "${source_file}" "${destination}"
+}
+
+existing_notifier_v010_v020_capture_copy_tree() {
+    local source_root="$1"
+    local destination="$2"
+    local symlinks
+
+    "${SUDO_COMMAND[@]}" test -d "${source_root}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${source_root}" \
+        && "${SUDO_COMMAND[@]}" test ! -e "${destination}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${destination}" || return 1
+    symlinks="$("${SUDO_COMMAND[@]}" find "${source_root}" -type l -print -quit)" || return 1
+    [[ -z "${symlinks}" ]] || return 1
+    "${SUDO_COMMAND[@]}" cp -a "${source_root}" "${destination}"
+}
+
+v010_v020_capture_source_plugin_pair() {
+    local attempt_root="$1"
+    local plugin_id=com.threadhub.channel-email-notifier
+    local runtime_root
+    local bundle_path
+    local scratch_root
+    local captured_runtime
+    local destination_runtime
+    local destination_bundle
+    local metadata
+    local version
+    local sha
+    local extra
+
+    runtime_root="$(existing_notifier_v010_v020_value THN_MATTERMOST_PLUGINS_ROOT)/${plugin_id}"
+    bundle_path="$(existing_notifier_v010_v020_value THN_MATTERMOST_DATA_ROOT)/plugins/${plugin_id}.tar.gz"
+    destination_runtime="${attempt_root}/source/plugin-runtime"
+    destination_bundle="${attempt_root}/source/plugin-bundle.tar.gz"
+    scratch_root="$(mktemp -d)" || return 1
+    chmod 0700 "${scratch_root}"
+    captured_runtime="${scratch_root}/runtime"
+    if [[ -z "${EXISTING_NOTIFIER_V010_RELEASE_BUNDLE_SHA:-}" ]]; then
+        existing_notifier_v010_v020_read_source_release \
+            "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/release/release.env" \
+            "${scratch_root}" || { rm -rf -- "${scratch_root}"; return 1; }
+    fi
+    metadata="$(notifier_plugin_capture_pair "${runtime_root}" "${bundle_path}" "${plugin_id}" "${captured_runtime}" "${scratch_root}")" \
+        || { rm -rf -- "${scratch_root}"; return 1; }
+    extra=""
+    IFS=$'\t' read -r version sha extra <<< "${metadata}"
+    if [[ "${version}" != "${EXISTING_NOTIFIER_V010_VERSION}" \
+        || "${sha}" != "${EXISTING_NOTIFIER_V010_RELEASE_BUNDLE_SHA}" \
+        || -n "${extra}" ]] \
+        || ! existing_notifier_v010_v020_capture_copy_tree "${captured_runtime}" "${destination_runtime}" \
+        || ! existing_notifier_v010_v020_capture_copy_file "${bundle_path}" "${destination_bundle}"; then
+        notifier_plugin_cleanup_scratch_root "${scratch_root}"
+        return 1
+    fi
+    notifier_plugin_cleanup_scratch_root "${scratch_root}"
+}
+
+existing_notifier_v010_v020_save_source_image() {
+    local output_file="$1"
+    local image="threadhub/notifier-mailer:${EXISTING_NOTIFIER_V010_VERSION}"
+    local image_id
+
+    image_id="$("${DOCKER_COMMAND[@]}" image inspect --format '{{.Id}}' "${image}")" || return 1
+    [[ "${image_id}" == "${EXISTING_NOTIFIER_V010_RELEASE_MAILER_IMAGE_ID:-}" ]] || return 1
+    "${DOCKER_COMMAND[@]}" image save --output "${output_file}" "${image}"
+}
+
+v010_v020_capture_source_mailer_image() {
+    local attempt_root="$1"
+    local temporary_dir
+    local image_archive
+    local image_id_file
+    local archive_size
+
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    image_archive="${temporary_dir}/mailer-image.tar"
+    image_id_file="${temporary_dir}/mailer-image-id"
+    if [[ -z "${EXISTING_NOTIFIER_V010_RELEASE_MAILER_IMAGE_ID:-}" ]]; then
+        existing_notifier_v010_v020_read_source_release \
+            "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/release/release.env" \
+            "${temporary_dir}" || { rm -rf -- "${temporary_dir}"; return 1; }
+    fi
+    if ! existing_notifier_v010_v020_save_source_image "${image_archive}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    chmod 0600 "${image_archive}"
+    archive_size="$(wc -c < "${image_archive}" | tr -d '[:space:]')"
+    if [[ ! "${archive_size}" =~ ^[0-9]+$ ]] || ((archive_size < 1024)) \
+        || ! tar -tf "${image_archive}" >/dev/null 2>&1; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    printf '%s\n' "${EXISTING_NOTIFIER_V010_RELEASE_MAILER_IMAGE_ID}" > "${image_id_file}"
+    chmod 0600 "${image_id_file}"
+    if ! existing_notifier_v010_v020_capture_copy_file "${image_archive}" "${attempt_root}/source/mailer-image.tar" \
+        || ! existing_notifier_v010_v020_capture_copy_file "${image_id_file}" "${attempt_root}/source/mailer-image-id"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    rm -rf -- "${temporary_dir}"
+}
+
+v010_v020_capture_source_release() {
+    existing_notifier_v010_v020_capture_copy_tree \
+        "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/release" \
+        "$1/source/release"
+}
+
+v010_v020_capture_source_override() {
+    existing_notifier_v010_v020_capture_copy_file \
+        "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/compose.override.yml" \
+        "$1/source/compose.override.yml"
+}
+
+v010_v020_capture_source_env() {
+    existing_notifier_v010_v020_capture_copy_file \
+        "${EXISTING_NOTIFIER_V010_V020_ENV_FILE}" \
+        "$1/source/existing-notifier.env"
+}
+
+v010_v020_capture_source_control() {
+    existing_notifier_v010_v020_capture_copy_file \
+        "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/control/state.json" \
+        "$1/source/control-state.json"
+}
+existing_notifier_v010_v020_baseline_is_valid() {
+    local baseline_file="$1"
+
+    [[ "$#" -eq 1 && -f "${baseline_file}" && ! -L "${baseline_file}" ]] || return 2
+    jq -e '
+      type == "object" and
+      (keys == ["active_users","channel_members","channels","files","inactive_users","posts","teams"]) and
+      ([.teams,.channels,.channel_members,.active_users,.inactive_users,.posts,.files] |
+        all(type == "number" and floor == . and . >= 0))
+    ' "${baseline_file}" >/dev/null 2>&1
+}
+
+v010_v020_capture_baseline() {
+    local attempt_root="$1"
+    local postgres_service="${EXISTING_NOTIFIER_V010_V020_POSTGRES_SERVICE:-}"
+    local temporary_dir
+    local baseline_file
+    local destination
+    local query
+
+    [[ "${postgres_service}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || return 1
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    baseline_file="${temporary_dir}/baseline.json"
+    destination="${attempt_root}/baseline.json"
+    query="SELECT json_build_object('teams',(SELECT count(*) FROM teams),'channels',(SELECT count(*) FROM channels),'channel_members',(SELECT count(*) FROM channelmembers),'active_users',(SELECT count(*) FROM users WHERE deleteat = 0 AND username <> 'system-bot'),'inactive_users',(SELECT count(*) FROM users WHERE deleteat <> 0 AND username <> 'system-bot'),'posts',(SELECT count(*) FROM posts),'files',(SELECT count(*) FROM fileinfo));"
+    # POSTGRES_USER and POSTGRES_DB are intentionally expanded by the container shell.
+    # shellcheck disable=SC2016
+    if ! existing_notifier_v010_v020_compose_combined exec -T "${postgres_service}" \
+        sh -ceu 'exec psql --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" --tuples-only --no-align --command "$1"' sh "${query}" \
+        > "${baseline_file}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    chmod 0600 "${baseline_file}"
+    if ! existing_notifier_v010_v020_baseline_is_valid "${baseline_file}" \
+        || "${SUDO_COMMAND[@]}" test -e "${destination}" \
+        || "${SUDO_COMMAND[@]}" test -L "${destination}" \
+        || ! "${SUDO_COMMAND[@]}" install -m 0600 "${baseline_file}" "${destination}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    rm -rf -- "${temporary_dir}"
+}
+existing_notifier_v010_v020_capture_hash() {
+    local path="$1"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        "${SUDO_COMMAND[@]}" sha256sum "${path}" | awk '{print $1}'
+    else
+        "${SUDO_COMMAND[@]}" shasum -a 256 "${path}" | awk '{print $1}'
+    fi
+}
+
+existing_notifier_v010_v020_build_manifest() {
+    local attempt_root="$1"
+    local output_file="$2"
+    local temporary_dir
+    local paths_file
+    local entries_file
+    local path
+    local relative
+    local identity
+    local digest
+
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    paths_file="${temporary_dir}/paths"
+    entries_file="${temporary_dir}/entries.jsonl"
+    "${SUDO_COMMAND[@]}" find "${attempt_root}" -mindepth 1 -print > "${paths_file}" || {
+        rm -rf -- "${temporary_dir}"; return 1;
+    }
+    LC_ALL=C sort -o "${paths_file}" "${paths_file}"
+    : > "${entries_file}"
+    chmod 0600 "${paths_file}" "${entries_file}"
+    while IFS= read -r path; do
+        relative="${path#"${attempt_root}/"}"
+        [[ -n "${relative}" && "${relative}" != "${path}" ]] || { rm -rf -- "${temporary_dir}"; return 1; }
+        case "${relative}" in manifest.json|phase.json) continue ;; esac
+        "${SUDO_COMMAND[@]}" test ! -L "${path}" || { rm -rf -- "${temporary_dir}"; return 1; }
+        identity="$(existing_notifier_v010_v020_capture_identity "${path}")" || { rm -rf -- "${temporary_dir}"; return 1; }
+        if "${SUDO_COMMAND[@]}" test -f "${path}"; then
+            digest="$(existing_notifier_v010_v020_capture_hash "${path}")" || { rm -rf -- "${temporary_dir}"; return 1; }
+            jq -cn --arg path "${relative}" --arg identity "${identity}" --arg digest "${digest}" \
+                '{path:$path,type:"file",identity:$identity,sha256:$digest}' >> "${entries_file}"
+        elif "${SUDO_COMMAND[@]}" test -d "${path}"; then
+            jq -cn --arg path "${relative}" --arg identity "${identity}" \
+                '{path:$path,type:"directory",identity:$identity,sha256:null}' >> "${entries_file}"
+        else
+            rm -rf -- "${temporary_dir}"
+            return 1
+        fi
+    done < "${paths_file}"
+    jq -s --arg profile "${EXISTING_NOTIFIER_V010_V020_ID}" \
+        '{schema:1,profile:$profile,entries:.}' "${entries_file}" > "${output_file}" || {
+        rm -rf -- "${temporary_dir}"; return 1;
+    }
+    chmod 0600 "${output_file}"
+    rm -rf -- "${temporary_dir}"
+}
+
+v010_v020_capture_verify_evidence() {
+    local attempt_root="$1"
+    local temporary_dir
+    local manifest
+    local verification
+    local installed_copy
+    local required
+    local inspection_copy
+    local baseline_copy
+
+    for required in \
+        queue-inspection.json baseline.json \
+        source/mailer/queue.db source/plugin-runtime source/plugin-bundle.tar.gz \
+        source/mailer-image.tar source/mailer-image-id source/release \
+        source/compose.override.yml source/existing-notifier.env source/control-state.json; do
+        "${SUDO_COMMAND[@]}" test -e "${attempt_root}/${required}" || return 1
+        "${SUDO_COMMAND[@]}" test ! -L "${attempt_root}/${required}" || return 1
+    done
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    inspection_copy="${temporary_dir}/queue-inspection.json"
+    baseline_copy="${temporary_dir}/baseline.json"
+    if ! "${SUDO_COMMAND[@]}" cat "${attempt_root}/queue-inspection.json" > "${inspection_copy}" \
+        || ! "${SUDO_COMMAND[@]}" cat "${attempt_root}/baseline.json" > "${baseline_copy}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    chmod 0600 "${inspection_copy}" "${baseline_copy}"
+    if ! existing_notifier_v010_v020_queue_inspection_is_valid "${inspection_copy}" \
+        || [[ "$(jq -er '.schema_version' "${inspection_copy}")" != 1 ]] \
+        || ! existing_notifier_v010_v020_baseline_is_valid "${baseline_copy}" \
+        || ! "${SUDO_COMMAND[@]}" tar -tf "${attempt_root}/source/mailer-image.tar" >/dev/null 2>&1 \
+        || ! "${SUDO_COMMAND[@]}" grep -Eq '^sha256:[a-f0-9]{64}$' "${attempt_root}/source/mailer-image-id"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    manifest="${temporary_dir}/manifest.json"
+    verification="${temporary_dir}/verification.json"
+    installed_copy="${temporary_dir}/installed.json"
+    if ! existing_notifier_v010_v020_build_manifest "${attempt_root}" "${manifest}" \
+        || ! existing_notifier_v010_v020_capture_copy_file "${manifest}" "${attempt_root}/manifest.json" \
+        || ! existing_notifier_v010_v020_build_manifest "${attempt_root}" "${verification}" \
+        || ! "${SUDO_COMMAND[@]}" cat "${attempt_root}/manifest.json" > "${installed_copy}" \
+        || ! cmp -s "${installed_copy}" "${verification}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    if ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" complete; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    rm -rf -- "${temporary_dir}"
+}
+
+existing_notifier_v010_v020_capture_evidence() {
+    local attempt_root="$1"
+    local expected_root
+
+    [[ "$#" -eq 1 ]] || return 2
+    expected_root="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/migration/${EXISTING_NOTIFIER_V010_V020_ID}"
+    [[ "${attempt_root}" == "${expected_root}" ]] || return 1
+    existing_notifier_v010_v020_capture_prepare_attempt "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" attempt-created || return 1
+    v010_v020_capture_control_is_disabled "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" control-disabled || return 1
+    v010_v020_capture_mailer_is_stopped "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" mailer-stopped || return 1
+    v010_v020_capture_inspect_queue_v1 "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" queue-inspected-v1 || return 1
+    v010_v020_capture_queue "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" queue-captured || return 1
+    v010_v020_capture_source_plugin_pair "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-plugin-pair-captured || return 1
+    v010_v020_capture_source_mailer_image "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-mailer-image-saved || return 1
+    v010_v020_capture_source_release "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-release-captured || return 1
+    v010_v020_capture_source_override "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-override-captured || return 1
+    v010_v020_capture_source_env "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-env-captured || return 1
+    v010_v020_capture_source_control "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-control-captured || return 1
+    v010_v020_capture_baseline "${attempt_root}" || return 1
+    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" baseline-captured || return 1
+    v010_v020_capture_verify_evidence "${attempt_root}"
+}
