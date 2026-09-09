@@ -126,6 +126,8 @@ recovery and privacy-safe review:
 
 - source and target release identities;
 - hashes and metadata for the complete plugin runtime and bundle pair;
+- the exact v0.1.0 release directory and Compose override preimages;
+- a protected `docker image save` archive and image ID for the v0.1.0 Mailer;
 - an exact protected preimage of the notifier environment file;
 - notifier control-state preimage;
 - a consistent SQLite queue snapshot, including required WAL/SHM state;
@@ -166,27 +168,31 @@ Failure before the first mutation leaves the target unchanged.
 The production transition sequence is:
 
 1. Re-run preflight immediately before the approved window.
-2. Drain the notifier and require `pending=0`, `sending=0`, and `failed=0`.
-3. Disable notification collection and delivery.
-4. Verify the disabled state has been loaded by both plugin and Mailer.
-5. Stop the Mailer.
-6. Capture the v0.1.0 plugin pair, environment preimage, control state, and a
-   consistent schema-v1 queue snapshot.
-7. Build or locate the reviewed v0.2.0 release and verify its release identity.
-8. Add `THN_CONTENT_MODE=project_team_channel` through a no-clobber,
+2. Build and verify the reviewed v0.2.0 release in a protected staging path
+   while the existing Mattermost and v0.1.0 notifier remain active.
+3. Drain the notifier and require `pending=0`, `sending=0`, and `failed=0`.
+4. Disable notification collection and delivery.
+5. Verify the disabled state has been loaded by both plugin and Mailer.
+6. Stop the Mailer.
+7. Capture the v0.1.0 plugin pair, Mailer image, release directory, Compose
+   override, environment preimage, control state, and a consistent schema-v1
+   queue snapshot.
+8. Reverify the staged v0.2.0 release identity before publishing it.
+9. Add `THN_CONTENT_MODE=project_team_channel` through a no-clobber,
    permission-preserving configuration transaction.
-9. Publish the v0.2.0 plugin runtime and filestore bundle as one transaction.
-10. Start the v0.2.0 Mailer while notification delivery remains disabled.
-11. Let the Mailer perform its transactional queue v1-to-v2 migration.
-12. Verify SQLite integrity, schema version 2, and preservation of all existing
+10. Publish the v0.2.0 release directory, Compose override, plugin runtime, and
+    filestore bundle through their reviewed transactions.
+11. Start the v0.2.0 Mailer while notification delivery remains disabled.
+12. Let the Mailer perform its transactional queue v1-to-v2 migration.
+13. Verify SQLite integrity, schema version 2, and preservation of all existing
     queue rows and delivery states.
-13. Recreate Mattermost only through the supported Compose override path. This
+14. Recreate Mattermost only through the supported Compose override path. This
     may cause a 30–60 second client reconnect window.
-14. Verify the reviewed v0.2.0 plugin/Mailer pair is installed and active while
+15. Verify the reviewed v0.2.0 plugin/Mailer pair is installed and active while
     control remains disabled.
-15. Record post-transition aggregate baselines and compare them with the
+16. Record post-transition aggregate baselines and compare them with the
     pre-transition values.
-16. Stop with `[ACTION REQUIRED]` for SMTP acceptance and pilot activation.
+17. Stop with `[ACTION REQUIRED]` for SMTP acceptance and pilot activation.
 
 The transition operation does not enable a pilot allowlist or `all_channels`.
 
@@ -217,6 +223,8 @@ Before pilot activation, automatic rollback may:
 - stop and quarantine the failed v0.2.0 Mailer queue;
 - restore the protected schema-v1 queue snapshot;
 - restore the exact v0.1.0 plugin runtime and bundle pair;
+- restore the exact v0.1.0 Mailer image, release directory, and Compose
+  override;
 - restore the notifier environment and control preimages;
 - recreate the prior Mattermost and Mailer services;
 - verify v0.1.0 health with delivery still disabled.
