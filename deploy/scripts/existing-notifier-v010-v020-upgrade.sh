@@ -508,6 +508,7 @@ v010_v020_tx_publish_target_plugin_pair() (
             "${EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT}" \
             "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${scratch_root}"
     }
+    # shellcheck disable=SC2329 # invoked indirectly by notifier_plugin_transaction
     plugin_tx_verify_previous_objects() {
         notifier_plugin_pair_is_exact \
             "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${scratch_root}"
@@ -761,31 +762,31 @@ existing_notifier_v010_v020_restore_object() {
     existing_notifier_v010_v020_objects_match "${live}" "${captured}" "${object_type}"
 }
 
-existing_notifier_v010_v020_live_queue_matches_capture() {
+existing_notifier_v010_v020_live_queue_matches_capture() (
     local live_root="$1"
     local captured_root="$2"
-    local entries_file
+    local entries_file=""
     local path
     local name
 
     [[ "$(existing_notifier_v010_v020_capture_identity "${live_root}")" == 65532:65532:700 ]] \
         || return 1
     entries_file="$(mktemp)" || return 1
+    trap 'rm -f -- "${entries_file}"' EXIT
     "${SUDO_COMMAND[@]}" find "${live_root}" -mindepth 1 -maxdepth 1 -print > "${entries_file}" || {
-        rm -f -- "${entries_file}"
         return 1
     }
     while IFS= read -r path; do
         name="${path##*/}"
-        case "${name}" in queue.db|queue.db-wal|queue.db-shm) ;; *) rm -f -- "${entries_file}"; return 1 ;; esac
-        [[ "$(existing_notifier_v010_v020_capture_identity "${path}")" == 65532:65532:600 ]] \
-            && "${SUDO_COMMAND[@]}" test -f "${captured_root}/${name}" \
-            && "${SUDO_COMMAND[@]}" cmp -s "${path}" "${captured_root}/${name}" \
-            || { rm -f -- "${entries_file}"; return 1; }
+        case "${name}" in queue.db|queue.db-wal|queue.db-shm) ;; *) return 1 ;; esac
+        if [[ "$(existing_notifier_v010_v020_capture_identity "${path}")" != 65532:65532:600 ]] \
+            || ! "${SUDO_COMMAND[@]}" test -f "${captured_root}/${name}" \
+            || ! "${SUDO_COMMAND[@]}" cmp -s "${path}" "${captured_root}/${name}"; then
+            return 1
+        fi
     done < "${entries_file}"
-    rm -f -- "${entries_file}"
     "${SUDO_COMMAND[@]}" test -f "${live_root}/queue.db"
-}
+)
 
 existing_notifier_v010_v020_restore_queue() {
     local attempt_root="$1"

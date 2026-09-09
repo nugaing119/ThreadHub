@@ -254,6 +254,8 @@ test_recovery_quarantines_target_and_restores_exact_source() (
     quarantine="${fixture}/quarantine.env"
     real_mv="$(command -v mv)"
     mkdir -p "${fixture}/bin"
+    # The following single-quoted line is literal source for the fixture wrapper.
+    # shellcheck disable=SC2016
     printf '%s\n' \
         '#!/usr/bin/env bash' \
         'set -eu' \
