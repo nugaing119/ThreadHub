@@ -642,3 +642,130 @@ existing_notifier_v010_v020_capture_evidence() {
     existing_notifier_v010_v020_capture_record_phase "${attempt_root}" baseline-captured || return 1
     v010_v020_capture_verify_evidence "${attempt_root}"
 }
+
+existing_notifier_v010_v020_tx_state_file() {
+    [[ "$#" -eq 1 ]] || return 2
+    printf '%s\n' "$1/transaction-state.json"
+}
+
+existing_notifier_v010_v020_tx_phase_is_valid() {
+    case "${1:-}" in
+        source_captured|target_release_verified|target_env_published|target_release_published|target_override_published|target_plugin_pair_published|target_mailer_started|target_queue_v2_verified|target_mattermost_recreated|target_pair_verified|after_baseline_captured|baseline_matched|disabled_verified|target_ready|source_recovered|recovery_failed) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+existing_notifier_v010_v020_tx_state_is_valid() {
+    local state_file="$1"
+
+    [[ "$#" -eq 1 && -f "${state_file}" && ! -L "${state_file}" ]] || return 2
+    jq -e --arg transition "${EXISTING_NOTIFIER_V010_V020_ID}" \
+        --arg source "${EXISTING_NOTIFIER_V010_VERSION}" \
+        --arg target "${EXISTING_NOTIFIER_V020_VERSION}" '
+      type == "object" and
+      (keys == ["delivery_enabled","phase","schema","source_version","target_version","transition"]) and
+      .schema == 1 and .transition == $transition and
+      .source_version == $source and .target_version == $target and
+      .delivery_enabled == false and (.phase | type == "string")
+    ' "${state_file}" >/dev/null 2>&1 || return 1
+    existing_notifier_v010_v020_tx_phase_is_valid "$(jq -er '.phase' "${state_file}")"
+}
+
+existing_notifier_v010_v020_tx_state_identity_is_private() {
+    [[ "$#" -eq 1 ]] || return 2
+    [[ "$(existing_notifier_v010_v020_capture_identity "$1")" == 0:0:600 ]]
+}
+
+existing_notifier_v010_v020_tx_state_current() {
+    local attempt_root="$1"
+    local state_file
+    local temporary_dir
+    local state_copy
+    local phase
+
+    [[ "$#" -eq 1 ]] || return 2
+    state_file="$(existing_notifier_v010_v020_tx_state_file "${attempt_root}")" || return 1
+    "${SUDO_COMMAND[@]}" test -f "${state_file}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${state_file}" \
+        && existing_notifier_v010_v020_tx_state_identity_is_private "${state_file}" || return 1
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    state_copy="${temporary_dir}/state.json"
+    if ! "${SUDO_COMMAND[@]}" cat "${state_file}" > "${state_copy}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    chmod 0600 "${state_copy}"
+    if ! existing_notifier_v010_v020_tx_state_is_valid "${state_copy}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    phase="$(jq -er '.phase' "${state_copy}")" || {
+        rm -rf -- "${temporary_dir}"
+        return 1
+    }
+    rm -rf -- "${temporary_dir}"
+    printf '%s\n' "${phase}"
+}
+
+existing_notifier_v010_v020_tx_install_private() {
+    [[ "$#" -eq 2 ]] || return 2
+    "${SUDO_COMMAND[@]}" install -o 0 -g 0 -m 0600 "$1" "$2"
+}
+
+existing_notifier_v010_v020_tx_state_write() {
+    local attempt_root="$1"
+    local phase="$2"
+    local expected_previous="${3:-}"
+    local state_file
+    local candidate
+    local temporary_file
+    local current
+
+    [[ "$#" -ge 2 && "$#" -le 3 ]] || return 2
+    existing_notifier_v010_v020_tx_phase_is_valid "${phase}" || return 2
+    state_file="$(existing_notifier_v010_v020_tx_state_file "${attempt_root}")" || return 1
+    candidate="${state_file}.next.$$"
+    "${SUDO_COMMAND[@]}" test ! -e "${candidate}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${candidate}" || return 1
+    if [[ -z "${expected_previous}" ]]; then
+        "${SUDO_COMMAND[@]}" test ! -e "${state_file}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${state_file}" || return 1
+    else
+        current="$(existing_notifier_v010_v020_tx_state_current "${attempt_root}")" || return 1
+        [[ "${current}" == "${expected_previous}" ]] || return 1
+    fi
+    temporary_file="$(mktemp)" || return 1
+    jq -n --arg transition "${EXISTING_NOTIFIER_V010_V020_ID}" \
+        --arg phase "${phase}" --arg source "${EXISTING_NOTIFIER_V010_VERSION}" \
+        --arg target "${EXISTING_NOTIFIER_V020_VERSION}" \
+        '{schema:1,transition:$transition,phase:$phase,source_version:$source,target_version:$target,delivery_enabled:false}' \
+        > "${temporary_file}" || { rm -f -- "${temporary_file}"; return 1; }
+    chmod 0600 "${temporary_file}"
+    if ! existing_notifier_v010_v020_tx_install_private "${temporary_file}" "${candidate}" \
+        || ! "${SUDO_COMMAND[@]}" mv -f -- "${candidate}" "${state_file}"; then
+        "${SUDO_COMMAND[@]}" rm -f -- "${candidate}" >/dev/null 2>&1 || true
+        rm -f -- "${temporary_file}"
+        return 1
+    fi
+    rm -f -- "${temporary_file}"
+    [[ "$(existing_notifier_v010_v020_tx_state_current "${attempt_root}")" == "${phase}" ]]
+}
+
+existing_notifier_v010_v020_tx_create_lock() {
+    [[ "$#" -eq 1 ]] || return 2
+    "${SUDO_COMMAND[@]}" mkdir -- "$1" \
+        && "${SUDO_COMMAND[@]}" chown 0:0 "$1" \
+        && "${SUDO_COMMAND[@]}" chmod 0700 "$1"
+}
+
+existing_notifier_v010_v020_tx_acquire_lock() {
+    local attempt_root="$1"
+    local lock_root="${attempt_root}/transaction.lock"
+
+    [[ "$#" -eq 1 ]] || return 2
+    "${SUDO_COMMAND[@]}" test ! -e "${lock_root}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${lock_root}" \
+        && existing_notifier_v010_v020_tx_create_lock "${lock_root}" \
+        && [[ "$(existing_notifier_v010_v020_capture_identity "${lock_root}")" == 0:0:700 ]]
+}
