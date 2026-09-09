@@ -14,6 +14,14 @@ fail() { printf 'not ok - %s\n' "$1" >&2; failures=$((failures + 1)); }
 pass() { printf 'ok - %s\n' "$1"; }
 run_test() { if "$2"; then pass "$1"; else fail "$1"; fi; }
 
+file_mode() {
+    if stat -c '%a' "$1" >/dev/null 2>&1; then
+        stat -c '%a' "$1"
+    else
+        stat -f '%Lp' "$1"
+    fi
+}
+
 test_transaction_script_exists() { [[ -x "${TRANSACTION_SCRIPT}" ]]; }
 
 prepare_transaction_fixture() {
@@ -127,7 +135,7 @@ test_transaction_state_is_strict_and_no_clobber() (
 
     existing_notifier_v010_v020_tx_state_write "${attempt_root}" source_captured || return 1
     state_file="$(existing_notifier_v010_v020_tx_state_file "${attempt_root}")"
-    [[ "$(stat -f '%Lp' "${state_file}" 2>/dev/null || stat -c '%a' "${state_file}")" == 600 ]] || return 1
+    [[ "$(file_mode "${state_file}")" == 600 ]] || return 1
     jq -e '
       type == "object" and
       (keys == ["delivery_enabled","phase","schema","source_version","target_version","transition"]) and
