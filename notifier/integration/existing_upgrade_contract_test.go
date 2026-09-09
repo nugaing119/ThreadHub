@@ -59,6 +59,12 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		"failure-after-schema-migration",
 		"explicit-rollback",
 		"second-transition",
+		"successful-transition-queue-snapshot",
+		"successful-transition-smtp-failure-injection",
+		"successful-transition-outage-post",
+		"successful-transition-queue-pending",
+		"successful-transition-outage-recovery",
+		"successful-transition-queue-idle",
 		"existing-notifier-smtp-test.sh",
 		"activate-allowlist",
 		"public-root",
@@ -71,6 +77,18 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 	} {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-upgrade runner contract is missing %q", required)
+		}
+	}
+	for _, required := range []string{
+		"private acceptance snapshot || return 1",
+		"private inject_smtp_failures 2 || return 1",
+		"private acceptance outage-post || return 1",
+		"private wait_queue_pending || return 1",
+		"private acceptance assert-outage || return 1",
+		"private wait_queue_idle || return 1",
+	} {
+		if !strings.Contains(runner, required) {
+			t.Fatalf("source queue history fail-closed contract is missing %q", required)
 		}
 	}
 	for _, forbidden := range []string{

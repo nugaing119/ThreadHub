@@ -390,12 +390,18 @@ EOF
 }
 
 seed_source_queue_history() {
-    private acceptance snapshot
-    private inject_smtp_failures 2
-    private acceptance outage-post
-    private wait_queue_pending
-    private acceptance assert-outage
-    private wait_queue_idle
+    record_stage successful-transition-queue-snapshot
+    private acceptance snapshot || return 1
+    record_stage successful-transition-smtp-failure-injection
+    private inject_smtp_failures 2 || return 1
+    record_stage successful-transition-outage-post
+    private acceptance outage-post || return 1
+    record_stage successful-transition-queue-pending
+    private wait_queue_pending || return 1
+    record_stage successful-transition-outage-recovery
+    private acceptance assert-outage || return 1
+    record_stage successful-transition-queue-idle
+    private wait_queue_idle || return 1
 }
 
 prepare_transition_evidence() {
@@ -490,6 +496,7 @@ EOF
     status=$?
     set -e
     [[ "${status}" == 42 ]] || return 1
+    # shellcheck disable=SC2016 # the nested bash, not this harness, expands the sourced helper call
     private env "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${notifier_env}" bash -c \
         'source "$1"; existing_notifier_v010_v020_upgrade_initialize; existing_notifier_v010_v020_verify_source_runtime "$(existing_notifier_v010_v020_attempt_root)"' \
         bash "${repository_root}/deploy/scripts/existing-notifier-v010-v020-upgrade.sh"
