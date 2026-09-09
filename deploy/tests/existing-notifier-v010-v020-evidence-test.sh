@@ -358,6 +358,50 @@ test_evidence_manifest_is_complete_and_contains_no_payload_values() (
     ! grep -R -F -e payload-must-not-appear -e private@valid.test "${attempt_root}/manifest.json" "${attempt_root}/phase.json" >/dev/null
 )
 
+test_complete_source_capture_is_reverified_without_mutation() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${fixture}"' EXIT
+    notifier_root="${fixture}/notifier"
+    attempt_root="${notifier_root}/migration/existing-notifier-v010-v020"
+    mkdir -p "${attempt_root}/source/mailer" "${attempt_root}/source/plugin-runtime" "${attempt_root}/source/release"
+    printf '%s\n' '{"schema_version":1,"events":0,"nonces":0,"pending":0,"sending":0,"sent":0,"failed":0,"cancelled":0}' > "${attempt_root}/queue-inspection.json"
+    printf '%s\n' queue > "${attempt_root}/source/mailer/queue.db"
+    printf '%s\n' plugin > "${attempt_root}/source/plugin-runtime/plugin.json"
+    printf '%s\n' bundle > "${attempt_root}/source/plugin-bundle.tar.gz"
+    mkdir -p "${fixture}/image" && printf '%s\n' layer > "${fixture}/image/layer"
+    tar -cf "${attempt_root}/source/mailer-image.tar" -C "${fixture}/image" layer
+    printf '%s\n' 'sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb' > "${attempt_root}/source/mailer-image-id"
+    printf '%s\n' release > "${attempt_root}/source/release/release.env"
+    printf '%s\n' override > "${attempt_root}/source/compose.override.yml"
+    printf '%s\n' source-env > "${attempt_root}/source/existing-notifier.env"
+    printf '%s\n' control > "${attempt_root}/source/control-state.json"
+    printf '%s\n' '{"teams":1,"channels":2,"channel_members":3,"active_users":4,"inactive_users":0,"posts":5,"files":6}' > "${attempt_root}/baseline.json"
+    find "${attempt_root}" -type f -exec chmod 0600 {} \;
+    # shellcheck source=../scripts/existing-notifier-v010-v020-common.sh
+    source "${COMMON}"
+    SUDO_COMMAND=(env)
+    v010_v020_capture_verify_evidence "${attempt_root}" || return 1
+    existing_notifier_v010_v020_value() {
+        [[ "$1" == THN_DATA_ROOT ]] || return 1
+        printf '%s\n' "${notifier_root}"
+    }
+    existing_notifier_v010_v020_capture_identity() {
+        local relative
+        if [[ "$1" == "${attempt_root}" ]]; then
+            printf '%s\n' 0:0:700
+            return
+        fi
+        relative="${1#"${attempt_root}/"}"
+        jq -er --arg path "${relative}" '.entries[] | select(.path == $path) | .identity' \
+            "${attempt_root}/manifest.json"
+    }
+    before="$(shasum -a 256 "${attempt_root}/manifest.json" "${attempt_root}/phase.json")"
+    existing_notifier_v010_v020_source_capture_is_complete "${attempt_root}" || return 1
+    [[ "${before}" == "$(shasum -a 256 "${attempt_root}/manifest.json" "${attempt_root}/phase.json")" ]] || return 1
+    printf '%s\n' tampered > "${attempt_root}/source/mailer/queue.db"
+    ! existing_notifier_v010_v020_source_capture_is_complete "${attempt_root}"
+)
+
 test_attempt_root_is_exact_private_and_no_clobber() (
     fixture="$(mktemp -d)"
     trap 'rm -rf -- "${fixture}"' EXIT
@@ -415,6 +459,7 @@ if [[ -f "${GATE_SCRIPT}" ]]; then
     run_test 'control, stopped Mailer, and schema-v1 queue gates are enforced' test_control_mailer_and_queue_schema_gates
     run_test 'source files and Mailer image are captured privately' test_source_files_and_mailer_image_are_captured_privately
     run_test 'evidence manifest is complete and contains no payload values' test_evidence_manifest_is_complete_and_contains_no_payload_values
+    run_test 'complete source capture is reverified without mutation' test_complete_source_capture_is_reverified_without_mutation
     run_test 'attempt root is exact, private, and no-clobber' test_attempt_root_is_exact_private_and_no_clobber
     run_test 'baseline capture uses only the fixed aggregate-count query' test_baseline_capture_uses_only_fixed_count_query
 fi

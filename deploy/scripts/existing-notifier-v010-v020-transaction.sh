@@ -6,10 +6,14 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# shellcheck source=existing-notifier-v010-v020-common.sh
-source "${SCRIPT_DIR}/existing-notifier-v010-v020-common.sh"
-# shellcheck source=notifier-plugin-transaction.sh
-source "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
+if ! declare -F existing_notifier_v010_v020_config_state >/dev/null 2>&1; then
+    # shellcheck source=existing-notifier-v010-v020-common.sh
+    source "${SCRIPT_DIR}/existing-notifier-v010-v020-common.sh"
+fi
+if ! declare -F notifier_plugin_transaction >/dev/null 2>&1; then
+    # shellcheck source=notifier-plugin-transaction.sh
+    source "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
+fi
 
 existing_notifier_v010_v020_tx_action_required() {
     printf '[ACTION REQUIRED] Run ./deploy/scripts/existing-notifier-v010-v020-rollback.sh; implicit transition resume is forbidden\n' >&2

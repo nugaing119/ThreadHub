@@ -41,6 +41,14 @@ EXISTING_NOTIFIER_V010_KEYS=(
 )
 readonly EXISTING_NOTIFIER_V010_KEYS
 
+existing_notifier_v010_v020_attempt_root() {
+    printf '%s\n' "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/migration/${EXISTING_NOTIFIER_V010_V020_ID}"
+}
+
+existing_notifier_v010_v020_target_root() {
+    printf '%s\n' "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/migration/${EXISTING_NOTIFIER_V010_V020_ID}-target"
+}
+
 existing_notifier_v010_v020_value() {
     env_optional_value "$1" "${EXISTING_NOTIFIER_V010_V020_ENV_FILE}"
 }
@@ -325,7 +333,7 @@ existing_notifier_v010_v020_capture_copy_file() {
         && "${SUDO_COMMAND[@]}" test ! -L "${source_file}" \
         && "${SUDO_COMMAND[@]}" test ! -e "${destination}" \
         && "${SUDO_COMMAND[@]}" test ! -L "${destination}" \
-        && "${SUDO_COMMAND[@]}" install -m 0600 "${source_file}" "${destination}" \
+        && "${SUDO_COMMAND[@]}" cp -p "${source_file}" "${destination}" \
         && "${SUDO_COMMAND[@]}" cmp -s "${source_file}" "${destination}"
 }
 
@@ -466,19 +474,19 @@ existing_notifier_v010_v020_baseline_is_valid() {
     ' "${baseline_file}" >/dev/null 2>&1
 }
 
-v010_v020_capture_baseline() {
-    local attempt_root="$1"
+existing_notifier_v010_v020_capture_baseline() {
+    local destination="$1"
     local postgres_service="${EXISTING_NOTIFIER_V010_V020_POSTGRES_SERVICE:-}"
     local temporary_dir
     local baseline_file
-    local destination
     local query
 
+    [[ "$#" -eq 1 && "${destination}" == /* && "${destination}" != / \
+        && "${destination}" != *$'\n'* && "${destination}" != *$'\r'* ]] || return 2
     [[ "${postgres_service}" =~ ^[A-Za-z0-9][A-Za-z0-9_.-]*$ ]] || return 1
     temporary_dir="$(mktemp -d)" || return 1
     chmod 0700 "${temporary_dir}"
     baseline_file="${temporary_dir}/baseline.json"
-    destination="${attempt_root}/baseline.json"
     query="SELECT json_build_object('teams',(SELECT count(*) FROM teams),'channels',(SELECT count(*) FROM channels),'channel_members',(SELECT count(*) FROM channelmembers),'active_users',(SELECT count(*) FROM users WHERE deleteat = 0 AND username <> 'system-bot'),'inactive_users',(SELECT count(*) FROM users WHERE deleteat <> 0 AND username <> 'system-bot'),'posts',(SELECT count(*) FROM posts),'files',(SELECT count(*) FROM fileinfo));"
     # POSTGRES_USER and POSTGRES_DB are intentionally expanded by the container shell.
     # shellcheck disable=SC2016
@@ -497,6 +505,11 @@ v010_v020_capture_baseline() {
         return 1
     fi
     rm -rf -- "${temporary_dir}"
+}
+
+v010_v020_capture_baseline() {
+    [[ "$#" -eq 1 ]] || return 2
+    existing_notifier_v010_v020_capture_baseline "$1/baseline.json"
 }
 existing_notifier_v010_v020_capture_hash() {
     local path="$1"
@@ -606,6 +619,87 @@ v010_v020_capture_verify_evidence() {
         rm -rf -- "${temporary_dir}"
         return 1
     fi
+    rm -rf -- "${temporary_dir}"
+}
+
+existing_notifier_v010_v020_source_capture_is_complete() {
+    local attempt_root="$1"
+    local expected_root
+    local temporary_dir
+    local manifest_copy
+    local phase_copy
+    local entries_file
+    local relative
+    local object_type
+    local expected_identity
+    local expected_digest
+    local path
+
+    [[ "$#" -eq 1 ]] || return 2
+    expected_root="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/migration/${EXISTING_NOTIFIER_V010_V020_ID}"
+    [[ "${attempt_root}" == "${expected_root}" ]] || return 1
+    "${SUDO_COMMAND[@]}" test -d "${attempt_root}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${attempt_root}" \
+        && [[ "$(existing_notifier_v010_v020_capture_identity "${attempt_root}")" == 0:0:700 ]] \
+        || return 1
+    for path in manifest.json phase.json queue-inspection.json baseline.json; do
+        "${SUDO_COMMAND[@]}" test -f "${attempt_root}/${path}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${attempt_root}/${path}" || return 1
+    done
+    temporary_dir="$(mktemp -d)" || return 1
+    chmod 0700 "${temporary_dir}"
+    manifest_copy="${temporary_dir}/manifest.json"
+    phase_copy="${temporary_dir}/phase.json"
+    entries_file="${temporary_dir}/entries"
+    if ! "${SUDO_COMMAND[@]}" cat "${attempt_root}/manifest.json" > "${manifest_copy}" \
+        || ! "${SUDO_COMMAND[@]}" cat "${attempt_root}/phase.json" > "${phase_copy}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    chmod 0600 "${manifest_copy}" "${phase_copy}"
+    if ! jq -e --arg profile "${EXISTING_NOTIFIER_V010_V020_ID}" '
+          type == "object" and keys == ["entries","profile","schema"] and
+          .schema == 1 and .profile == $profile and
+          (.entries | type == "array" and length > 0) and
+          (.entries | all(
+            type == "object" and keys == ["identity","path","sha256","type"] and
+            (.path | type == "string" and length > 0) and
+            (.identity | type == "string" and test("^[0-9]+:[0-9]+:[0-7]{3,4}$")) and
+            ((.type == "file" and (.sha256 | type == "string" and test("^[a-f0-9]{64}$"))) or
+             (.type == "directory" and .sha256 == null))
+          ))
+        ' "${manifest_copy}" >/dev/null \
+        || ! jq -e --arg profile "${EXISTING_NOTIFIER_V010_V020_ID}" '
+          type == "object" and
+          keys == ["phase","profile","rollback_disposition","schema"] and
+          .schema == 1 and .profile == $profile and .phase == "complete" and
+          .rollback_disposition == "not_started"
+        ' "${phase_copy}" >/dev/null \
+        || ! jq -r '.entries[] | [.path,.type,.identity,(.sha256 // "-")] | @tsv' \
+            "${manifest_copy}" > "${entries_file}"; then
+        rm -rf -- "${temporary_dir}"
+        return 1
+    fi
+    while IFS=$'\t' read -r relative object_type expected_identity expected_digest; do
+        [[ -n "${relative}" && "${relative}" != /* && "${relative}" != *$'\n'* \
+            && "${relative}" != *$'\r'* && "/${relative}/" != *'/../'* \
+            && "/${relative}/" != *'/./'* ]] || { rm -rf -- "${temporary_dir}"; return 1; }
+        path="${attempt_root}/${relative}"
+        "${SUDO_COMMAND[@]}" test ! -L "${path}" \
+            && [[ "$(existing_notifier_v010_v020_capture_identity "${path}")" == "${expected_identity}" ]] \
+            || { rm -rf -- "${temporary_dir}"; return 1; }
+        if [[ "${object_type}" == file ]]; then
+            "${SUDO_COMMAND[@]}" test -f "${path}" \
+                && [[ "$(existing_notifier_v010_v020_capture_hash "${path}")" == "${expected_digest}" ]] \
+                || { rm -rf -- "${temporary_dir}"; return 1; }
+        elif [[ "${object_type}" == directory ]]; then
+            "${SUDO_COMMAND[@]}" test -d "${path}" \
+                || { rm -rf -- "${temporary_dir}"; return 1; }
+        else
+            rm -rf -- "${temporary_dir}"
+            return 1
+        fi
+    done < "${entries_file}"
     rm -rf -- "${temporary_dir}"
 }
 
