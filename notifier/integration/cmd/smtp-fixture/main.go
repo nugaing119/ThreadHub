@@ -45,10 +45,12 @@ const (
 )
 
 type capture struct {
-	RecipientHash   string `json:"recipient_hash"`
-	EnvelopeCount   int    `json:"envelope_count"`
-	GenericContent  bool   `json:"generic_content"`
-	LastAttemptAtMS int64  `json:"last_attempt_at_ms"`
+	RecipientHash      string `json:"recipient_hash"`
+	EnvelopeCount      int    `json:"envelope_count"`
+	GenericContent     bool   `json:"generic_content"`
+	ContextRootCount   int    `json:"context_root_count"`
+	ContextThreadCount int    `json:"context_thread_count"`
+	LastAttemptAtMS    int64  `json:"last_attempt_at_ms"`
 }
 
 type captureSnapshot struct {
@@ -97,6 +99,7 @@ func (s *captureStore) recordAt(recipient string, raw []byte, attemptAt time.Tim
 	}
 	hash := protocol.HashIdentifier(s.secret, "integration-recipient", strings.ToLower(recipient))
 	generic := inspectGenericMessage(raw, s.domain)
+	eventType, projectContext := inspectProjectContextMessage(raw, s.domain)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	next := make(map[string]capture, len(s.captures)+1)
@@ -111,6 +114,12 @@ func (s *captureStore) recordAt(recipient string, raw []byte, attemptAt time.Tim
 		current.GenericContent = generic
 	} else {
 		current.GenericContent = current.GenericContent && generic
+	}
+	if projectContext && eventType == string(protocol.EventTypeNewPost) {
+		current.ContextRootCount++
+	}
+	if projectContext && eventType == string(protocol.EventTypeThreadReply) {
+		current.ContextThreadCount++
 	}
 	next[hash] = current
 	if s.statePath != "" {
@@ -168,7 +177,9 @@ func loadCaptureSnapshot(statePath string) (captureSnapshot, error) {
 func validCaptureSnapshot(snapshot captureSnapshot) bool {
 	seen := make(map[string]struct{}, len(snapshot.Captures))
 	for _, value := range snapshot.Captures {
-		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 1 || value.LastAttemptAtMS <= 0 {
+		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 1 || value.LastAttemptAtMS <= 0 ||
+			value.ContextRootCount < 0 || value.ContextThreadCount < 0 ||
+			value.ContextRootCount+value.ContextThreadCount > value.EnvelopeCount {
 			return false
 		}
 		for _, character := range value.RecipientHash {
@@ -235,48 +246,10 @@ func (s *captureStore) consumeFailure() bool {
 }
 
 func inspectGenericMessage(raw []byte, domain string) bool {
-	message, err := mail.ReadMessage(bytes.NewReader(raw))
-	if err != nil || len(message.Header["To"]) != 1 || message.Header.Get("Cc") != "" || message.Header.Get("Bcc") != "" {
+	message, subject, plainText, htmlText, ok := inspectNoticeParts(raw)
+	if !ok || subject != noticeSubject {
 		return false
 	}
-	to, err := mail.ParseAddressList(message.Header.Get("To"))
-	if err != nil || len(to) != 1 {
-		return false
-	}
-	from, err := mail.ParseAddress(message.Header.Get("From"))
-	if err != nil || from.Name != "ThreadHub" || from.Address != "no-reply@integration.invalid" || message.Header.Get("Reply-To") != "feedback@integration.invalid" {
-		return false
-	}
-	decodedSubject, err := new(mime.WordDecoder).DecodeHeader(message.Header.Get("Subject"))
-	if err != nil || decodedSubject != noticeSubject {
-		return false
-	}
-	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
-	if err != nil || mediaType != "multipart/alternative" || params["boundary"] == "" {
-		return false
-	}
-	reader := multipart.NewReader(message.Body, params["boundary"])
-	plainPart, err := reader.NextPart()
-	if err != nil || !strings.HasPrefix(plainPart.Header.Get("Content-Type"), "text/plain") {
-		return false
-	}
-	plain, err := io.ReadAll(io.LimitReader(plainPart, maxMessageBytes+1))
-	if err != nil || len(plain) > maxMessageBytes {
-		return false
-	}
-	htmlPart, err := reader.NextPart()
-	if err != nil || !strings.HasPrefix(htmlPart.Header.Get("Content-Type"), "text/html") {
-		return false
-	}
-	html, err := io.ReadAll(io.LimitReader(htmlPart, maxMessageBytes+1))
-	if err != nil || len(html) > maxMessageBytes {
-		return false
-	}
-	if _, err := reader.NextPart(); !errors.Is(err, io.EOF) {
-		return false
-	}
-	plainText := canonicalCRLF(plain)
-	htmlText := canonicalCRLF(html)
 	permalink := noticePermalink(plainText, domain)
 	if permalink == "" {
 		return false
@@ -286,6 +259,93 @@ func inspectGenericMessage(raw []byte, domain string) bool {
 	postID := strings.TrimPrefix(permalink, "https://"+domain+"/_redirect/pl/")
 	return plainText == wantPlain && htmlText == wantHTML &&
 		!strings.Contains(message.Header.Get("Message-ID"), postID)
+}
+
+func inspectProjectContextMessage(raw []byte, domain string) (string, bool) {
+	message, subject, plainText, htmlText, ok := inspectNoticeParts(raw)
+	if !ok || !strings.HasSuffix(plainText, "\r\n") {
+		return "", false
+	}
+	lines := strings.Split(strings.TrimSuffix(plainText, "\r\n"), "\r\n")
+	if len(lines) != 8 || lines[4] != "메시지 본문과 작성자 정보는 이메일에 포함하지 않습니다." ||
+		lines[5] != "" || lines[6] != "[메시지 확인]" {
+		return "", false
+	}
+	var kind, eventType string
+	switch lines[0] {
+	case "ThreadHub에 새 글이 등록되었습니다.":
+		kind, eventType = "새 글", string(protocol.EventTypeNewPost)
+	case "ThreadHub에 스레드 답글이 등록되었습니다.":
+		kind, eventType = "스레드 답글", string(protocol.EventTypeThreadReply)
+	default:
+		return "", false
+	}
+	project := strings.TrimPrefix(lines[1], "프로젝트: ")
+	team := strings.TrimPrefix(lines[2], "팀: ")
+	channel := strings.TrimPrefix(lines[3], "채널: ")
+	if lines[1] != "프로젝트: "+project || lines[2] != "팀: "+team ||
+		lines[3] != "채널: "+channel || project != domain || team == "" || channel == "" {
+		return "", false
+	}
+	permalink := lines[7]
+	if !validNoticePermalink(permalink, domain) {
+		return "", false
+	}
+	wantSubject := "[ThreadHub][" + domain + "] " + truncateNoticeRunes(team, 48) +
+		" / " + truncateNoticeRunes(channel, 48) + " · " + kind
+	wantHTML := "<p>ThreadHub에 " + kind + "이 등록되었습니다.</p>" +
+		"<dl><dt>프로젝트</dt><dd>" + escapeNoticeHTML(domain) + "</dd>" +
+		"<dt>팀</dt><dd>" + escapeNoticeHTML(team) + "</dd>" +
+		"<dt>채널</dt><dd>" + escapeNoticeHTML(channel) + "</dd></dl>" +
+		"<p>메시지 본문과 작성자 정보는 이메일에 포함하지 않습니다.</p>" +
+		"<p><a href=\"" + escapeNoticeHTML(permalink) + "\">메시지 확인</a></p>\r\n"
+	postID := strings.TrimPrefix(permalink, "https://"+domain+"/_redirect/pl/")
+	return eventType, subject == wantSubject && htmlText == wantHTML &&
+		!strings.Contains(message.Header.Get("Message-ID"), postID)
+}
+
+func inspectNoticeParts(raw []byte) (*mail.Message, string, string, string, bool) {
+	message, err := mail.ReadMessage(bytes.NewReader(raw))
+	if err != nil || len(message.Header["To"]) != 1 || message.Header.Get("Cc") != "" || message.Header.Get("Bcc") != "" {
+		return nil, "", "", "", false
+	}
+	to, err := mail.ParseAddressList(message.Header.Get("To"))
+	if err != nil || len(to) != 1 {
+		return nil, "", "", "", false
+	}
+	from, err := mail.ParseAddress(message.Header.Get("From"))
+	if err != nil || from.Name != "ThreadHub" || from.Address != "no-reply@integration.invalid" || message.Header.Get("Reply-To") != "feedback@integration.invalid" {
+		return nil, "", "", "", false
+	}
+	decodedSubject, err := new(mime.WordDecoder).DecodeHeader(message.Header.Get("Subject"))
+	if err != nil {
+		return nil, "", "", "", false
+	}
+	mediaType, params, err := mime.ParseMediaType(message.Header.Get("Content-Type"))
+	if err != nil || mediaType != "multipart/alternative" || params["boundary"] == "" {
+		return nil, "", "", "", false
+	}
+	reader := multipart.NewReader(message.Body, params["boundary"])
+	plainPart, err := reader.NextPart()
+	if err != nil || !strings.HasPrefix(plainPart.Header.Get("Content-Type"), "text/plain") {
+		return nil, "", "", "", false
+	}
+	plain, err := io.ReadAll(io.LimitReader(plainPart, maxMessageBytes+1))
+	if err != nil || len(plain) > maxMessageBytes {
+		return nil, "", "", "", false
+	}
+	htmlPart, err := reader.NextPart()
+	if err != nil || !strings.HasPrefix(htmlPart.Header.Get("Content-Type"), "text/html") {
+		return nil, "", "", "", false
+	}
+	html, err := io.ReadAll(io.LimitReader(htmlPart, maxMessageBytes+1))
+	if err != nil || len(html) > maxMessageBytes {
+		return nil, "", "", "", false
+	}
+	if _, err := reader.NextPart(); !errors.Is(err, io.EOF) {
+		return nil, "", "", "", false
+	}
+	return message, decodedSubject, canonicalCRLF(plain), canonicalCRLF(html), true
 }
 
 func canonicalCRLF(value []byte) string {
@@ -299,20 +359,39 @@ func noticePermalink(plain, domain string) string {
 		return ""
 	}
 	value := strings.TrimSuffix(strings.TrimPrefix(plain, prefix), "\r\n")
+	if !validNoticePermalink(value, domain) {
+		return ""
+	}
+	return value
+}
+
+func validNoticePermalink(value, domain string) bool {
 	u, err := url.Parse(value)
 	if err != nil || u.Scheme != "https" || u.Host != domain || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.ForceQuery {
-		return ""
+		return false
 	}
 	postID := strings.TrimPrefix(u.EscapedPath(), "/_redirect/pl/")
 	if u.EscapedPath() != "/_redirect/pl/"+postID || len(postID) != 26 {
-		return ""
+		return false
 	}
 	for _, character := range postID {
 		if (character < 'a' || character > 'z') && (character < '0' || character > '9') {
-			return ""
+			return false
 		}
 	}
-	return value
+	return true
+}
+
+func truncateNoticeRunes(value string, limit int) string {
+	runes := []rune(value)
+	if len(runes) <= limit {
+		return value
+	}
+	return string(runes[:limit-1]) + "…"
+}
+
+func escapeNoticeHTML(value string) string {
+	return strings.NewReplacer("&", "&amp;", "\"", "&quot;", "<", "&lt;", ">", "&gt;").Replace(value)
 }
 
 func ensureCertificate(dir, host string, now time.Time) error {

@@ -132,6 +132,7 @@ run_rollback_fixture() {
     v010_v020_rollback_require_disabled() { rollback_hook require-disabled; }
     v010_v020_rollback_require_quiescent_target() { rollback_hook require-quiescent-target; }
     v010_v020_rollback_require_pilot_review() { rollback_hook require-pilot-review; }
+    v010_v020_rollback_capture_current_baseline() { rollback_hook capture-current-baseline; }
     v010_v020_rollback_stop_target_mailer() { rollback_hook stop-target-mailer; }
     v010_v020_rollback_recover_source() { rollback_hook recover-source; }
     v010_v020_rollback_verify_source_disabled() { rollback_hook verify-source-disabled; }
@@ -144,7 +145,7 @@ test_rollback_uses_exact_order_and_accepts_no_force() (
     prepare_rollback_fixture
     trap 'rm -rf -- "${fixture}"' EXIT
     run_rollback_fixture > "${output}" 2>&1 || return 1
-    expected=$'validate-capture\nvalidate-phase\nrequire-disabled\nrequire-quiescent-target\nrequire-pilot-review\nstop-target-mailer\nrecover-source\nverify-source-disabled\ncompare-source-baseline\nmark-source-recovered'
+    expected=$'validate-capture\nvalidate-phase\nrequire-disabled\nrequire-quiescent-target\nrequire-pilot-review\ncapture-current-baseline\nstop-target-mailer\nrecover-source\nverify-source-disabled\ncompare-source-baseline\nmark-source-recovered'
     [[ "$(<"${calls}")" == "${expected}" ]] || return 1
     : > "${calls}"
     set +e

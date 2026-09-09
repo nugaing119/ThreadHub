@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"mime"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -133,6 +134,50 @@ func TestInspectGenericMessageRejectsAdditionalContent(t *testing.T) {
 	leaked := testNotice("https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz", "private channel marker")
 	if inspectGenericMessage(leaked, "threadhub.integration.test") {
 		t.Fatal("inspectGenericMessage() accepted additional message content")
+	}
+}
+
+func TestInspectProjectContextMessageAcceptsOnlyExactPrivacySafeContext(t *testing.T) {
+	t.Parallel()
+
+	permalink := "https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz"
+	root := testContextNotice(permalink, "Existing Adoption", "Existing Public", "새 글", "")
+	if eventType, ok := inspectProjectContextMessage(root, "threadhub.integration.test"); !ok || eventType != "new_post" {
+		t.Fatalf("inspectProjectContextMessage(root) = %q, %t", eventType, ok)
+	}
+	thread := testContextNotice(permalink, "Existing Adoption", "Existing Private", "스레드 답글", "")
+	if eventType, ok := inspectProjectContextMessage(thread, "threadhub.integration.test"); !ok || eventType != "thread_reply" {
+		t.Fatalf("inspectProjectContextMessage(thread) = %q, %t", eventType, ok)
+	}
+	leaked := testContextNotice(permalink, "Existing Adoption", "Existing Public", "새 글", "integration-post")
+	if _, ok := inspectProjectContextMessage(leaked, "threadhub.integration.test"); ok {
+		t.Fatal("inspectProjectContextMessage() accepted additional message content")
+	}
+}
+
+func TestCaptureStoreCountsValidatedContextWithoutPersistingNames(t *testing.T) {
+	t.Parallel()
+
+	store := newCaptureStore([]byte("0123456789abcdef0123456789abcdef"), "threadhub.integration.test")
+	permalink := "https://threadhub.integration.test/_redirect/pl/abcdefghijklmnopqrstuvwxyz"
+	for _, kind := range []string{"새 글", "스레드 답글"} {
+		if _, err := store.record("recipient-one@integration.invalid", testContextNotice(
+			permalink, "Existing Adoption", "Existing Public", kind, "")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := store.snapshot().Captures[0]
+	if got.ContextRootCount != 1 || got.ContextThreadCount != 1 || got.GenericContent {
+		t.Fatalf("context aggregate = %#v", got)
+	}
+	raw, err := json.Marshal(store.snapshot())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, forbidden := range []string{"Existing Adoption", "Existing Public", "integration-post", permalink} {
+		if bytes.Contains(raw, []byte(forbidden)) {
+			t.Fatalf("context aggregate disclosed %q", forbidden)
+		}
 	}
 }
 
@@ -403,6 +448,37 @@ func testNotice(permalink, extra string) []byte {
 	message.WriteString("To: recipient-one@integration.invalid\r\n")
 	message.WriteString("Reply-To: feedback@integration.invalid\r\n")
 	message.WriteString("Subject: =?UTF-8?b?W1RocmVhZEh1Yl0g7IOIIOuplOyLnOyngOqwgCDrk7HroZ3rkJjsl4jsirXri4jri6Q=?=\r\n")
+	message.WriteString("Date: Thu, 27 Aug 2026 01:02:03 +0000\r\n")
+	message.WriteString("Message-ID: <opaque@threadhub.integration.test>\r\n")
+	message.WriteString("MIME-Version: 1.0\r\n")
+	message.WriteString("Content-Type: multipart/alternative; boundary=fixture-boundary\r\n\r\n")
+	message.WriteString("--fixture-boundary\r\nContent-Transfer-Encoding: 8bit\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n")
+	message.WriteString(plain)
+	message.WriteString("\r\n--fixture-boundary\r\nContent-Transfer-Encoding: 8bit\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n")
+	message.WriteString(html)
+	message.WriteString("\r\n--fixture-boundary--\r\n")
+	return message.Bytes()
+}
+
+func testContextNotice(permalink, team, channel, kind, extra string) []byte {
+	subject := "[ThreadHub][threadhub.integration.test] " + team + " / " + channel + " · " + kind
+	plain := "ThreadHub에 " + kind + "이 등록되었습니다.\r\n" +
+		"프로젝트: threadhub.integration.test\r\n" +
+		"팀: " + team + "\r\n" +
+		"채널: " + channel + "\r\n" +
+		"메시지 본문과 작성자 정보는 이메일에 포함하지 않습니다.\r\n\r\n" +
+		"[메시지 확인]\r\n" + permalink + "\r\n" + extra
+	html := "<p>ThreadHub에 " + kind + "이 등록되었습니다.</p>" +
+		"<dl><dt>프로젝트</dt><dd>threadhub.integration.test</dd>" +
+		"<dt>팀</dt><dd>" + team + "</dd>" +
+		"<dt>채널</dt><dd>" + channel + "</dd></dl>" +
+		"<p>메시지 본문과 작성자 정보는 이메일에 포함하지 않습니다.</p>" +
+		"<p><a href=\"" + permalink + "\">메시지 확인</a></p>\r\n"
+	var message bytes.Buffer
+	message.WriteString("From: ThreadHub <no-reply@integration.invalid>\r\n")
+	message.WriteString("To: recipient-one@integration.invalid\r\n")
+	message.WriteString("Reply-To: feedback@integration.invalid\r\n")
+	message.WriteString("Subject: " + mime.BEncoding.Encode("UTF-8", subject) + "\r\n")
 	message.WriteString("Date: Thu, 27 Aug 2026 01:02:03 +0000\r\n")
 	message.WriteString("Message-ID: <opaque@threadhub.integration.test>\r\n")
 	message.WriteString("MIME-Version: 1.0\r\n")

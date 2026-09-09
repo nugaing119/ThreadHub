@@ -120,6 +120,29 @@ v010_v020_rollback_stop_target_mailer() {
     existing_notifier_v010_v020_compose_combined stop threadhub-mailer
 }
 
+v010_v020_rollback_capture_current_baseline() (
+    local attempt_root
+    local destination
+    local temporary_dir
+    local candidate
+
+    attempt_root="$(existing_notifier_v010_v020_attempt_root)"
+    destination="${attempt_root}/rollback-before-baseline.json"
+    temporary_dir="$(mktemp -d)" || return 1
+    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    chmod 0700 "${temporary_dir}"
+    candidate="${temporary_dir}/baseline.json"
+    existing_notifier_v010_v020_capture_baseline "${candidate}" || return 1
+    if "${SUDO_COMMAND[@]}" test -e "${destination}" \
+        || "${SUDO_COMMAND[@]}" test -L "${destination}"; then
+        "${SUDO_COMMAND[@]}" test -f "${destination}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${destination}" \
+            && "${SUDO_COMMAND[@]}" cmp -s "${candidate}" "${destination}"
+        return
+    fi
+    "${SUDO_COMMAND[@]}" install -o 0 -g 0 -m 0600 "${candidate}" "${destination}"
+)
+
 v010_v020_rollback_recover_source() {
     if ! existing_notifier_v010_v020_recover_source_runtime \
         "$(existing_notifier_v010_v020_attempt_root)"; then
@@ -134,20 +157,17 @@ v010_v020_rollback_verify_source_disabled() {
 }
 
 v010_v020_rollback_compare_source_baseline() {
-    v010_v020_tx_compare_baseline "$(existing_notifier_v010_v020_attempt_root)" 2>/dev/null \
-        || {
-            local attempt_root
-            local temporary_dir
-            attempt_root="$(existing_notifier_v010_v020_attempt_root)"
-            temporary_dir="$(mktemp -d)" || return 1
-            "${SUDO_COMMAND[@]}" cat "${attempt_root}/baseline.json" > "${temporary_dir}/before.json" || return 1
-            "${SUDO_COMMAND[@]}" cat "${attempt_root}/recovery-baseline.json" > "${temporary_dir}/after.json" || return 1
-            jq -e --slurp '.[0] == .[1]' \
-                "${temporary_dir}/before.json" "${temporary_dir}/after.json" >/dev/null
-            result=$?
-            rm -rf -- "${temporary_dir}"
-            return "${result}"
-        }
+    local attempt_root
+    local expected
+    local recovered
+
+    attempt_root="$(existing_notifier_v010_v020_attempt_root)"
+    expected="$(existing_notifier_v010_v020_expected_recovery_baseline "${attempt_root}")" \
+        || return 1
+    recovered="${attempt_root}/recovery-baseline.json"
+    existing_notifier_v010_v020_baseline_is_valid "${expected}" \
+        && existing_notifier_v010_v020_baseline_is_valid "${recovered}" \
+        && "${SUDO_COMMAND[@]}" cmp -s "${expected}" "${recovered}"
 }
 
 v010_v020_rollback_mark_source_recovered() {
@@ -168,6 +188,7 @@ existing_notifier_v010_v020_rollback() (
     v010_v020_rollback_require_disabled
     v010_v020_rollback_require_quiescent_target
     v010_v020_rollback_require_pilot_review
+    v010_v020_rollback_capture_current_baseline
     v010_v020_rollback_stop_target_mailer
     v010_v020_rollback_recover_source || return $?
     v010_v020_rollback_verify_source_disabled

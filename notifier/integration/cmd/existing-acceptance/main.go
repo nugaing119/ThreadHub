@@ -113,10 +113,18 @@ type post struct {
 }
 
 type capture struct {
-	RecipientHash  string `json:"recipient_hash"`
-	EnvelopeCount  int    `json:"envelope_count"`
-	GenericContent bool   `json:"generic_content"`
-	LastAttemptMS  int64  `json:"last_attempt_at_ms"`
+	RecipientHash      string `json:"recipient_hash"`
+	EnvelopeCount      int    `json:"envelope_count"`
+	GenericContent     bool   `json:"generic_content"`
+	ContextRootCount   int    `json:"context_root_count"`
+	ContextThreadCount int    `json:"context_thread_count"`
+	LastAttemptMS      int64  `json:"last_attempt_at_ms"`
+}
+
+type contextDelivery struct {
+	Envelopes int
+	Roots     int
+	Threads   int
 }
 
 type captureSnapshot struct {
@@ -151,6 +159,8 @@ func run(ctx context.Context, args []string) error {
 		return verifyBaseline(ctx, cfg, c)
 	case "exercise":
 		return exercise(ctx, cfg, c)
+	case "exercise-context":
+		return exerciseContext(ctx, cfg, c)
 	case "snapshot":
 		snapshot, err := getCaptures(ctx, c)
 		if err != nil {
@@ -412,6 +422,47 @@ func exercise(ctx context.Context, cfg config, c *client) error {
 	}, 60*time.Second))
 }
 
+func exerciseContext(ctx context.Context, cfg config, c *client) error {
+	if err := login(ctx, cfg, c); err != nil {
+		return phaseError("login", err)
+	}
+	current, err := readState(cfg.statePath)
+	if err != nil {
+		return phaseError("state", err)
+	}
+	before, err := getCaptures(ctx, c)
+	if err != nil {
+		return phaseError("capture-baseline", err)
+	}
+	publicRoot, err := createPost(ctx, c, current.PublicChannelID, "")
+	if err != nil {
+		return phaseError("public-root", err)
+	}
+	privateRoot, err := createPost(ctx, c, current.PrivateChannelID, "")
+	if err != nil {
+		return phaseError("private-root", err)
+	}
+	if _, err = createPost(ctx, c, current.PublicChannelID, publicRoot.ID); err != nil {
+		return phaseError("public-thread", err)
+	}
+	if _, err = createPost(ctx, c, current.PrivateChannelID, privateRoot.ID); err != nil {
+		return phaseError("private-thread", err)
+	}
+	if _, err = createPost(ctx, c, current.ExcludedChannelID, ""); err != nil {
+		return phaseError("excluded-root", err)
+	}
+	if _, err = createPost(ctx, c, current.DirectChannelID, ""); err != nil {
+		return phaseError("direct-root", err)
+	}
+	return phaseError("delivery-delta", waitContextDelta(ctx, c, cfg.hashSecret, before, map[string]contextDelivery{
+		"recipient-a@integration.invalid": {Envelopes: 4, Roots: 2, Threads: 2},
+		"recipient-b@integration.invalid": {Envelopes: 2, Roots: 1, Threads: 1},
+		"non-member@integration.invalid":  {},
+		"system-user@integration.invalid": {},
+		"admin@integration.invalid":       {},
+	}, 60*time.Second))
+}
+
 func createPost(ctx context.Context, c *client, channelID, rootID string) (post, error) {
 	input := map[string]string{"channel_id": channelID, "message": "integration-post"}
 	if rootID != "" {
@@ -450,7 +501,9 @@ func getCaptures(ctx context.Context, c *client) (captureSnapshot, error) {
 	}
 	seen := make(map[string]struct{}, len(snapshot.Captures))
 	for _, item := range snapshot.Captures {
-		if !recipientHashPattern.MatchString(item.RecipientHash) || item.EnvelopeCount < 1 || item.LastAttemptMS <= 0 {
+		if !recipientHashPattern.MatchString(item.RecipientHash) || item.EnvelopeCount < 1 || item.LastAttemptMS <= 0 ||
+			item.ContextRootCount < 0 || item.ContextThreadCount < 0 ||
+			item.ContextRootCount+item.ContextThreadCount > item.EnvelopeCount {
 			return captureSnapshot{}, errors.New("invalid capture")
 		}
 		if _, duplicate := seen[item.RecipientHash]; duplicate {
@@ -459,6 +512,42 @@ func getCaptures(ctx context.Context, c *client) (captureSnapshot, error) {
 		seen[item.RecipientHash] = struct{}{}
 	}
 	return snapshot, nil
+}
+
+func waitContextDelta(ctx context.Context, c *client, secret []byte, before captureSnapshot, expected map[string]contextDelivery, timeout time.Duration) error {
+	beforeCaptures := captureByHash(before)
+	expectedHashes := make(map[string]contextDelivery, len(expected))
+	for email, value := range expected {
+		expectedHashes[protocol.HashIdentifier(secret, "integration-recipient", strings.ToLower(email))] = value
+	}
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		after, err := getCaptures(ctx, c)
+		if err == nil {
+			afterCaptures := captureByHash(after)
+			matched := true
+			for hash, want := range expectedHashes {
+				beforeValue := beforeCaptures[hash]
+				afterValue := afterCaptures[hash]
+				matched = matched && afterValue.EnvelopeCount-beforeValue.EnvelopeCount == want.Envelopes &&
+					afterValue.ContextRootCount-beforeValue.ContextRootCount == want.Roots &&
+					afterValue.ContextThreadCount-beforeValue.ContextThreadCount == want.Threads
+			}
+			if matched {
+				return nil
+			}
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-deadline.C:
+			return &deliveryDeltaError{reason: "content-mismatch"}
+		case <-ticker.C:
+		}
+	}
 }
 
 func waitDelta(ctx context.Context, c *client, secret []byte, before captureSnapshot, expected map[string]int, timeout time.Duration) error {

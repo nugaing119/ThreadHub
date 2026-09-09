@@ -852,6 +852,7 @@ existing_notifier_v010_v020_verify_source_runtime() (
     local mailer_id
     local expected_mailer_id
     local recovery_baseline
+    local expected_baseline
 
     temporary_dir="$(mktemp -d)" || return 1
     trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
@@ -900,11 +901,31 @@ existing_notifier_v010_v020_verify_source_runtime() (
     else
         existing_notifier_v010_v020_capture_baseline "${recovery_baseline}" || return 1
     fi
-    "${SUDO_COMMAND[@]}" cat "${attempt_root}/baseline.json" > "${temporary_dir}/before.json" || return 1
+    expected_baseline="$(existing_notifier_v010_v020_expected_recovery_baseline "${attempt_root}")" \
+        || return 1
+    "${SUDO_COMMAND[@]}" cat "${expected_baseline}" > "${temporary_dir}/before.json" || return 1
     "${SUDO_COMMAND[@]}" cat "${recovery_baseline}" > "${temporary_dir}/after.json" || return 1
     jq -e --slurp '.[0] == .[1]' \
         "${temporary_dir}/before.json" "${temporary_dir}/after.json" >/dev/null
 )
+
+existing_notifier_v010_v020_expected_recovery_baseline() {
+    local attempt_root="$1"
+    local candidate="${attempt_root}/rollback-before-baseline.json"
+
+    [[ "$#" -eq 1 ]] || return 2
+    if "${SUDO_COMMAND[@]}" test -e "${candidate}" \
+        || "${SUDO_COMMAND[@]}" test -L "${candidate}"; then
+        "${SUDO_COMMAND[@]}" test -f "${candidate}" \
+            && "${SUDO_COMMAND[@]}" test ! -L "${candidate}" \
+            && printf '%s\n' "${candidate}"
+        return
+    fi
+    candidate="${attempt_root}/baseline.json"
+    "${SUDO_COMMAND[@]}" test -f "${candidate}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${candidate}" \
+        && printf '%s\n' "${candidate}"
+}
 
 existing_notifier_v010_v020_recover_source_runtime() (
     local attempt_root="$1"

@@ -31,6 +31,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 	testPlan := readContractFile(t, "../../deploy/docs/test-plan.md")
 	publicResults := readContractFile(t, "../../deploy/docs/test-results-public.md")
 	freshRunner := readContractFile(t, "run.sh")
+	upgradeRunner := readContractFile(t, "run-existing-upgrade.sh")
 
 	for _, id := range scenarios {
 		if !strings.Contains(runner, id) || !strings.Contains(ids, id) || !strings.Contains(testPlan, id) {
@@ -114,5 +115,9 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 	}
 	if !strings.Contains(freshRunner, `== 15`) || !strings.Contains(freshRunner, `scenario_ids_file`) {
 		t.Fatal("fresh integration no longer pins its established 15-scenario result")
+	}
+	if strings.Contains(runner, "existing-notifier-v010-v020-upgrade.sh") ||
+		!strings.Contains(upgradeRunner, "existing-notifier-v010-v020-upgrade.sh") {
+		t.Fatal("initial adoption and version-transition harness responsibilities are not distinct")
 	}
 }
