@@ -531,6 +531,15 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 	for name, snapshot := range map[string]captureSnapshot{
 		"duplicate": {Captures: []capture{{RecipientHash: strings.Repeat("a", 64)}, {RecipientHash: strings.Repeat("a", 64)}}},
 		"negative":  {Captures: []capture{{RecipientHash: strings.Repeat("b", 64), EnvelopeCount: -1}}},
+		"negative root context": {Captures: []capture{{
+			RecipientHash: strings.Repeat("e", 64), EnvelopeCount: 1, ContextRootCount: -1, LastAttemptAtMS: 1,
+		}}},
+		"negative thread context": {Captures: []capture{{
+			RecipientHash: strings.Repeat("f", 64), EnvelopeCount: 1, ContextThreadCount: -1, LastAttemptAtMS: 1,
+		}}},
+		"context total exceeds envelopes": {Captures: []capture{{
+			RecipientHash: strings.Repeat("a", 64), EnvelopeCount: 1, ContextRootCount: 1, ContextThreadCount: 1, LastAttemptAtMS: 1,
+		}}},
 		"bad hash":  {Captures: []capture{{RecipientHash: "recipient@integration.invalid", EnvelopeCount: 1, LastAttemptAtMS: 1}}},
 		"missing attempt timestamp": {Captures: []capture{{
 			RecipientHash: strings.Repeat("d", 64), EnvelopeCount: 1, GenericContent: true,
@@ -546,6 +555,12 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 	}
 	if !validateCaptureSnapshot(captureSnapshot{Captures: []capture{{RecipientHash: strings.Repeat("c", 64), EnvelopeCount: 0, GenericContent: true}}}) {
 		t.Fatal("validateCaptureSnapshot() rejected a valid aggregate")
+	}
+	if !validateCaptureSnapshot(captureSnapshot{Captures: []capture{{
+		RecipientHash: strings.Repeat("d", 64), EnvelopeCount: 2, GenericContent: true,
+		ContextRootCount: 1, ContextThreadCount: 1, LastAttemptAtMS: 1,
+	}}}) {
+		t.Fatal("validateCaptureSnapshot() rejected valid project-context counts")
 	}
 }
 

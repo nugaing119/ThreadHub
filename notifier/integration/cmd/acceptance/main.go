@@ -104,10 +104,12 @@ func (r *reporter) failure(assertion string) error {
 }
 
 type capture struct {
-	RecipientHash   string `json:"recipient_hash"`
-	EnvelopeCount   int    `json:"envelope_count"`
-	GenericContent  bool   `json:"generic_content"`
-	LastAttemptAtMS int64  `json:"last_attempt_at_ms"`
+	RecipientHash      string `json:"recipient_hash"`
+	EnvelopeCount      int    `json:"envelope_count"`
+	GenericContent     bool   `json:"generic_content"`
+	ContextRootCount   int    `json:"context_root_count"`
+	ContextThreadCount int    `json:"context_thread_count"`
+	LastAttemptAtMS    int64  `json:"last_attempt_at_ms"`
 }
 
 type captureSnapshot struct {
@@ -390,7 +392,11 @@ func hasExactDelta(before, after captureSnapshot, expected map[string]int) bool 
 func validateCaptureSnapshot(snapshot captureSnapshot) bool {
 	seen := make(map[string]struct{}, len(snapshot.Captures))
 	for _, value := range snapshot.Captures {
-		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 0 || value.EnvelopeCount == 0 && value.LastAttemptAtMS != 0 || value.EnvelopeCount > 0 && value.LastAttemptAtMS <= 0 {
+		if len(value.RecipientHash) != 64 || value.EnvelopeCount < 0 ||
+			value.ContextRootCount < 0 || value.ContextThreadCount < 0 ||
+			value.ContextRootCount+value.ContextThreadCount > value.EnvelopeCount ||
+			value.EnvelopeCount == 0 && value.LastAttemptAtMS != 0 ||
+			value.EnvelopeCount > 0 && value.LastAttemptAtMS <= 0 {
 			return false
 		}
 		for _, character := range value.RecipientHash {
