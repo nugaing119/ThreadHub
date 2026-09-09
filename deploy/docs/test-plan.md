@@ -21,6 +21,7 @@
 | notifier artifact·history secret gate | pinned Gitleaks 8.30.1과 `verify-notifier-artifacts.sh` |
 | notifier real-image integration | `cd notifier && make integration` (로컬/CI Docker 환경) |
 | 기존 Mattermost notifier 채택 real-image integration | `./notifier/integration/run-existing-adoption.sh` (Linux Docker CI 환경) |
+| 기존 notifier v0.1.0→v0.2.0 전환 real-image integration | `./notifier/integration/run-existing-upgrade.sh` (`notifier-existing-upgrade` Linux Docker CI job) |
 | 백업 unit·보안 계약 | `./deploy/tests/backup-*.sh`와 `validate.sh` |
 | 백업 real-image integration | `sudo ./deploy/integration/backup/run.sh` (폐기 가능한 Ubuntu 24.04 AMD64 Docker 환경) |
 | OWASP 보안 검증 | exact-digest 이미지 취약점 검토, 폐기 인스턴스 ZAP baseline, OCI Logging·Monitoring 증거 |
@@ -107,6 +108,18 @@ compartment와 `ap-singapore-1`을 명시한 신규 승인 없이는 실행하�
 | NF-ADOPT-08 | 자동 | Team에 종속되지 않는 `/_redirect/pl/` permalink |
 | NF-ADOPT-09 | 자동 | rollback 뒤 원본 Compose·기준 데이터와 큐 증거 보존 |
 | NF-ADOPT-10 | 자동 | 신규 설치 real-image integration 회귀 없음 |
+| NF-UPGRADE-01 | 자동 | Ubuntu 24.04 AMD64, 고정 Mattermost·PostgreSQL 이미지와 exact source commit/provenance 식별 |
+| NF-UPGRADE-02 | 자동 | 정확한 v0.1.0 source plugin runtime·filestore·Mailer pair와 release fingerprint 검증 |
+| NF-UPGRADE-03 | 자동 | pending·sending·failed가 있는 schema-v1 queue의 일관된 보호 사본과 drain 보존 |
+| NF-UPGRADE-04 | 자동 | disposable-restore recovery gate와 read-only preflight의 변경 전 fail-closed 동작 |
+| NF-UPGRADE-05 | 자동 | exact v0.2.0 pair와 schema-v2 queue로 전환 후 delivery disabled 및 exit code 20 |
+| NF-UPGRADE-06 | 자동 | 전환 중 base Compose/env byte hash와 Team·사용자·채널·게시물·파일 비밀정보 없는 집계 불변 |
+| NF-UPGRADE-07 | 자동 | allowlist 공개·비공개 root/thread 컨텍스트 이메일과 본문·작성자·첨부파일 정보 제외 |
+| NF-UPGRADE-08 | 자동 | 파일럿 데이터 보존 상태에서 명시적 rollback이 v0.1.0·schema-v1·disabled 상태 복원 |
+| NF-UPGRADE-09 | 자동 | plugin publication 직후 주입 실패의 자동 복구와 target 증거 격리 |
+| NF-UPGRADE-10 | 자동 | schema migration 직후 주입 실패의 자동 복구와 target queue 격리 |
+| NF-UPGRADE-11 | 자동 | 복구 뒤 두 번째 전환의 결정적 성공과 동일한 보호 경계 |
+| NF-UPGRADE-12 | 자동 | 정리 완료와 공개 artifact·로그의 비밀정보·고객 데이터 비노출 |
 
 라이브 시험은 Task 15의 새 명시적 승인 전에는 실행하지 않습니다. `NF-IAM`은 A/A 성공,
 A/B 거부, B/B 성공, B/A 거부와 additive policy audit을 비공개 change record에서

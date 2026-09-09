@@ -152,9 +152,14 @@ OCID, IP, hostname, 채널 ID와 credential fingerprint를 제거한 비공개 c
 | `retirement-candidate` | 사용이 종료됐거나 종료 예정이며 업그레이드 효익이 없음 | 업그레이드 금지, 보존·폐기 결정과 종료 절차만 수행 |
 | `unsupported` | topology·버전·volume·데이터 상태가 지원 범위 밖 | 자동 변경 금지, 별도 설계 필요 |
 
-notifier v0.1.0 인스턴스는 현재 `legacy-held`다. `NOTIFIER_CONTENT_MODE` 키만 추가해도
-실행 중인 plugin·Mailer 또는 queue schema는 v0.2.0으로 바뀌지 않는다. 신규 설치
-마법사나 최초 adoption 절차로 덮어쓰지 않는다.
+notifier v0.1.0 인스턴스는 기본적으로 `legacy-held`다. source commit
+`c193155eeb6298771d4366d6af4cae81499487b8`의 정확한 지원 프로필만 예외 후보이며,
+전환 코드가 병합되고 CI job `notifier-existing-upgrade`의 `NF-UPGRADE-01`부터
+`NF-UPGRADE-12`까지를 담은 CI artifact가 pass한 뒤에도 아래 인스턴스별 gate의
+조건을 모두 충족한 경우에만 `migration-ready`로 분류한다. 아직 실행되지 않은 커밋이나 다른
+v0.1.0 프로필은 통과로 간주하지 않는다. `NOTIFIER_CONTENT_MODE` 키만 추가해도 실행
+중인 plugin·Mailer 또는 queue schema는 v0.2.0으로 바뀌지 않는다. 신규 설치 마법사나
+최초 adoption 절차로 덮어쓰지 않는다.
 
 활성 legacy 인스턴스가 정확히 하나이고 이후 프로젝트가 현재 release로 새로 설치되는
 경우에는 해당 인스턴스가 속한 **하나의 지원 프로필과 정확한 출발·목표 버전**을 위한
@@ -176,7 +181,9 @@ notifier v0.1.0 인스턴스는 현재 `legacy-held`다. `NOTIFIER_CONTENT_MODE`
 - 실패 지점별 기존 plugin/Mailer pair와 control 상태 복원
 - 해당 프로필의 real-image 통합 시험과 실제 인스턴스 백업을 사용한 disposable restore 시험
 
-이 전환 절차와 시험이 저장소에 병합되기 전에는 운영 v0.1.0을 v0.2.0으로 올리지 않는다.
+운영 v0.1.0을 v0.2.0으로 올리는 작업은 전환 절차와 시험이 저장소에 병합되고, 정확한
+CI artifact가 pass하며, 대상 인스턴스의 최신 원격 백업·폐기 VM 복구·read-only
+preflight가 모두 통과하기 전에는 실행하지 않는다.
 서버별 임의 명령을 조합하거나 hostname 전용 스크립트를 만들어 같은 결과라고 추정하지
 않는다. 범용 도구를 생략하는 것은 복구시험, 데이터 비교 또는 rollback gate를 생략한다는
 뜻이 아니다.

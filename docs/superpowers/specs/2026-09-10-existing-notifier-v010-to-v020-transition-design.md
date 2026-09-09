@@ -238,6 +238,13 @@ the tool returns `[ACTION REQUIRED]`. It must not silently cancel, replay, or
 discard work. Delivery is at-least-once, so a reviewed rollback may retain a
 duplicate-email risk even when no event is lost.
 
+The two rollback contexts use different, explicit aggregate baselines. An
+automatic recovery before pilot activation compares the restored source state
+with the original pre-transition aggregate. An operator-approved rollback after
+pilot activation first captures an immediate pre-rollback privacy-safe
+aggregate, then compares the restored state with that aggregate. This preserves
+legitimate pilot posts instead of misclassifying them as production-data drift.
+
 If automated recovery cannot prove the restored plugin pair, queue, control,
 and service state, Mattermost recovery takes priority and notifications remain
 disabled. The result must be a hard failure, not success with warnings.
@@ -314,6 +321,12 @@ The implementation must update:
 Documentation must distinguish repository readiness from live authorization.
 
 ## 14. Completion criteria
+
+The repository implementation now includes the exact source-profile gate,
+protected evidence capture, transactional upgrade and rollback commands, and
+the `notifier-existing-upgrade` real-image CI contract. This status does not
+claim that an unexecuted commit has passed the real-image scenarios and does not
+authorize access to or mutation of a live instance.
 
 Repository readiness is complete only when:
 

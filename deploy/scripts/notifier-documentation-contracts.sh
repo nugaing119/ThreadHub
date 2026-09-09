@@ -119,7 +119,10 @@ notifier_docs_validate_nf_matrix() {
         NF-INS-01 NF-INS-02 NF-INS-03 NF-INS-04 NF-INS-05 \
         NF-IAM-01 NF-IAM-02 NF-IAM-03 NF-IAM-04 NF-IAM-05 NF-IAM-06 NF-IAM-07 \
         NF-ADOPT-01 NF-ADOPT-02 NF-ADOPT-03 NF-ADOPT-04 NF-ADOPT-05 \
-        NF-ADOPT-06 NF-ADOPT-07 NF-ADOPT-08 NF-ADOPT-09 NF-ADOPT-10; do
+        NF-ADOPT-06 NF-ADOPT-07 NF-ADOPT-08 NF-ADOPT-09 NF-ADOPT-10 \
+        NF-UPGRADE-01 NF-UPGRADE-02 NF-UPGRADE-03 NF-UPGRADE-04 NF-UPGRADE-05 \
+        NF-UPGRADE-06 NF-UPGRADE-07 NF-UPGRADE-08 NF-UPGRADE-09 NF-UPGRADE-10 \
+        NF-UPGRADE-11 NF-UPGRADE-12; do
         row="$(grep -m1 -E "^\\|[[:space:]]*${identifier}[[:space:]]*\\|" "${document}" || true)"
         [[ -n "${row}" && ( "${row}" == *'| 자동 |'* || "${row}" == *'| 수동 |'* || "${row}" == *'| 라이브 승인 필요 |'* ) ]] \
             || {
@@ -202,6 +205,20 @@ validate_notifier_documentation_contracts() {
         'bind mount' '30–60초' 'base Compose' 'base environment' 'exit code 20' \
         'queue data' 'rollback' 'public/private root and thread' \
         '`existing-notifier-setup.sh` → `SMTP acceptance` → `allowlist`' || return 1
+    notifier_docs_require_section_order "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        '## 기존 v0.1.0 notifier를 v0.2.0으로 전환' 'exact notifier transition safety sequence' \
+        'existing-notifier-v010-v020-recovery-gate.sh check' \
+        'existing-notifier-v010-v020-preflight.sh' \
+        'existing-notifier-v010-v020-upgrade.sh' 'disabled' 'SMTP acceptance' \
+        'activate-allowlist' 'public/private root and thread' \
+        'privacy-safe baseline comparison' 'explicit all_channels approval' \
+        'existing-notifier-v010-v020-rollback.sh' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        'exact notifier transition and rollback boundary' \
+        'c193155eeb6298771d4366d6af4cae81499487b8' 'v0.1.0' 'v0.2.0' \
+        'schema-v1 queue' 'schema-v2 queue' '30–60초' 'Mattermost/PostgreSQL upgrade 없음' \
+        'base Compose/env 변경 없음' 'exit code 20' 'separate live authorization' \
+        'at-least-once duplicate' 'force option 없음' || return 1
     notifier_docs_require_terms "${repository_root}/AGENTS.md" \
         'existing Mattermost fail-closed agent contract' \
         'existing-notifier-preflight.sh' 'do not modify the base Compose file' \
@@ -226,6 +243,14 @@ validate_notifier_documentation_contracts() {
         '단일 프로필·버전 전환 절차' '운영 v0.1.0을 v0.2.0으로' \
         '최신 수동 원격 백업' '별도의 폐기 가능한 VM' \
         'pending=0' 'sending=0' 'failed=0' '전체 채널을 활성화하지 않고' || return 1
+    notifier_docs_require_terms "${canonical_standard}" \
+        'exact legacy transition readiness' \
+        'c193155eeb6298771d4366d6af4cae81499487b8' '`notifier-existing-upgrade`' \
+        'NF-UPGRADE-01' 'NF-UPGRADE-12' 'CI artifact가 pass' \
+        '조건을 모두 충족한 경우에만 `migration-ready`' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/test-results-public.md" \
+        'existing-upgrade evidence contract' '`notifier-existing-upgrade`' \
+        '`NF-UPGRADE-01`~`NF-UPGRADE-12`' '아직 실행되지 않은 커밋을 통과로 표시하지' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
         'fresh and existing adoption separation' \
         'fresh installation only' 'existing-mattermost-notifier.md' \

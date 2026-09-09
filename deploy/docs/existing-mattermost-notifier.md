@@ -91,20 +91,10 @@ region을 밝히고 별도 명시 승인을 받습니다.
 
 ## 적용 순서
 
-v0.1.0이 이미 운영 중인 인스턴스는 아래의 최초 적용 순서를 다시 실행해 덮어쓰지
-않습니다. v0.2.0의 별도 통제된 플러그인·Mailer 업그레이드 전에 보호된
-`deploy/existing-notifier.env`를 `sudoedit`으로 열어 다음 중 정확히 한 줄을 추가합니다.
-설정 파일 전체를 출력하거나 새 파일로 덮어쓰지 않습니다.
-
-```text
-THN_CONTENT_MODE=project_team_channel
-```
-
-비공개 Team·채널명 외부 노출을 허용하지 않으면 값은 `generic`으로 둡니다. 이 키가
-없거나 중복되거나 알 수 없는 값이면 preflight는 기존 서비스를 변경하지 않고
-exit code 20으로 중단합니다. 이 설정만 추가해도 실행 중인 v0.1.0의 메일 형식은
-바뀌지 않으며, 검증된 v0.2.0 release pair의 통제된 교체 전에는 새 형식을 기대하지
-않습니다.
+이 절은 **notifier가 아직 없는** 지원 대상 Mattermost의 최초 existing adoption에만
+적용합니다. v0.1.0 notifier가 이미 운영 중이면 이 절의 setup을 다시 실행하거나
+`deploy/existing-notifier.env`를 수동 수정하지 말고, 다음 절의 전용 전환 절차만
+사용합니다.
 
 안전 gate의 고정 순서는 `existing-notifier-preflight.sh` → `disabled` →
 `existing-notifier-setup.sh` → `SMTP acceptance` → `allowlist` →
@@ -167,6 +157,106 @@ exit code 20으로 중단합니다. 이 설정만 추가해도 실행 중인 v0.
    ```bash
    ./deploy/scripts/existing-notifier-control.sh activate-all-channels
    ```
+
+## 기존 v0.1.0 notifier를 v0.2.0으로 전환
+
+이 절은 source commit
+`c193155eeb6298771d4366d6af4cae81499487b8`에서 설치된 정확한 v0.1.0
+existing-adoption 프로필을 v0.2.0으로 전환하는 경우에만 적용합니다. 다른 commit,
+버전, Compose topology, volume 또는 queue schema에는 사용하지 않습니다. 이 작업은
+Mattermost/PostgreSQL upgrade 없음, base Compose/env 변경 없음, 기존 데이터 경로
+정규화 없음이라는 경계를 지킵니다. hostname으로 동작을 선택하지 않습니다.
+
+저장소 준비는 운영 작업 권한이 아닙니다. 대상 한 인스턴스에 대한
+separate live authorization, 최신 검증 원격 백업, 그 백업을 사용한 폐기 VM 복구 성공이 모두
+필요합니다. plugin·Mailer 교체 과정에는 Mattermost 컨테이너 재생성으로 30–60초의
+재연결 구간이 생길 수 있습니다. 운영 Team·사용자·채널·게시물·파일은 변경하지
+않습니다.
+
+전환 순서는 다음과 같이 고정합니다.
+
+1. 실제 운영 데이터와 분리한 검증된 복구 증거를 대화형으로 기록한 다음, 변경 직전에
+   read-only gate를 다시 확인합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-v010-v020-recovery-gate.sh record
+   ./deploy/scripts/existing-notifier-v010-v020-recovery-gate.sh check
+   ```
+
+2. source release, plugin runtime·filestore pair, Compose merge, bind mount, control,
+   schema-v1 queue와 비밀정보 없는 데이터 기준선을 읽기 전용으로 확인합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-v010-v020-preflight.sh
+   ```
+
+   불명확하거나 지원 범위를 벗어나면 어떤 운영 파일도 쓰기 전에 exit code 20과
+   `[ACTION REQUIRED]`로 중단합니다. 실패 gate를 우회하지 않습니다.
+
+3. v0.1.0 release와 schema-v1 queue의 일관된 보호 사본을 만든 뒤 v0.2.0 pair와
+   schema-v2 queue로 전환합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-v010-v020-upgrade.sh
+   ```
+
+   성공한 전환도 발송을 `disabled` 상태로 유지하며, SMTP acceptance가 필요하다는
+   exit code 20으로 끝납니다. 이는 실패가 아니라 다음 수동 gate입니다. pending,
+   sending, failed 상태를 포함한 기존 queue work를 보존하고, 전환 실패 시 target
+   queue와 plugin 산출물을 삭제하지 않고 격리합니다.
+
+4. 설치된 v0.2.0 Mailer로 일회성 SMTP acceptance를 실행합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-smtp-test.sh
+   ```
+
+5. 공개·비공개 시험 채널만 지정한 뒤 allowlist를 활성화합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-control.sh activate-allowlist
+   ```
+
+   public/private root and thread를 모두 시험합니다. 링크 권한, 대상 수신자와 제외
+   대상, 도메인·Team·채널·이벤트 유형을 확인하고, 메시지 본문·작성자·첨부파일명과
+   다른 수신자 주소가 이메일·로그·증거에 없는지 확인합니다.
+
+6. 파일럿에서 새로 생긴 정상 게시물을 포함해 privacy-safe baseline comparison을
+   수행합니다. Team·사용자·채널·게시물·파일 집계가 기대한 증가 외에는 동일해야 하며,
+   queue는 `pending=0`, `sending=0`, `failed=0`이어야 합니다.
+
+7. 별도의 explicit all_channels approval을 받은 경우에만 전체 채널을 활성화합니다.
+
+   ```bash
+   ./deploy/scripts/existing-notifier-control.sh activate-all-channels
+   ```
+
+**전환 rollback**
+
+파일럿 전에 upgrade가 실패하면 자동 복구는 최초 전환 직전 기준선과 보호된
+schema-v1 queue를 사용해 정확한 v0.1.0 pair를 `disabled` 상태로 되돌립니다. 실패한
+schema-v2 queue와 target 산출물은 분석을 위해 격리하며 삭제하지 않습니다.
+
+SMTP·allowlist 파일럿 뒤 명시적 rollback은 먼저 drain·disable하고 queue가
+`pending=0`, `sending=0`, `failed=0`인지 확인합니다. 그다음 합법적인 파일럿 게시물을
+포함한 즉시 pre-rollback 집계를 새로 캡처하여 복원 후 같은 집계와 비교합니다.
+
+```bash
+./deploy/scripts/existing-notifier-control.sh drain
+./deploy/scripts/existing-notifier-control.sh disable
+./deploy/scripts/existing-notifier-v010-v020-rollback.sh
+```
+
+rollback에는 force option 없음이 원칙입니다. 남은 작업을 묵시적으로 삭제하거나
+재생하지 않으며, 정확한 운영자 확인 없이는 진행하지 않습니다. 전달은
+at-least-once duplicate 가능성이 있으므로 queue 손실이 없더라도 이미 접수된 메일이 중복될 위험은
+운영 기록에 남깁니다. 복구 뒤에는 v0.1.0 runtime·filestore·Mailer·schema-v1 queue와
+비활성 control, base Compose/env hash, 운영 데이터 집계를 다시 검증합니다.
+
+자동 `NF-UPGRADE-01`~`NF-UPGRADE-12`와 CI의 `notifier-existing-upgrade` artifact가
+정확한 commit에서 통과하기 전에는 이 절을 운영 인스턴스에 실행하지 않습니다. 자동
+증거는 실제 SMTP 받은편지함, 사용자 링크 권한과 대상 인스턴스의 별도 승인을 대신하지
+않습니다.
 
 ## 수동 인수시험
 

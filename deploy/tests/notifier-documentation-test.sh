@@ -129,6 +129,17 @@ rm -f "${fixture_root}/deploy/docs/test-plan.md.bak"
 assert_contract_failure 'missing adoption NF classification was accepted'
 
 reset_fixture
+sed -i.bak 's/NF-UPGRADE-12/NF-UPGRADE-missing/' "${fixture_root}/deploy/docs/test-plan.md"
+rm -f "${fixture_root}/deploy/docs/test-plan.md.bak"
+assert_contract_failure 'missing notifier upgrade NF classification was accepted'
+
+reset_fixture
+sed -i.bak 's/existing-notifier-v010-v020-rollback.sh/existing-notifier-v010-v020-rollback-missing.sh/g' \
+    "${fixture_root}/deploy/docs/existing-mattermost-notifier.md"
+rm -f "${fixture_root}/deploy/docs/existing-mattermost-notifier.md.bak"
+assert_contract_failure 'missing exact notifier transition rollback command was accepted'
+
+reset_fixture
 sed -i.bak 's/threadhub-mailer retry-failed/retry-placeholder/g' \
     "${fixture_root}/deploy/docs/operations-checklist.md"
 rm -f "${fixture_root}/deploy/docs/operations-checklist.md.bak"
