@@ -568,10 +568,10 @@ func (a *acceptance) run(ctx context.Context) string {
 		return "NF-HARNESS-plugin-active-list"
 	}
 	if err := a.smtpTrustProbe(ctx); err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-smtp-trust-probe"
 	}
 	if _, err := a.captureSnapshot(ctx); err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-initial"
 	}
 	if assertion := a.functionalScenarios(ctx); assertion != "" {
 		return assertion
@@ -1048,7 +1048,7 @@ func (a *acceptance) expectedAB() map[string]int {
 func (a *acceptance) functionalScenarios(ctx context.Context) string {
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-functional-before"
 	}
 	publicRoot, postResponseLatency, err := a.post(ctx, a.channels.public.ID, "")
 	if err != nil {
@@ -1069,7 +1069,7 @@ func (a *acceptance) functionalScenarios(ctx context.Context) string {
 	}
 	after, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-functional-after"
 	}
 	deltas := captureDeltas(before, after)
 	if deltas[a.recipientHash(a.users.nonMember.Email)] != 0 {
@@ -1136,7 +1136,7 @@ func captureDeltas(before, after captureSnapshot) map[string]int {
 func (a *acceptance) mailerAndSMTPFaults(ctx context.Context) string {
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-mailer-fault-before"
 	}
 	if _, err := a.compose.run(ctx, "stop", "threadhub-mailer"); err != nil {
 		return "NF-HARNESS-compose"
@@ -1153,7 +1153,7 @@ func (a *acceptance) mailerAndSMTPFaults(ctx context.Context) string {
 
 	before, err = a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-smtp-fault-before"
 	}
 	if _, err := a.compose.run(ctx, "stop", "smtp-fixture"); err != nil {
 		return "NF-HARNESS-compose"
@@ -1182,7 +1182,7 @@ func (a *acceptance) mailerAndSMTPFaults(ctx context.Context) string {
 func (a *acceptance) duplicateScenario(ctx context.Context) string {
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-duplicate-before"
 	}
 	event := a.syntheticEvent(1, a.users.recipientA)
 	for range 2 {
@@ -1204,7 +1204,7 @@ func (a *acceptance) duplicateScenario(ctx context.Context) string {
 func (a *acceptance) mailerRecreateScenario(ctx context.Context) string {
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-mailer-recreate-before"
 	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, a.cfg.captureURL.String()+"/v1/fail-next", http.NoBody)
 	if err != nil {
@@ -1248,7 +1248,7 @@ func (a *acceptance) mailerRecreateScenario(ctx context.Context) string {
 func (a *acceptance) mattermostRecreateScenario(ctx context.Context) string {
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-mattermost-recreate-before"
 	}
 	if _, err := a.compose.run(ctx, "stop", "threadhub-mailer"); err != nil {
 		return "NF-HARNESS-compose"
@@ -1301,7 +1301,7 @@ func (a *acceptance) hmacScenarios(ctx context.Context) string {
 	}
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-hmac-before"
 	}
 	replayEvent := a.syntheticEvent(4, a.users.recipientA)
 	nonce, _ = randomNonce()
@@ -1320,7 +1320,7 @@ func (a *acceptance) hmacScenarios(ctx context.Context) string {
 func (a *acceptance) controlScenarios(ctx context.Context) string {
 	before, err := a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-control-before"
 	}
 	if err := writeControl(a.cfg.controlFile, controlState{Enabled: false, DeliveryEnabled: false, Mode: "all_channels", ChannelIDs: []string{}, ActivatedAt: time.Now().UnixMilli()}); err != nil {
 		return "NF-REL-05-control-disable-write"
@@ -1362,7 +1362,7 @@ func (a *acceptance) controlScenarios(ctx context.Context) string {
 
 	before, err = a.captureSnapshot(ctx)
 	if err != nil {
-		return "NF-HARNESS-capture-api"
+		return "NF-HARNESS-capture-control-cutoff-before"
 	}
 	if _, err := a.compose.run(ctx, "stop", "threadhub-mailer"); err != nil {
 		return "NF-HARNESS-compose"

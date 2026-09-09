@@ -177,7 +177,6 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-HARNESS-plugin-pair",
 		"NF-HARNESS-plugin-pair-tamper",
 		"NF-HARNESS-plugin-pair-negative",
-		"NF-HARNESS-capture-api",
 		"NF-HARNESS-capture-container-query",
 		"NF-HARNESS-capture-container-missing",
 		"NF-HARNESS-capture-container-inspect",
@@ -185,6 +184,18 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-HARNESS-capture-container-exited",
 		"NF-HARNESS-capture-container-network",
 		"NF-HARNESS-capture-health",
+		"NF-HARNESS-smtp-trust-probe",
+		"NF-HARNESS-capture-initial",
+		"NF-HARNESS-capture-functional-before",
+		"NF-HARNESS-capture-functional-after",
+		"NF-HARNESS-capture-mailer-fault-before",
+		"NF-HARNESS-capture-smtp-fault-before",
+		"NF-HARNESS-capture-duplicate-before",
+		"NF-HARNESS-capture-mailer-recreate-before",
+		"NF-HARNESS-capture-mattermost-recreate-before",
+		"NF-HARNESS-capture-hmac-before",
+		"NF-HARNESS-capture-control-before",
+		"NF-HARNESS-capture-control-cutoff-before",
 		"NF-HARNESS-compose",
 		"NF-FN-01-public-root",
 		"NF-FN-01-first-attempt-latency",
@@ -252,6 +263,36 @@ func TestMattermostRecreateScenarioHasPrivacySafeStageFailures(t *testing.T) {
 	} {
 		if !bytes.Contains(source, []byte(`return "`+assertion+`"`)) {
 			t.Fatalf("mattermost recreate stage failure is missing %q", assertion)
+		}
+	}
+}
+
+func TestCaptureAPIFailuresIdentifyTheAcceptanceStage(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(source, []byte(`return "NF-HARNESS-capture-api"`)) {
+		t.Fatal("acceptance runner retains an ambiguous capture API failure")
+	}
+	for _, assertion := range []string{
+		"NF-HARNESS-smtp-trust-probe",
+		"NF-HARNESS-capture-initial",
+		"NF-HARNESS-capture-functional-before",
+		"NF-HARNESS-capture-functional-after",
+		"NF-HARNESS-capture-mailer-fault-before",
+		"NF-HARNESS-capture-smtp-fault-before",
+		"NF-HARNESS-capture-duplicate-before",
+		"NF-HARNESS-capture-mailer-recreate-before",
+		"NF-HARNESS-capture-mattermost-recreate-before",
+		"NF-HARNESS-capture-hmac-before",
+		"NF-HARNESS-capture-control-before",
+		"NF-HARNESS-capture-control-cutoff-before",
+	} {
+		if !bytes.Contains(source, []byte(`return "`+assertion+`"`)) {
+			t.Fatalf("acceptance stage failure is missing %q", assertion)
 		}
 	}
 }
