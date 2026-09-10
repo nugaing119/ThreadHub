@@ -200,6 +200,17 @@ run_transition_preflight() {
     return 1
 }
 
+upgrade_failure_class() {
+    local status="$1"
+
+    case "${status}" in
+        1) printf '%s' failed ;;
+        70) printf '%s' recovery-incomplete ;;
+        124|137) printf '%s' timeout ;;
+        *) printf '%s' unexpected ;;
+    esac
+}
+
 wait_http() {
     local endpoint="$1"
     local deadline=$((SECONDS + $2))
@@ -559,17 +570,31 @@ prepare_transition_evidence() {
 
 run_successful_transition() {
     local status=0
+    local failure_class=""
+
+    record_stage successful-transition-upgrade
     set +e
     private run_current existing-notifier-v010-v020-upgrade.sh
     status=$?
     set -e
-    [[ "${status}" == 20 ]] || return 1
+    if [[ "${status}" != 20 ]]; then
+        failure_class="$(upgrade_failure_class "${status}")"
+        record_stage "successful-transition-upgrade-${failure_class}" || true
+        return 1
+    fi
+    record_stage successful-transition-target-runtime
     verify_target_runtime
+    record_stage successful-transition-db-counts
     db_counts "${integration_root}/counts-after-transition"
+    record_stage successful-transition-db-count-compare
     cmp -s "${integration_root}/counts-before-transition" "${integration_root}/counts-after-transition"
+    record_stage successful-transition-base-compose-hash
     [[ "$(portable_hash "${compose_file}")" == "$(<"${integration_root}/base-compose-before.sha256")" ]]
+    record_stage successful-transition-base-env-hash
     [[ "$(portable_hash "${integration_env}")" == "$(<"${integration_root}/base-env-before.sha256")" ]]
+    record_stage successful-transition-source-queue-schema
     sudo jq -e '.schema_version == 1' "${runtime_parent}/notifier/migration/existing-notifier-v010-v020/queue-inspection.json" >/dev/null
+    record_stage successful-transition-target-queue-schema
     sudo jq -e '.schema_version == 2' "${runtime_parent}/notifier/migration/existing-notifier-v010-v020/target-queue-inspection.json" >/dev/null
 }
 
