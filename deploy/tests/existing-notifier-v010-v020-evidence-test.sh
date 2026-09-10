@@ -182,6 +182,8 @@ test_capture_stops_at_every_failed_safety_gate() (
         set +e; run_capture_fixture > "${fixture}/output" 2>&1; result=$?; set -e
         [[ "${result}" != 0 ]] || return 1
         [[ "$(tail -n 1 "${calls}")" == "${failed_step}" ]] || return 1
+        grep -Fx "[threadhub] ERROR: notifier evidence capture halted at stage: ${failed_step}" \
+            "${fixture}/output" >/dev/null || return 1
         rm -rf -- "${fixture}"
     done
 )

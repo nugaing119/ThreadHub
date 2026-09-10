@@ -142,6 +142,10 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 	if !strings.Contains(runner, "upgrade_reached_acceptance_handoff") {
 		t.Fatal("upgrade success must require the exact post-transition acceptance handoff")
 	}
+	if !strings.Contains(runner, "evidence_capture_failure_class") ||
+		!strings.Contains(runner, `printf '%s' "capture-${capture_class}"`) {
+		t.Fatal("evidence capture failure does not publish a bounded privacy-safe substage")
+	}
 	for _, classification := range []string{
 		"capture-unavailable", "no-deliveries", "under-delivery", "over-delivery",
 		"mixed-count", "content-mismatch", "unavailable",

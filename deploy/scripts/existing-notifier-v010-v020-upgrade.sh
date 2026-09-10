@@ -17,16 +17,8 @@ existing_notifier_v010_v020_upgrade_action_required() {
     return 20
 }
 
-existing_notifier_v010_v020_upgrade_run_stage() {
-    local stage="$1"
-    local status=0
-    shift
-
-    "$@" || status=$?
-    if ((status != 0)); then
-        printf '[threadhub] ERROR: notifier upgrade halted at stage: %s\n' "${stage}" >&2
-    fi
-    return "${status}"
+existing_notifier_v010_v020_upgrade_record_halt() {
+    printf '[threadhub] ERROR: notifier upgrade halted at stage: %s\n' "$1" >&2
 }
 
 existing_notifier_v010_v020_upgrade_initialize() {
@@ -1006,6 +998,7 @@ existing_notifier_v010_v020_upgrade() (
     [[ "$#" -eq 0 ]] || return 2
     disabled_boundary=false
     upgrade_complete=false
+    stage_status=0
 
     # shellcheck disable=SC2329 # invoked by EXIT after a post-disable failure
     recover_upgrade() {
@@ -1030,29 +1023,62 @@ existing_notifier_v010_v020_upgrade() (
     trap 'exit 130' INT
     trap 'exit 143' TERM
 
-    existing_notifier_v010_v020_upgrade_run_stage \
-        preflight v010_v020_upgrade_preflight || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        prepare-target-release v010_v020_upgrade_prepare_target_release || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        recheck-preflight v010_v020_upgrade_recheck_preflight || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        drain v010_v020_upgrade_drain || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        queue-zero v010_v020_upgrade_require_queue_zero || return $?
+    v010_v020_upgrade_preflight || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt preflight
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_prepare_target_release || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt prepare-target-release
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_recheck_preflight || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt recheck-preflight
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_drain || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt drain
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_require_queue_zero || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt queue-zero
+        return "${stage_status}"
+    }
     disabled_boundary=true
-    existing_notifier_v010_v020_upgrade_run_stage \
-        disable v010_v020_upgrade_disable || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        control-loaded-disabled v010_v020_upgrade_verify_control_loaded_disabled || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        stop-mailer v010_v020_upgrade_stop_mailer || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        capture-evidence v010_v020_upgrade_capture_evidence || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        transaction v010_v020_upgrade_transaction || return $?
-    existing_notifier_v010_v020_upgrade_run_stage \
-        post-status-disabled v010_v020_upgrade_post_status_disabled || return $?
+    v010_v020_upgrade_disable || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt disable
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_verify_control_loaded_disabled || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt control-loaded-disabled
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_stop_mailer || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt stop-mailer
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_capture_evidence || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt capture-evidence
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_transaction || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt transaction
+        return "${stage_status}"
+    }
+    v010_v020_upgrade_post_status_disabled || {
+        stage_status=$?
+        existing_notifier_v010_v020_upgrade_record_halt post-status-disabled
+        return "${stage_status}"
+    }
     upgrade_complete=true
     v010_v020_upgrade_action_required_smtp
 )

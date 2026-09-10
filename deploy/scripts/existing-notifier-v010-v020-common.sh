@@ -703,6 +703,10 @@ existing_notifier_v010_v020_source_capture_is_complete() {
     rm -rf -- "${temporary_dir}"
 }
 
+existing_notifier_v010_v020_capture_record_halt() {
+    printf '[threadhub] ERROR: notifier evidence capture halted at stage: %s\n' "$1" >&2
+}
+
 existing_notifier_v010_v020_capture_evidence() {
     local attempt_root="$1"
     local expected_root
@@ -710,31 +714,70 @@ existing_notifier_v010_v020_capture_evidence() {
     [[ "$#" -eq 1 ]] || return 2
     expected_root="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/migration/${EXISTING_NOTIFIER_V010_V020_ID}"
     [[ "${attempt_root}" == "${expected_root}" ]] || return 1
-    existing_notifier_v010_v020_capture_prepare_attempt "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" attempt-created || return 1
-    v010_v020_capture_control_is_disabled "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" control-disabled || return 1
-    v010_v020_capture_mailer_is_stopped "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" mailer-stopped || return 1
-    v010_v020_capture_inspect_queue_v1 "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" queue-inspected-v1 || return 1
-    v010_v020_capture_queue "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" queue-captured || return 1
-    v010_v020_capture_source_plugin_pair "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-plugin-pair-captured || return 1
-    v010_v020_capture_source_mailer_image "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-mailer-image-saved || return 1
-    v010_v020_capture_source_release "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-release-captured || return 1
-    v010_v020_capture_source_override "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-override-captured || return 1
-    v010_v020_capture_source_env "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-env-captured || return 1
-    v010_v020_capture_source_control "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-control-captured || return 1
-    v010_v020_capture_baseline "${attempt_root}" || return 1
-    existing_notifier_v010_v020_capture_record_phase "${attempt_root}" baseline-captured || return 1
-    v010_v020_capture_verify_evidence "${attempt_root}"
+    if ! existing_notifier_v010_v020_capture_prepare_attempt "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" attempt-created; then
+        existing_notifier_v010_v020_capture_record_halt attempt-created
+        return 1
+    fi
+    if ! v010_v020_capture_control_is_disabled "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" control-disabled; then
+        existing_notifier_v010_v020_capture_record_halt control-disabled
+        return 1
+    fi
+    if ! v010_v020_capture_mailer_is_stopped "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" mailer-stopped; then
+        existing_notifier_v010_v020_capture_record_halt mailer-stopped
+        return 1
+    fi
+    if ! v010_v020_capture_inspect_queue_v1 "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" queue-inspected-v1; then
+        existing_notifier_v010_v020_capture_record_halt queue-inspected-v1
+        return 1
+    fi
+    if ! v010_v020_capture_queue "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" queue-captured; then
+        existing_notifier_v010_v020_capture_record_halt queue-captured
+        return 1
+    fi
+    if ! v010_v020_capture_source_plugin_pair "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-plugin-pair-captured; then
+        existing_notifier_v010_v020_capture_record_halt source-plugin-pair-captured
+        return 1
+    fi
+    if ! v010_v020_capture_source_mailer_image "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-mailer-image-saved; then
+        existing_notifier_v010_v020_capture_record_halt source-mailer-image-saved
+        return 1
+    fi
+    if ! v010_v020_capture_source_release "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-release-captured; then
+        existing_notifier_v010_v020_capture_record_halt source-release-captured
+        return 1
+    fi
+    if ! v010_v020_capture_source_override "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-override-captured; then
+        existing_notifier_v010_v020_capture_record_halt source-override-captured
+        return 1
+    fi
+    if ! v010_v020_capture_source_env "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-env-captured; then
+        existing_notifier_v010_v020_capture_record_halt source-env-captured
+        return 1
+    fi
+    if ! v010_v020_capture_source_control "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" source-control-captured; then
+        existing_notifier_v010_v020_capture_record_halt source-control-captured
+        return 1
+    fi
+    if ! v010_v020_capture_baseline "${attempt_root}" \
+        || ! existing_notifier_v010_v020_capture_record_phase "${attempt_root}" baseline-captured; then
+        existing_notifier_v010_v020_capture_record_halt baseline-captured
+        return 1
+    fi
+    if ! v010_v020_capture_verify_evidence "${attempt_root}"; then
+        existing_notifier_v010_v020_capture_record_halt evidence-verified
+        return 1
+    fi
 }
 
 existing_notifier_v010_v020_tx_state_file() {

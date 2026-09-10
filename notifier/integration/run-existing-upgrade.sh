@@ -200,10 +200,35 @@ run_transition_preflight() {
     return 1
 }
 
+evidence_capture_failure_class() {
+    local output_file="$1"
+    local stage=""
+
+    for stage in \
+        attempt-created control-disabled mailer-stopped queue-inspected-v1 queue-captured \
+        source-plugin-pair-captured source-mailer-image-saved source-release-captured \
+        source-override-captured source-env-captured source-control-captured baseline-captured \
+        evidence-verified; do
+        if grep -Fxq "[threadhub] ERROR: notifier evidence capture halted at stage: ${stage}" \
+            "${output_file}"; then
+            printf '%s' "${stage}"
+            return 0
+        fi
+    done
+    printf '%s' unavailable
+}
+
 upgrade_failure_class() {
     local status="$1"
     local output_file="$2"
     local stage=""
+    local capture_class=""
+
+    capture_class="$(evidence_capture_failure_class "${output_file}")"
+    if [[ "${capture_class}" != unavailable ]]; then
+        printf '%s' "capture-${capture_class}"
+        return 0
+    fi
 
     for stage in \
         preflight prepare-target-release recheck-preflight drain queue-zero disable \
