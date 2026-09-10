@@ -496,12 +496,18 @@ seed_source_queue_history() {
 }
 
 prepare_transition_evidence() {
+    record_stage transition-evidence-env-hash
     portable_hash "${notifier_env}" >"${integration_root}/source-env-before.sha256"
+    record_stage transition-evidence-release-hash
     sudo find "${runtime_parent}/notifier/release" -type f -exec sha256sum {} + | sort \
         >"${integration_root}/source-release-before.sha256"
+    record_stage transition-evidence-override-hash
     privileged_hash "${runtime_parent}/notifier/compose.override.yml" >"${integration_root}/source-override-before.sha256"
+    record_stage transition-evidence-db-counts
     db_counts "${integration_root}/counts-before-transition"
+    record_stage transition-evidence-recovery-gate
     write_recovery_gate
+    record_stage transition-evidence-preflight
     private run_current existing-notifier-v010-v020-preflight.sh
 }
 

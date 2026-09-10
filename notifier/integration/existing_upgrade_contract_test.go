@@ -96,6 +96,18 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		!strings.Contains(runner, `record_stage "successful-transition-outage-recovery-${failure_class}"`) {
 		t.Fatal("outage recovery failure does not publish a bounded privacy-safe reason")
 	}
+	for _, stage := range []string{
+		"transition-evidence-env-hash",
+		"transition-evidence-release-hash",
+		"transition-evidence-override-hash",
+		"transition-evidence-db-counts",
+		"transition-evidence-recovery-gate",
+		"transition-evidence-preflight",
+	} {
+		if !strings.Contains(runner, `record_stage `+stage) {
+			t.Fatalf("transition evidence preparation does not publish safe stage %q", stage)
+		}
+	}
 	for _, classification := range []string{
 		"capture-unavailable", "no-deliveries", "under-delivery", "over-delivery",
 		"mixed-count", "content-mismatch", "unavailable",
