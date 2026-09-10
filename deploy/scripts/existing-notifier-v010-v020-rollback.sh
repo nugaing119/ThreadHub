@@ -156,19 +156,31 @@ v010_v020_rollback_verify_source_disabled() {
         "$(existing_notifier_v010_v020_attempt_root)"
 }
 
-v010_v020_rollback_compare_source_baseline() {
+v010_v020_rollback_compare_source_baseline() (
     local attempt_root
     local expected
     local recovered
+    local temporary_dir
+    local expected_copy
+    local recovered_copy
 
     attempt_root="$(existing_notifier_v010_v020_attempt_root)"
     expected="$(existing_notifier_v010_v020_expected_recovery_baseline "${attempt_root}")" \
         || return 1
     recovered="${attempt_root}/recovery-baseline.json"
-    existing_notifier_v010_v020_baseline_is_valid "${expected}" \
-        && existing_notifier_v010_v020_baseline_is_valid "${recovered}" \
-        && "${SUDO_COMMAND[@]}" cmp -s "${expected}" "${recovered}"
-}
+    temporary_dir="$(mktemp -d)" || return 1
+    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    chmod 0700 "${temporary_dir}"
+    expected_copy="${temporary_dir}/expected.json"
+    recovered_copy="${temporary_dir}/recovered.json"
+    "${SUDO_COMMAND[@]}" cat "${expected}" > "${expected_copy}" || return 1
+    "${SUDO_COMMAND[@]}" cat "${recovered}" > "${recovered_copy}" || return 1
+    chmod 0600 "${expected_copy}" "${recovered_copy}"
+    existing_notifier_v010_v020_baseline_is_valid "${expected_copy}" \
+        && existing_notifier_v010_v020_baseline_is_valid "${recovered_copy}" \
+        && jq -e --slurp '.[0] == .[1]' \
+            "${expected_copy}" "${recovered_copy}" >/dev/null
+)
 
 v010_v020_rollback_mark_source_recovered() {
     local attempt_root

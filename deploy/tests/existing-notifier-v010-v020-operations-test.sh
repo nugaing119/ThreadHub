@@ -229,6 +229,33 @@ test_source_recovery_reports_and_propagates_the_exact_failing_stage() (
         "${output}" >/dev/null
 )
 
+test_source_baseline_comparison_accepts_privileged_only_evidence() (
+    # shellcheck source=../scripts/existing-notifier-v010-v020-rollback.sh
+    source "${ROLLBACK_SCRIPT}"
+    fixture="$(mktemp -d)"
+    fixture_attempt_root="${fixture}/attempt"
+    trap 'chmod 0700 "${fixture_attempt_root}" 2>/dev/null || true; rm -rf -- "${fixture}"' EXIT
+    mkdir -p "${fixture_attempt_root}"
+    printf '%s\n' \
+        '{"teams":1,"channels":2,"channel_members":3,"active_users":4,"inactive_users":0,"posts":5,"files":0}' \
+        > "${fixture_attempt_root}/rollback-before-baseline.json"
+    printf '%s\n' \
+        '{ "teams": 1, "channels": 2, "channel_members": 3, "active_users": 4, "inactive_users": 0, "posts": 5, "files": 0 }' \
+        > "${fixture_attempt_root}/recovery-baseline.json"
+    chmod 0000 "${fixture_attempt_root}"
+    rootlike() {
+        local result=0
+        chmod 0700 "${fixture_attempt_root}"
+        command "$@" || result=$?
+        chmod 0000 "${fixture_attempt_root}"
+        return "${result}"
+    }
+    SUDO_COMMAND=(rootlike)
+    existing_notifier_v010_v020_attempt_root() { printf '%s\n' "${fixture_attempt_root}"; }
+
+    v010_v020_rollback_compare_source_baseline
+)
+
 test_operations_have_no_unsafe_shortcuts() {
     ! grep -E 'down[[:space:]]+-v|activate-all-channels|threadhub\.stillwhy\.com|threadhub-mentor' \
         "${UPGRADE_SCRIPT}" "${ROLLBACK_SCRIPT}" >/dev/null
@@ -544,6 +571,7 @@ if [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]; then
     run_test 'rollback uses exact order and accepts no force' test_rollback_uses_exact_order_and_accepts_no_force
     run_test 'rollback reports the exact failing stage' test_rollback_reports_the_exact_failing_stage
     run_test 'source recovery reports and propagates the exact failing stage' test_source_recovery_reports_and_propagates_the_exact_failing_stage
+    run_test 'source baseline comparison accepts privileged-only evidence' test_source_baseline_comparison_accepts_privileged_only_evidence
     run_test 'operations have no unsafe shortcuts' test_operations_have_no_unsafe_shortcuts
     run_test 'production contracts are wired' test_production_contracts_are_wired
     run_test 'plugin publication halt diagnostics are fixed' test_plugin_publish_halt_diagnostics_are_fixed
