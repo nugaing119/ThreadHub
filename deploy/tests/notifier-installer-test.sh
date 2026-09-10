@@ -872,18 +872,22 @@ notifier_test_privileged_only_reviewed_runtime() {
     local filtered=()
     local argument
 
-    if [[ "${command_name}" == test ]]; then
-        for argument in "$@"; do
-            if [[ "${argument}" == "${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}" ]]; then
-                filtered+=("${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}")
-            else
-                filtered+=("${argument}")
-            fi
-        done
-        command test "${filtered[@]}"
+    if [[ "${command_name}" == find \
+        && "${1:-}" == "${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}" ]]; then
+        shift
+        command find "${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}" "$@" \
+            | sed "s#^${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}#${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}#"
         return
     fi
-    notifier_test_plugin_files_privileged "${command_name}" "$@"
+    for argument in "$@"; do
+        case "${argument}" in
+            "${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}"*)
+                filtered+=("${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}${argument#"${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}"}")
+                ;;
+            *) filtered+=("${argument}") ;;
+        esac
+    done
+    notifier_test_plugin_files_privileged "${command_name}" "${filtered[@]}"
 }
 
 make_reviewed_plugin_pair_fixture() {
@@ -1244,7 +1248,7 @@ test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle() (
         && notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
 )
 
-test_plugin_pair_staging_classifies_a_privileged_only_reviewed_runtime() (
+test_plugin_pair_staging_accepts_a_privileged_only_reviewed_runtime() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
     # shellcheck source=/dev/null
@@ -1256,23 +1260,22 @@ test_plugin_pair_staging_classifies_a_privileged_only_reviewed_runtime() (
     runtime_stage="${fixture}/release/runtime.stage"
     bundle_stage="${fixture}/release/bundle.stage.tar.gz"
     scratch="${fixture}/scratch"
-    output="${fixture}/output"
-    mkdir -p "${actual_root}" "$(dirname "${bundle}")" "${fixture}/release" "${scratch}"
-    printf '%s\n' reviewed-bundle > "${bundle}"
+    mkdir -p "${actual_root}/server/dist" "$(dirname "${bundle}")" \
+        "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${actual_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${actual_root}/server/dist/plugin-linux-amd64"
+    COPYFILE_DISABLE=1 tar -czf "${bundle}" \
+        -C "${fixture}/private" com.threadhub.channel-email-notifier
     expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
     NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT="${logical_root}"
     NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT="${actual_root}"
     SUDO_COMMAND=(notifier_test_privileged_only_reviewed_runtime)
 
-    set +e
     notifier_plugin_stage_pair \
         "${bundle}" "${logical_root}" "${runtime_stage}" "${bundle_stage}" \
-        "${expected_sha}" "${scratch}" > "${output}" 2>&1
-    result=$?
-    set -e
-    [[ "${result}" -ne 0 ]] || return 1
-    grep -Fx '[threadhub] ERROR: notifier plugin staging halted at phase: reviewed-runtime-privileged-only' \
-        "${output}" >/dev/null
+        "${expected_sha}" "${scratch}" || return 1
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${logical_root}" "${scratch}" \
+        && notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
 )
 
 test_plugin_pair_staging_reports_only_a_fixed_failure_phase() (
@@ -1429,8 +1432,8 @@ run_test \
     'plugin pair staging accepts a privileged-only reviewed bundle' \
     test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle
 run_test \
-    'plugin pair staging classifies a privileged-only reviewed runtime' \
-    test_plugin_pair_staging_classifies_a_privileged_only_reviewed_runtime
+    'plugin pair staging accepts a privileged-only reviewed runtime' \
+    test_plugin_pair_staging_accepts_a_privileged_only_reviewed_runtime
 run_test \
     'plugin pair staging failure diagnostics expose only a fixed phase' \
     test_plugin_pair_staging_reports_only_a_fixed_failure_phase

@@ -149,7 +149,12 @@ notifier_plugin_tree_is_exact() (
 
     "${SUDO_COMMAND[@]}" test -d "${root}" || return 1
     "${SUDO_COMMAND[@]}" test ! -L "${root}" || return 1
-    [[ -d "${reviewed_root}" && ! -L "${reviewed_root}" ]] || return 1
+    # Transition evidence is intentionally stored below a root:root 0700
+    # attempt directory. Keep that boundary private and inspect the reviewed
+    # tree through the initialized privilege command instead of requiring the
+    # invoking user to traverse it.
+    "${SUDO_COMMAND[@]}" test -d "${reviewed_root}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${reviewed_root}" || return 1
     [[ -d "${scratch_root}" && ! -L "${scratch_root}" ]] || return 1
     comparison_dir="$(mktemp -d "${scratch_root}/.plugin-tree.XXXXXX")" || return 1
     # shellcheck disable=SC2329 # invoked by the EXIT/signal trap below
@@ -157,7 +162,7 @@ notifier_plugin_tree_is_exact() (
         "${SUDO_COMMAND[@]}" rm -rf -- "${comparison_dir}" >/dev/null 2>&1 || true
     }
     trap cleanup_tree_comparison EXIT HUP INT TERM
-    find "${reviewed_root}" -mindepth 1 -print \
+    "${SUDO_COMMAND[@]}" find "${reviewed_root}" -mindepth 1 -print \
         | awk -v prefix="${reviewed_root}/" '{ print substr($0, length(prefix) + 1) }' \
         | LC_ALL=C sort > "${comparison_dir}/reviewed-entries" || return 1
     "${SUDO_COMMAND[@]}" find "${root}" -mindepth 1 -print \
@@ -173,12 +178,12 @@ notifier_plugin_tree_is_exact() (
         notifier_plugin_relative_path_is_allowed "${relative}" || return 1
         reviewed_path="${reviewed_root}/${relative}"
         runtime_path="${root}/${relative}"
-        [[ ! -L "${reviewed_path}" ]] || return 1
+        "${SUDO_COMMAND[@]}" test ! -L "${reviewed_path}" || return 1
         "${SUDO_COMMAND[@]}" test ! -L "${runtime_path}" || return 1
-        if [[ -d "${reviewed_path}" ]]; then
+        if "${SUDO_COMMAND[@]}" test -d "${reviewed_path}"; then
             "${SUDO_COMMAND[@]}" test -d "${runtime_path}" || return 1
             expected_identity=2000:2000:744
-        elif [[ -f "${reviewed_path}" ]]; then
+        elif "${SUDO_COMMAND[@]}" test -f "${reviewed_path}"; then
             "${SUDO_COMMAND[@]}" test -f "${runtime_path}" || return 1
             "${SUDO_COMMAND[@]}" cmp -s "${reviewed_path}" "${runtime_path}" \
                 || return 1
@@ -349,15 +354,12 @@ notifier_plugin_stage_pair() (
         failure_phase=reviewed-runtime-empty
         return 1
     fi
-    if [[ -L "${reviewed_root}" ]] \
-        || "${SUDO_COMMAND[@]}" test -L "${reviewed_root}"; then
+    if "${SUDO_COMMAND[@]}" test -L "${reviewed_root}"; then
         failure_phase=reviewed-runtime-symlink
         return 1
     fi
-    if [[ ! -d "${reviewed_root}" ]]; then
-        if "${SUDO_COMMAND[@]}" test -d "${reviewed_root}"; then
-            failure_phase=reviewed-runtime-privileged-only
-        elif "${SUDO_COMMAND[@]}" test -e "${reviewed_root}"; then
+    if ! "${SUDO_COMMAND[@]}" test -d "${reviewed_root}"; then
+        if "${SUDO_COMMAND[@]}" test -e "${reviewed_root}"; then
             failure_phase=reviewed-runtime-not-directory
         else
             failure_phase=reviewed-runtime-missing
@@ -385,18 +387,18 @@ notifier_plugin_stage_pair() (
         || return 1
     failure_phase=entry-listing
     stage_entries="$(mktemp "${scratch_root}/.plugin-stage.XXXXXX")" || return 1
-    find "${reviewed_root}" -mindepth 1 -print \
+    "${SUDO_COMMAND[@]}" find "${reviewed_root}" -mindepth 1 -print \
         | LC_ALL=C sort > "${stage_entries}" || return 1
     failure_phase=runtime-materialization
     while IFS= read -r reviewed_path; do
         relative="${reviewed_path#"${reviewed_root}/"}"
         [[ -n "${relative}" && "${relative}" != "${reviewed_path}" ]] || return 1
         notifier_plugin_relative_path_is_allowed "${relative}" || return 1
-        [[ ! -L "${reviewed_path}" ]] || return 1
-        if [[ -d "${reviewed_path}" ]]; then
+        "${SUDO_COMMAND[@]}" test ! -L "${reviewed_path}" || return 1
+        if "${SUDO_COMMAND[@]}" test -d "${reviewed_path}"; then
             "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 \
                 "${runtime_stage}/${relative}" || return 1
-        elif [[ -f "${reviewed_path}" ]]; then
+        elif "${SUDO_COMMAND[@]}" test -f "${reviewed_path}"; then
             file_mode=0644
             [[ "${relative}" != server/dist/plugin-linux-amd64 ]] || file_mode=0755
             "${SUDO_COMMAND[@]}" install -o 2000 -g 2000 -m "${file_mode}" \
