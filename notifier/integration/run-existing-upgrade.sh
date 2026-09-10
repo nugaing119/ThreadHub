@@ -735,6 +735,7 @@ accept_target_context() {
 
 explicit_rollback() {
     local rollback_before="${integration_root}/counts-before-explicit-rollback"
+    local rollback_driver="${integration_root}/explicit-rollback.sh"
     local rollback_output="${integration_root}/rollback-output"
     local recovery_stage=""
     local rollback_stage=""
@@ -743,11 +744,24 @@ explicit_rollback() {
     private run_current existing-notifier-control.sh drain
     private wait_queue_idle
     private run_current existing-notifier-control.sh disable
+    # The production TTY and exact-confirmation gates are covered by the
+    # operations tests. Keep this real-image test non-interactive so Docker or
+    # sudo pre-review checks cannot consume a pre-buffered pseudo-TTY response.
+    cat >"${rollback_driver}" <<EOF
+#!/usr/bin/env bash
+set -Eeuo pipefail
+source "${repository_root}/deploy/scripts/existing-notifier-v010-v020-rollback.sh"
+existing_notifier_v010_v020_rollback_stdin_is_tty() { return 0; }
+existing_notifier_v010_v020_rollback_read_confirmation() {
+    printf '%s\n' 'I REVIEWED V0.2.0 PILOT DELIVERY ROLLBACK'
+}
+existing_notifier_v010_v020_rollback
+EOF
+    chmod 0700 "${rollback_driver}"
     set +e
-    printf '%s\n' 'I REVIEWED V0.2.0 PILOT DELIVERY ROLLBACK' | \
-        timeout --foreground --kill-after=10s 480s script -q -e -c \
-        "env THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${notifier_env} ${repository_root}/deploy/scripts/existing-notifier-v010-v020-rollback.sh" \
-        /dev/null >"${rollback_output}" 2>&1
+    timeout --foreground --kill-after=10s 480s env \
+        "THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${notifier_env}" \
+        "${rollback_driver}" >"${rollback_output}" 2>&1
     status=$?
     set -e
     cat "${rollback_output}" >>"${diagnostic_file}"
@@ -888,7 +902,7 @@ cleanup() {
 trap cleanup EXIT
 trap 'result_kind=failure; result_assertion=NF-UPGRADE-12; exit 130' HUP INT TERM
 
-for required in awk bash cat chmod cmp cp curl date diff dirname docker env find git go grep id install jq mkdir mktemp mv openssl rm script sed sha256sum sleep sort sudo tar timeout xargs; do
+for required in awk bash cat chmod cmp cp curl date diff dirname docker env find git go grep id install jq mkdir mktemp mv openssl rm sed sha256sum sleep sort sudo tar timeout xargs; do
     command -v "${required}" >/dev/null 2>&1 || fail NF-UPGRADE-01
 done
 [[ "$(uname -s)" == Linux && "$(uname -m)" == x86_64 ]] || fail NF-UPGRADE-01
