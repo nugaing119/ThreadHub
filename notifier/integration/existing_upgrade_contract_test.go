@@ -63,6 +63,11 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		"successful-transition-smtp-failure-injection",
 		"successful-transition-outage-post",
 		"successful-transition-queue-pending",
+		"successful-transition-queue-pending-status-unavailable",
+		"successful-transition-queue-pending-empty",
+		"successful-transition-queue-pending-sending",
+		"successful-transition-queue-pending-failed",
+		"successful-transition-queue-pending-unexpected",
 		"successful-transition-outage-recovery",
 		"successful-transition-queue-idle",
 		"existing-notifier-smtp-test.sh",
@@ -78,6 +83,10 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		if !strings.Contains(runner, required) {
 			t.Fatalf("existing-upgrade runner contract is missing %q", required)
 		}
+	}
+	if !strings.Contains(runner, "queue_pending_failure_class") ||
+		!strings.Contains(runner, `record_stage "${failure_stage}"`) {
+		t.Fatal("queue pending timeout does not publish a bounded privacy-safe state class")
 	}
 	for _, required := range []string{
 		"private acceptance snapshot || return 1",

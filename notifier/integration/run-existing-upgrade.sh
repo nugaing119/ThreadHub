@@ -151,10 +151,44 @@ wait_queue_idle() {
     done
 }
 
+queue_pending_failure_class() {
+    local output="${integration_root}/queue-status.json"
+
+    if [[ ! -f "${output}" ]] || ! jq -e '
+        type == "object" and
+        (.pending | type == "number" and floor == . and . >= 0) and
+        (.sending | type == "number" and floor == . and . >= 0) and
+        (.failed | type == "number" and floor == . and . >= 0)
+    ' "${output}" >/dev/null 2>&1; then
+        printf '%s' status-unavailable
+    elif jq -e '.failed > 0' "${output}" >/dev/null 2>&1; then
+        printf '%s' failed
+    elif jq -e '.sending > 0' "${output}" >/dev/null 2>&1; then
+        printf '%s' sending
+    elif jq -e '.pending == 0' "${output}" >/dev/null 2>&1; then
+        printf '%s' empty
+    else
+        printf '%s' unexpected
+    fi
+}
+
 wait_queue_pending() {
     local deadline=$((SECONDS + 45))
+    local failure_class=""
+    local failure_stage=""
     until queue_status_matches '.pending > 0 and .sending == 0 and .failed == 0'; do
-        ((SECONDS < deadline)) || return 1
+        if ((SECONDS >= deadline)); then
+            failure_class="$(queue_pending_failure_class)"
+            case "${failure_class}" in
+                status-unavailable) failure_stage=successful-transition-queue-pending-status-unavailable ;;
+                empty) failure_stage=successful-transition-queue-pending-empty ;;
+                sending) failure_stage=successful-transition-queue-pending-sending ;;
+                failed) failure_stage=successful-transition-queue-pending-failed ;;
+                *) failure_stage=successful-transition-queue-pending-unexpected ;;
+            esac
+            record_stage "${failure_stage}" || true
+            return 1
+        fi
         sleep 1
     done
 }
