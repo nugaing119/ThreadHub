@@ -310,7 +310,9 @@ connect_smtp_fixture() {
     local container
     container="$(compose_base ps -q smtp-fixture)"
     [[ "${container}" =~ ^[a-f0-9]{12,64}$ ]] || return 1
-    "${docker_command[@]}" network connect "${project_name}_threadhub-notifier-outbound" "${container}"
+    "${docker_command[@]}" network connect \
+        --alias smtp.email.ap-singapore-1.oci.oraclecloud.com \
+        "${project_name}_threadhub-notifier-outbound" "${container}"
 }
 
 case_teardown() {
