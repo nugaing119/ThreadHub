@@ -126,6 +126,34 @@ acceptance() {
         "${acceptance_binary}" "$@"
 }
 
+acceptance_outage_failure_class() {
+    local output="$1"
+
+    if [[ "${output}" =~ ^existing\ adoption\ acceptance\ failed\ phase=(delivery-delta|unavailable)\ reason=(capture-unavailable|no-deliveries|under-delivery|over-delivery|mixed-count|content-mismatch)$ ]]; then
+        printf '%s' "${BASH_REMATCH[2]}"
+    else
+        printf '%s' unavailable
+    fi
+}
+
+acceptance_assert_outage() {
+    local output=""
+    local status=0
+    local failure_class=""
+
+    set +e
+    output="$(acceptance assert-outage 2>&1)"
+    status=$?
+    set -e
+    [[ -z "${output}" ]] || printf '%s\n' "${output}" >>"${diagnostic_file}"
+    if [[ "${status}" -eq 0 ]]; then
+        return 0
+    fi
+    failure_class="$(acceptance_outage_failure_class "${output}")"
+    record_stage "successful-transition-outage-recovery-${failure_class}" || true
+    return 1
+}
+
 wait_http() {
     local endpoint="$1"
     local deadline=$((SECONDS + $2))
@@ -433,7 +461,7 @@ seed_source_queue_history() {
     record_stage successful-transition-queue-pending
     private wait_queue_pending || return 1
     record_stage successful-transition-outage-recovery
-    private acceptance assert-outage || return 1
+    acceptance_assert_outage || return 1
     record_stage successful-transition-queue-idle
     private wait_queue_idle || return 1
 }
