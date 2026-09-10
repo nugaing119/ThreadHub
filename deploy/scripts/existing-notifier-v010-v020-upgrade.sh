@@ -437,6 +437,14 @@ existing_notifier_v010_v020_extract_target_plugin() {
     EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT="${reviewed_root}"
 }
 
+existing_notifier_v010_v020_plugin_publish_record_halt() {
+    case "$1" in
+        target-extracted|source-hashed|source-verified|target-staged|filesystem-verified|mattermost-stopped|pair-transacted) ;;
+        *) return 2 ;;
+    esac
+    printf '[threadhub] ERROR: notifier plugin publication halted at stage: %s\n' "$1" >&2
+}
+
 v010_v020_tx_publish_target_plugin_pair() (
     local attempt_root="$1"
     local target_root
@@ -457,6 +465,7 @@ v010_v020_tx_publish_target_plugin_pair() (
     local runtime_device
     local bundle_device
     local stage_device
+    local stage_status
 
     target_root="$(existing_notifier_v010_v020_target_root)"
     live_runtime="$(existing_notifier_v010_v020_value THN_MATTERMOST_PLUGINS_ROOT)/${plugin_id}"
@@ -473,23 +482,59 @@ v010_v020_tx_publish_target_plugin_pair() (
     scratch_root="$(mktemp -d)" || return 1
     trap 'notifier_plugin_cleanup_scratch_root "${scratch_root}"' EXIT HUP INT TERM
     chmod 0700 "${scratch_root}"
-    existing_notifier_v010_v020_extract_target_plugin "${scratch_root}" || return 1
-    source_sha="$(existing_notifier_v010_v020_capture_hash "${source_bundle}")" || return 1
+    existing_notifier_v010_v020_extract_target_plugin "${scratch_root}" || {
+        stage_status=$?
+        existing_notifier_v010_v020_plugin_publish_record_halt target-extracted
+        return "${stage_status}"
+    }
+    source_sha="$(existing_notifier_v010_v020_capture_hash "${source_bundle}")" || {
+        stage_status=$?
+        existing_notifier_v010_v020_plugin_publish_record_halt source-hashed
+        return "${stage_status}"
+    }
     notifier_plugin_pair_is_exact \
         "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${scratch_root}" \
-        || return 1
+        || {
+            stage_status=$?
+            existing_notifier_v010_v020_plugin_publish_record_halt source-verified
+            return "${stage_status}"
+        }
     notifier_plugin_stage_pair \
         "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE}" \
         "${EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT}" \
         "${stage_runtime}" "${stage_bundle}" \
-        "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${scratch_root}" || return 1
-    runtime_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "$(dirname "${live_runtime}")")" || return 1
-    bundle_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "$(dirname "${live_bundle}")")" || return 1
-    stage_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "${target_root}")" || return 1
-    [[ "${runtime_device}" == "${bundle_device}" && "${runtime_device}" == "${stage_device}" ]] || return 1
+        "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${scratch_root}" || {
+            stage_status=$?
+            existing_notifier_v010_v020_plugin_publish_record_halt target-staged
+            return "${stage_status}"
+        }
+    runtime_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "$(dirname "${live_runtime}")")" || stage_status=$?
+    if [[ -n "${stage_status:-}" ]]; then
+        existing_notifier_v010_v020_plugin_publish_record_halt filesystem-verified
+        return "${stage_status}"
+    fi
+    bundle_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "$(dirname "${live_bundle}")")" || stage_status=$?
+    if [[ -n "${stage_status:-}" ]]; then
+        existing_notifier_v010_v020_plugin_publish_record_halt filesystem-verified
+        return "${stage_status}"
+    fi
+    stage_device="$("${SUDO_COMMAND[@]}" stat -c '%d' "${target_root}")" || stage_status=$?
+    if [[ -n "${stage_status:-}" ]]; then
+        existing_notifier_v010_v020_plugin_publish_record_halt filesystem-verified
+        return 1
+    fi
+    if [[ "${runtime_device}" != "${bundle_device}" ]] \
+        || [[ "${runtime_device}" != "${stage_device}" ]]; then
+        existing_notifier_v010_v020_plugin_publish_record_halt filesystem-verified
+        return 1
+    fi
 
     printf '[threadhub] Mattermost will reconnect for approximately 30-60 seconds during the reviewed plugin transition.\n' >&2
-    existing_notifier_v010_v020_compose_combined stop "${service}" || return 1
+    existing_notifier_v010_v020_compose_combined stop "${service}" || {
+        stage_status=$?
+        existing_notifier_v010_v020_plugin_publish_record_halt mattermost-stopped
+        return "${stage_status}"
+    }
 
     plugin_tx_path_exists() { "${SUDO_COMMAND[@]}" test -e "$1" || "${SUDO_COMMAND[@]}" test -L "$1"; }
     plugin_tx_move() { notifier_plugin_move_no_clobber "$1" "$2"; }
@@ -520,7 +565,11 @@ v010_v020_tx_publish_target_plugin_pair() (
     existing_notifier_v010_v020_tx_plugin_pair_transaction \
         "${live_runtime}" "${stage_runtime}" "${displaced_runtime}" "${failed_runtime}" \
         "${live_bundle}" "${stage_bundle}" "${displaced_bundle}" "${failed_bundle}" \
-        false false
+        false false || {
+            stage_status=$?
+            existing_notifier_v010_v020_plugin_publish_record_halt pair-transacted
+            return "${stage_status}"
+        }
 )
 
 v010_v020_tx_start_target_mailer() {

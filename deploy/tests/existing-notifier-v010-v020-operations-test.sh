@@ -172,6 +172,22 @@ test_production_contracts_are_wired() (
         "${UPGRADE_SCRIPT}" "${ROLLBACK_SCRIPT}" >/dev/null
 )
 
+test_plugin_publish_halt_diagnostics_are_fixed() (
+    # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
+    source "${UPGRADE_SCRIPT}"
+    output="$(mktemp)"
+    trap 'rm -f -- "${output}"' EXIT
+    for stage in target-extracted source-hashed source-verified target-staged \
+        filesystem-verified mattermost-stopped pair-transacted; do
+        existing_notifier_v010_v020_plugin_publish_record_halt "${stage}" \
+            > "${output}" 2>&1 || return 1
+        grep -Fx "[threadhub] ERROR: notifier plugin publication halted at stage: ${stage}" \
+            "${output}" >/dev/null || return 1
+    done
+    ! existing_notifier_v010_v020_plugin_publish_record_halt private-value \
+        > "${output}" 2>&1
+)
+
 test_acceptance_handoff_is_exact() (
     # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
     source "${UPGRADE_SCRIPT}"
@@ -294,6 +310,7 @@ if [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]; then
     run_test 'rollback uses exact order and accepts no force' test_rollback_uses_exact_order_and_accepts_no_force
     run_test 'operations have no unsafe shortcuts' test_operations_have_no_unsafe_shortcuts
     run_test 'production contracts are wired' test_production_contracts_are_wired
+    run_test 'plugin publication halt diagnostics are fixed' test_plugin_publish_halt_diagnostics_are_fixed
     run_test 'acceptance handoff is exact' test_acceptance_handoff_is_exact
     run_test 'failed or pending work blocks without disposition' test_failed_or_pending_work_blocks_without_disposition
     run_test 'pilot work requires exact interactive review' test_pilot_work_requires_exact_interactive_review

@@ -236,16 +236,37 @@ transaction_failure_class() {
     printf '%s' unavailable
 }
 
+plugin_publish_failure_class() {
+    local output_file="$1"
+    local stage=""
+
+    for stage in target-extracted source-hashed source-verified target-staged \
+        filesystem-verified mattermost-stopped pair-transacted; do
+        if grep -Fxq "[threadhub] ERROR: notifier plugin publication halted at stage: ${stage}" \
+            "${output_file}"; then
+            printf '%s' "plugin-publish-${stage}"
+            return 0
+        fi
+    done
+    printf '%s' unavailable
+}
+
 upgrade_failure_class() {
     local status="$1"
     local output_file="$2"
     local stage=""
     local capture_class=""
     local transaction_class=""
+    local plugin_publish_class=""
 
     capture_class="$(evidence_capture_failure_class "${output_file}")"
     if [[ "${capture_class}" != unavailable ]]; then
         printf '%s' "capture-${capture_class}"
+        return 0
+    fi
+    plugin_publish_class="$(plugin_publish_failure_class "${output_file}")"
+    if [[ "${plugin_publish_class}" != unavailable ]]; then
+        printf '%s' "${plugin_publish_class}"
         return 0
     fi
     transaction_class="$(transaction_failure_class "${output_file}")"
