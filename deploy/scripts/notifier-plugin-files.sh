@@ -109,7 +109,7 @@ notifier_plugin_bundle_is_exact() {
 
 notifier_plugin_stage_record_halt() {
     case "$1" in
-        input-validation|runtime-root-creation|entry-listing|runtime-materialization|bundle-materialization|runtime-verification|bundle-verification) ;;
+        checksum-validation|reviewed-bundle-validation|reviewed-runtime-validation|scratch-root-validation|bundle-integrity-validation|destination-absence-validation|runtime-root-creation|entry-listing|runtime-materialization|bundle-materialization|runtime-verification|bundle-verification) ;;
         *) return 2 ;;
     esac
     printf '[threadhub] ERROR: notifier plugin staging halted at phase: %s\n' "$1" >&2
@@ -318,7 +318,7 @@ notifier_plugin_stage_pair() (
     stage_started=false
     stage_complete=false
     stage_entries=""
-    failure_phase=input-validation
+    failure_phase=checksum-validation
 
     # shellcheck disable=SC2329 # invoked by the EXIT/signal trap below
     cleanup_partial_stage() {
@@ -339,12 +339,18 @@ notifier_plugin_stage_pair() (
     }
     trap cleanup_partial_stage EXIT HUP INT TERM
 
+    failure_phase=checksum-validation
     [[ "${expected_sha}" =~ ^[a-f0-9]{64}$ ]] || return 1
+    failure_phase=reviewed-bundle-validation
     [[ -f "${reviewed_bundle}" && ! -L "${reviewed_bundle}" ]] || return 1
+    failure_phase=reviewed-runtime-validation
     [[ -d "${reviewed_root}" && ! -L "${reviewed_root}" ]] || return 1
+    failure_phase=scratch-root-validation
     [[ -d "${scratch_root}" && ! -L "${scratch_root}" ]] || return 1
+    failure_phase=bundle-integrity-validation
     [[ "$(notifier_plugin_privileged_sha256 "${reviewed_bundle}")" == "${expected_sha}" ]] \
         || return 1
+    failure_phase=destination-absence-validation
     for path in "${runtime_stage}" "${bundle_stage}"; do
         if "${SUDO_COMMAND[@]}" test -e "${path}" \
             || "${SUDO_COMMAND[@]}" test -L "${path}"; then

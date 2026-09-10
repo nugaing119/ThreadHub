@@ -151,7 +151,10 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		t.Fatal("plugin staging failure does not publish a bounded privacy-safe phase")
 	}
 	for _, phase := range []string{
-		"input-validation", "runtime-root-creation", "entry-listing",
+		"checksum-validation", "reviewed-bundle-validation",
+		"reviewed-runtime-validation", "scratch-root-validation",
+		"bundle-integrity-validation", "destination-absence-validation",
+		"runtime-root-creation", "entry-listing",
 		"runtime-materialization", "bundle-materialization",
 		"runtime-verification", "bundle-verification",
 	} {

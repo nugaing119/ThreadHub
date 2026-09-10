@@ -255,9 +255,11 @@ plugin_staging_failure_class() {
     local output_file="$1"
     local phase=""
 
-    for phase in input-validation runtime-root-creation entry-listing \
-        runtime-materialization bundle-materialization runtime-verification \
-        bundle-verification; do
+    for phase in checksum-validation reviewed-bundle-validation \
+        reviewed-runtime-validation scratch-root-validation \
+        bundle-integrity-validation destination-absence-validation \
+        runtime-root-creation entry-listing runtime-materialization \
+        bundle-materialization runtime-verification bundle-verification; do
         if grep -Fxq "[threadhub] ERROR: notifier plugin staging halted at phase: ${phase}" \
             "${output_file}"; then
             printf '%s' "${phase}"
