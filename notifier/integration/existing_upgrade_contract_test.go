@@ -88,6 +88,10 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		!strings.Contains(runner, `record_stage "${failure_stage}"`) {
 		t.Fatal("queue pending timeout does not publish a bounded privacy-safe state class")
 	}
+	if !strings.Contains(runner, "queue_idle_failure_class") ||
+		!strings.Contains(runner, `record_stage "${idle_stage_prefix}-${failure_class}"`) {
+		t.Fatal("queue idle timeout does not publish a bounded privacy-safe state class")
+	}
 	if !strings.Contains(runner, "acceptance_outage_failure_class") ||
 		!strings.Contains(runner, `record_stage "successful-transition-outage-recovery-${failure_class}"`) {
 		t.Fatal("outage recovery failure does not publish a bounded privacy-safe reason")
