@@ -377,7 +377,7 @@ case_setup() {
     integration_root="${suite_root}/case-${label}"
     project_name="threadhub-upgrade-${label}-$(openssl rand -hex 4)"
     runtime_parent="/var/tmp/threadhub-existing-upgrade-${project_name}"
-    integration_env="${integration_root}/base.env"
+    integration_env="${integration_root}/.env"
     notifier_env="${integration_root}/existing-notifier.env"
     mkdir -p "${integration_root}/data/postgres" \
         "${integration_root}/data/mattermost/config" "${integration_root}/data/mattermost/data" \

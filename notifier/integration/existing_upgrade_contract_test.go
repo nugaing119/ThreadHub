@@ -128,6 +128,9 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 			t.Fatalf("source queue history fail-closed contract is missing %q", required)
 		}
 	}
+	if !strings.Contains(runner, `integration_env="${integration_root}/.env"`) {
+		t.Fatal("existing-upgrade fixture must satisfy the production .env basename contract")
+	}
 	for _, forbidden := range []string{
 		"git checkout", "git reset", "activate-all-channels", "source deploy/.env",
 		"docker compose config\n", "rm -rf /srv", "--force", "--retry-failed", "--cancel-failed",
