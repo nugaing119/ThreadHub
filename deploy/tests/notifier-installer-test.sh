@@ -866,6 +866,26 @@ notifier_test_privileged_only_bundle() {
     notifier_test_plugin_files_privileged "${command_name}" "$@"
 }
 
+notifier_test_privileged_only_reviewed_runtime() {
+    local command_name="$1"
+    shift
+    local filtered=()
+    local argument
+
+    if [[ "${command_name}" == test ]]; then
+        for argument in "$@"; do
+            if [[ "${argument}" == "${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}" ]]; then
+                filtered+=("${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}")
+            else
+                filtered+=("${argument}")
+            fi
+        done
+        command test "${filtered[@]}"
+        return
+    fi
+    notifier_test_plugin_files_privileged "${command_name}" "$@"
+}
+
 make_reviewed_plugin_pair_fixture() {
     local fixture="$1"
     local version="$2"
@@ -1224,6 +1244,37 @@ test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle() (
         && notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
 )
 
+test_plugin_pair_staging_classifies_a_privileged_only_reviewed_runtime() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+
+    actual_root="${fixture}/private/com.threadhub.channel-email-notifier"
+    logical_root="${fixture}/root-only/com.threadhub.channel-email-notifier"
+    bundle="${fixture}/reviewed/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    output="${fixture}/output"
+    mkdir -p "${actual_root}" "$(dirname "${bundle}")" "${fixture}/release" "${scratch}"
+    printf '%s\n' reviewed-bundle > "${bundle}"
+    expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
+    NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT="${logical_root}"
+    NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT="${actual_root}"
+    SUDO_COMMAND=(notifier_test_privileged_only_reviewed_runtime)
+
+    set +e
+    notifier_plugin_stage_pair \
+        "${bundle}" "${logical_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" > "${output}" 2>&1
+    result=$?
+    set -e
+    [[ "${result}" -ne 0 ]] || return 1
+    grep -Fx '[threadhub] ERROR: notifier plugin staging halted at phase: reviewed-runtime-privileged-only' \
+        "${output}" >/dev/null
+)
+
 test_plugin_pair_staging_reports_only_a_fixed_failure_phase() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -1377,6 +1428,9 @@ run_test \
 run_test \
     'plugin pair staging accepts a privileged-only reviewed bundle' \
     test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle
+run_test \
+    'plugin pair staging classifies a privileged-only reviewed runtime' \
+    test_plugin_pair_staging_classifies_a_privileged_only_reviewed_runtime
 run_test \
     'plugin pair staging failure diagnostics expose only a fixed phase' \
     test_plugin_pair_staging_reports_only_a_fixed_failure_phase

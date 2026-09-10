@@ -374,13 +374,14 @@ test_outer_transaction_failure_cannot_be_masked_by_recovery_staging() (
     trap 'rm -rf -- "${fixture}"' EXIT
     output="${fixture}/upgrade-output"
     cat > "${output}" <<'EOF'
-[threadhub] ERROR: notifier transition halted after phase: target_mailer_started
-[threadhub] ERROR: notifier plugin staging halted at phase: reviewed-runtime-validation
+[threadhub] ERROR: notifier transition halted after phase: target_override_published
+[threadhub] ERROR: notifier plugin publication halted at stage: target-staged
+[threadhub] ERROR: notifier plugin staging halted at phase: reviewed-runtime-privileged-only
 EOF
 
     [[ -x "${DIAGNOSTIC_SCRIPT}" ]] || return 1
     [[ "$("${DIAGNOSTIC_SCRIPT}" primary-failure 1 "${output}")" \
-        == transaction-after-target-mailer-started ]]
+        == transaction-after-target-override-published-plus-plugin-publish-target-staged-plus-plugin-staging-reviewed-runtime-privileged-only ]]
 )
 
 test_acceptance_handoff_is_exact() (

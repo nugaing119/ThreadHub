@@ -257,7 +257,9 @@ plugin_staging_failure_class() {
     local phase=""
 
     for phase in checksum-validation reviewed-bundle-validation \
-        reviewed-runtime-validation scratch-root-validation \
+        reviewed-runtime-validation reviewed-runtime-empty reviewed-runtime-missing \
+        reviewed-runtime-not-directory reviewed-runtime-privileged-only \
+        reviewed-runtime-symlink scratch-root-validation \
         bundle-integrity-validation destination-absence-validation \
         runtime-root-creation entry-listing runtime-materialization \
         bundle-materialization runtime-verification bundle-verification; do

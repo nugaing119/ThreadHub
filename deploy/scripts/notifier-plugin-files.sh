@@ -109,7 +109,7 @@ notifier_plugin_bundle_is_exact() {
 
 notifier_plugin_stage_record_halt() {
     case "$1" in
-        checksum-validation|reviewed-bundle-validation|reviewed-runtime-validation|scratch-root-validation|bundle-integrity-validation|destination-absence-validation|runtime-root-creation|entry-listing|runtime-materialization|bundle-materialization|runtime-verification|bundle-verification) ;;
+        checksum-validation|reviewed-bundle-validation|reviewed-runtime-validation|reviewed-runtime-empty|reviewed-runtime-missing|reviewed-runtime-not-directory|reviewed-runtime-privileged-only|reviewed-runtime-symlink|scratch-root-validation|bundle-integrity-validation|destination-absence-validation|runtime-root-creation|entry-listing|runtime-materialization|bundle-materialization|runtime-verification|bundle-verification) ;;
         *) return 2 ;;
     esac
     printf '[threadhub] ERROR: notifier plugin staging halted at phase: %s\n' "$1" >&2
@@ -345,7 +345,25 @@ notifier_plugin_stage_pair() (
     "${SUDO_COMMAND[@]}" test -f "${reviewed_bundle}" \
         && "${SUDO_COMMAND[@]}" test ! -L "${reviewed_bundle}" || return 1
     failure_phase=reviewed-runtime-validation
-    [[ -d "${reviewed_root}" && ! -L "${reviewed_root}" ]] || return 1
+    if [[ -z "${reviewed_root}" ]]; then
+        failure_phase=reviewed-runtime-empty
+        return 1
+    fi
+    if [[ -L "${reviewed_root}" ]] \
+        || "${SUDO_COMMAND[@]}" test -L "${reviewed_root}"; then
+        failure_phase=reviewed-runtime-symlink
+        return 1
+    fi
+    if [[ ! -d "${reviewed_root}" ]]; then
+        if "${SUDO_COMMAND[@]}" test -d "${reviewed_root}"; then
+            failure_phase=reviewed-runtime-privileged-only
+        elif "${SUDO_COMMAND[@]}" test -e "${reviewed_root}"; then
+            failure_phase=reviewed-runtime-not-directory
+        else
+            failure_phase=reviewed-runtime-missing
+        fi
+        return 1
+    fi
     failure_phase=scratch-root-validation
     [[ -d "${scratch_root}" && ! -L "${scratch_root}" ]] || return 1
     failure_phase=bundle-integrity-validation
