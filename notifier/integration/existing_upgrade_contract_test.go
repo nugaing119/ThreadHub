@@ -146,6 +146,19 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		!strings.Contains(runner, `printf '%s' "capture-${capture_class}"`) {
 		t.Fatal("evidence capture failure does not publish a bounded privacy-safe substage")
 	}
+	if !strings.Contains(runner, "plugin_staging_failure_class") ||
+		!strings.Contains(runner, `printf '%s' "plugin-staging-${plugin_staging_class}"`) {
+		t.Fatal("plugin staging failure does not publish a bounded privacy-safe phase")
+	}
+	for _, phase := range []string{
+		"input-validation", "runtime-root-creation", "entry-listing",
+		"runtime-materialization", "bundle-materialization",
+		"runtime-verification", "bundle-verification",
+	} {
+		if !strings.Contains(runner, phase) {
+			t.Fatalf("plugin staging safe phase %q is missing", phase)
+		}
+	}
 	for _, classification := range []string{
 		"capture-unavailable", "no-deliveries", "under-delivery", "over-delivery",
 		"mixed-count", "content-mismatch", "unavailable",

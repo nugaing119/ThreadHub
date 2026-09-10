@@ -251,6 +251,22 @@ plugin_publish_failure_class() {
     printf '%s' unavailable
 }
 
+plugin_staging_failure_class() {
+    local output_file="$1"
+    local phase=""
+
+    for phase in input-validation runtime-root-creation entry-listing \
+        runtime-materialization bundle-materialization runtime-verification \
+        bundle-verification; do
+        if grep -Fxq "[threadhub] ERROR: notifier plugin staging halted at phase: ${phase}" \
+            "${output_file}"; then
+            printf '%s' "${phase}"
+            return 0
+        fi
+    done
+    printf '%s' unavailable
+}
+
 upgrade_failure_class() {
     local status="$1"
     local output_file="$2"
@@ -258,10 +274,16 @@ upgrade_failure_class() {
     local capture_class=""
     local transaction_class=""
     local plugin_publish_class=""
+    local plugin_staging_class=""
 
     capture_class="$(evidence_capture_failure_class "${output_file}")"
     if [[ "${capture_class}" != unavailable ]]; then
         printf '%s' "capture-${capture_class}"
+        return 0
+    fi
+    plugin_staging_class="$(plugin_staging_failure_class "${output_file}")"
+    if [[ "${plugin_staging_class}" != unavailable ]]; then
+        printf '%s' "plugin-staging-${plugin_staging_class}"
         return 0
     fi
     plugin_publish_class="$(plugin_publish_failure_class "${output_file}")"

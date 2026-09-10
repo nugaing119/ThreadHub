@@ -1154,6 +1154,48 @@ test_plugin_pair_staging_materializes_only_the_reviewed_objects() (
     [[ "${referent_sha}" == "$(openssl dgst -sha256 "${referent}" | awk '{print $NF}')" ]]
 )
 
+test_plugin_pair_staging_reports_only_a_fixed_failure_phase() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    library="${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    [[ -f "${library}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${library}"
+
+    reviewed_root="${fixture}/reviewed/com.threadhub.channel-email-notifier"
+    bundle="${fixture}/reviewed/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    output="${fixture}/output"
+    mkdir -p "${reviewed_root}/server/dist" "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${reviewed_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${reviewed_root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'reviewed-bundle-bytes' > "${bundle}"
+    expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
+
+    notifier_test_plugin_stage_failure() {
+        local command_name="$1"
+        shift
+        if [[ "${command_name}" == install && "${*: -1}" == "${bundle_stage}" ]]; then
+            return 29
+        fi
+        notifier_test_plugin_files_privileged "${command_name}" "$@"
+    }
+    SUDO_COMMAND=(notifier_test_plugin_stage_failure)
+
+    set +e
+    notifier_plugin_stage_pair \
+        "${bundle}" "${reviewed_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" > "${output}" 2>&1
+    result=$?
+    set -e
+    [[ "${result}" -ne 0 ]] || return 1
+    grep -Fx '[threadhub] ERROR: notifier plugin staging halted at phase: bundle-materialization' \
+        "${output}" >/dev/null || return 1
+    ! grep -F "${fixture}" "${output}" >/dev/null
+)
+
 test_plugin_move_rejects_symlink_and_directory_races_without_clobber() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -1262,6 +1304,9 @@ run_test \
 run_test \
     'plugin pair staging materializes only the reviewed runtime tree and filestore bundle' \
     test_plugin_pair_staging_materializes_only_the_reviewed_objects
+run_test \
+    'plugin pair staging failure diagnostics expose only a fixed phase' \
+    test_plugin_pair_staging_reports_only_a_fixed_failure_phase
 run_test \
     'plugin publication rejects symlink and directory races without clobbering' \
     test_plugin_move_rejects_symlink_and_directory_races_without_clobber

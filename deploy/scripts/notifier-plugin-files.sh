@@ -107,6 +107,14 @@ notifier_plugin_bundle_is_exact() {
     [[ "${actual_sha}" == "${expected_sha}" ]]
 }
 
+notifier_plugin_stage_record_halt() {
+    case "$1" in
+        input-validation|runtime-root-creation|entry-listing|runtime-materialization|bundle-materialization|runtime-verification|bundle-verification) ;;
+        *) return 2 ;;
+    esac
+    printf '[threadhub] ERROR: notifier plugin staging halted at phase: %s\n' "$1" >&2
+}
+
 notifier_plugin_pair_presence() {
     local runtime_root="$1"
     local bundle_path="$2"
@@ -310,12 +318,16 @@ notifier_plugin_stage_pair() (
     stage_started=false
     stage_complete=false
     stage_entries=""
+    failure_phase=input-validation
 
     # shellcheck disable=SC2329 # invoked by the EXIT/signal trap below
     cleanup_partial_stage() {
         local original_status=$?
 
         trap - EXIT HUP INT TERM
+        if [[ "${stage_complete}" != true && "${original_status}" -ne 0 ]]; then
+            notifier_plugin_stage_record_halt "${failure_phase}" || true
+        fi
         if [[ "${stage_started}" == true && "${stage_complete}" != true ]]; then
             "${SUDO_COMMAND[@]}" rm -rf -- "${runtime_stage}" >/dev/null 2>&1 || true
             "${SUDO_COMMAND[@]}" rm -f -- "${bundle_stage}" >/dev/null 2>&1 || true
@@ -343,10 +355,14 @@ notifier_plugin_stage_pair() (
     stage_started=true
     # Mattermost 11.7.7 canonicalizes an installed runtime tree to these
     # non-writable group/other modes when synchronizing the filestore bundle.
-    "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 "${runtime_stage}"
+    failure_phase=runtime-root-creation
+    "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 "${runtime_stage}" \
+        || return 1
+    failure_phase=entry-listing
     stage_entries="$(mktemp "${scratch_root}/.plugin-stage.XXXXXX")" || return 1
     find "${reviewed_root}" -mindepth 1 -print \
         | LC_ALL=C sort > "${stage_entries}" || return 1
+    failure_phase=runtime-materialization
     while IFS= read -r reviewed_path; do
         relative="${reviewed_path#"${reviewed_root}/"}"
         [[ -n "${relative}" && "${relative}" != "${reviewed_path}" ]] || return 1
@@ -354,22 +370,26 @@ notifier_plugin_stage_pair() (
         [[ ! -L "${reviewed_path}" ]] || return 1
         if [[ -d "${reviewed_path}" ]]; then
             "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 \
-                "${runtime_stage}/${relative}"
+                "${runtime_stage}/${relative}" || return 1
         elif [[ -f "${reviewed_path}" ]]; then
             file_mode=0644
             [[ "${relative}" != server/dist/plugin-linux-amd64 ]] || file_mode=0755
             "${SUDO_COMMAND[@]}" install -o 2000 -g 2000 -m "${file_mode}" \
-                "${reviewed_path}" "${runtime_stage}/${relative}"
+                "${reviewed_path}" "${runtime_stage}/${relative}" || return 1
         else
             return 1
         fi
     done < "${stage_entries}"
-    rm -f -- "${stage_entries}"
+    rm -f -- "${stage_entries}" || return 1
     stage_entries=""
+    failure_phase=bundle-materialization
     "${SUDO_COMMAND[@]}" install -o 2000 -g 2000 -m 0640 \
-        "${reviewed_bundle}" "${bundle_stage}"
-    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch_root}"
-    notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
+        "${reviewed_bundle}" "${bundle_stage}" || return 1
+    failure_phase=runtime-verification
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch_root}" \
+        || return 1
+    failure_phase=bundle-verification
+    notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}" || return 1
     stage_complete=true
 )
 
