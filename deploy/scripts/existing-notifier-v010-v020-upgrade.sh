@@ -515,7 +515,7 @@ existing_notifier_v010_v020_extract_target_plugin() {
       .min_server_version == "11.7.7" and
       .server.executables["linux-amd64"] == "server/dist/plugin-linux-amd64"
     ' "${reviewed_root}/plugin.json" >/dev/null || return 1
-    printf -v "${output_bundle_name}" '%s' "${reviewed_bundle}"
+    printf -v "${output_bundle_name}" '%s' "${preserved_bundle}"
     printf -v "${output_sha_name}" '%s' "${bundle_sha}"
     printf -v "${output_root_name}" '%s' "${reviewed_root}"
 }

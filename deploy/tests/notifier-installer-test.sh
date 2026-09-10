@@ -827,6 +827,45 @@ notifier_test_plugin_files_privileged() {
     command "${command_name}" "$@"
 }
 
+notifier_test_privileged_only_bundle() {
+    local command_name="$1"
+    shift
+    local filtered=()
+    local argument
+
+    if [[ "${command_name}" == test ]]; then
+        for argument in "$@"; do
+            if [[ "${argument}" == "${NOTIFIER_TEST_LOGICAL_BUNDLE}" ]]; then
+                filtered+=("${NOTIFIER_TEST_ACTUAL_BUNDLE}")
+            else
+                filtered+=("${argument}")
+            fi
+        done
+        command test "${filtered[@]}"
+        return
+    fi
+    if [[ "${command_name}" == sha256sum \
+        && "${1:-}" == "${NOTIFIER_TEST_LOGICAL_BUNDLE}" ]]; then
+        command sha256sum "${NOTIFIER_TEST_ACTUAL_BUNDLE}"
+        return
+    fi
+    if [[ "${command_name}" == install ]]; then
+        while (($# > 0)); do
+            case "$1" in
+                -o|-g) shift 2 ;;
+                "${NOTIFIER_TEST_LOGICAL_BUNDLE}")
+                    filtered+=("${NOTIFIER_TEST_ACTUAL_BUNDLE}")
+                    shift
+                    ;;
+                *) filtered+=("$1"); shift ;;
+            esac
+        done
+        command install "${filtered[@]}"
+        return
+    fi
+    notifier_test_plugin_files_privileged "${command_name}" "$@"
+}
+
 make_reviewed_plugin_pair_fixture() {
     local fixture="$1"
     local version="$2"
@@ -1154,6 +1193,37 @@ test_plugin_pair_staging_materializes_only_the_reviewed_objects() (
     [[ "${referent_sha}" == "$(openssl dgst -sha256 "${referent}" | awk '{print $NF}')" ]]
 )
 
+test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    library="${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    [[ -f "${library}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${library}"
+
+    reviewed_root="${fixture}/reviewed/com.threadhub.channel-email-notifier"
+    actual_bundle="${fixture}/private/plugin.tar.gz"
+    logical_bundle="${fixture}/root-only/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    mkdir -p "${reviewed_root}/server/dist" "$(dirname "${actual_bundle}")" \
+        "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${reviewed_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${reviewed_root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'privileged-reviewed-bundle' > "${actual_bundle}"
+    expected_sha="$(openssl dgst -sha256 "${actual_bundle}" | awk '{print $NF}')"
+    NOTIFIER_TEST_LOGICAL_BUNDLE="${logical_bundle}"
+    NOTIFIER_TEST_ACTUAL_BUNDLE="${actual_bundle}"
+    SUDO_COMMAND=(notifier_test_privileged_only_bundle)
+
+    notifier_plugin_stage_pair \
+        "${logical_bundle}" "${reviewed_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" || return 1
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch}" \
+        && notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
+)
+
 test_plugin_pair_staging_reports_only_a_fixed_failure_phase() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -1304,6 +1374,9 @@ run_test \
 run_test \
     'plugin pair staging materializes only the reviewed runtime tree and filestore bundle' \
     test_plugin_pair_staging_materializes_only_the_reviewed_objects
+run_test \
+    'plugin pair staging accepts a privileged-only reviewed bundle' \
+    test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle
 run_test \
     'plugin pair staging failure diagnostics expose only a fixed phase' \
     test_plugin_pair_staging_reports_only_a_fixed_failure_phase

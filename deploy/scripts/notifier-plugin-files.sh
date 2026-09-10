@@ -342,7 +342,8 @@ notifier_plugin_stage_pair() (
     failure_phase=checksum-validation
     [[ "${expected_sha}" =~ ^[a-f0-9]{64}$ ]] || return 1
     failure_phase=reviewed-bundle-validation
-    [[ -f "${reviewed_bundle}" && ! -L "${reviewed_bundle}" ]] || return 1
+    "${SUDO_COMMAND[@]}" test -f "${reviewed_bundle}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${reviewed_bundle}" || return 1
     failure_phase=reviewed-runtime-validation
     [[ -d "${reviewed_root}" && ! -L "${reviewed_root}" ]] || return 1
     failure_phase=scratch-root-validation

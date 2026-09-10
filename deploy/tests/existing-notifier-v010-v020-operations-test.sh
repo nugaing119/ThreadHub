@@ -265,7 +265,7 @@ EOF
     extracted_root=""
     existing_notifier_v010_v020_extract_target_plugin \
         "${scratch}" extracted_bundle extracted_sha extracted_root || return 1
-    [[ "${extracted_bundle}" == "${scratch}/target-plugin-bundle.tar.gz" \
+    [[ "${extracted_bundle}" == "${preserved_bundle}" \
         && "${extracted_sha}" == "${bundle_sha}" \
         && -f "${extracted_bundle}" && ! -L "${extracted_bundle}" \
         && "$(sha256_file "${extracted_bundle}")" == "${bundle_sha}" \
