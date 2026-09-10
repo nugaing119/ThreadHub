@@ -191,6 +191,44 @@ test_rollback_uses_exact_order_and_accepts_no_force() (
     [[ "${result}" == 2 && ! -s "${calls}" ]]
 )
 
+test_rollback_reports_the_exact_failing_stage() (
+    local result=0
+
+    prepare_rollback_fixture
+    trap 'rm -rf -- "${fixture}"' EXIT
+    fail_step=recover-source
+    set +e
+    run_rollback_fixture > "${output}" 2>&1
+    result=$?
+    set -e
+    [[ "${result}" == 42 ]] || return 1
+    grep -Fx '[threadhub] notifier rollback stage: recover-source' \
+        "${output}" >/dev/null || return 1
+    grep -Fx '[threadhub] ERROR: notifier rollback halted at stage: recover-source' \
+        "${output}" >/dev/null
+)
+
+test_source_recovery_reports_and_propagates_the_exact_failing_stage() (
+    local result=0
+    local output=""
+
+    # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
+    source "${UPGRADE_SCRIPT}"
+    output="$(mktemp)"
+    trap 'rm -f -- "${output}"' EXIT
+    recovery_fixture_failure() { return 42; }
+    set +e
+    existing_notifier_v010_v020_recovery_step queue \
+        recovery_fixture_failure > "${output}" 2>&1
+    result=$?
+    set -e
+    [[ "${result}" == 42 ]] || return 1
+    grep -Fx '[threadhub] notifier source recovery stage: queue' \
+        "${output}" >/dev/null || return 1
+    grep -Fx '[threadhub] ERROR: notifier source recovery halted at stage: queue' \
+        "${output}" >/dev/null
+)
+
 test_operations_have_no_unsafe_shortcuts() {
     ! grep -E 'down[[:space:]]+-v|activate-all-channels|threadhub\.stillwhy\.com|threadhub-mentor' \
         "${UPGRADE_SCRIPT}" "${ROLLBACK_SCRIPT}" >/dev/null
@@ -504,6 +542,8 @@ if [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]; then
     run_test 'build failure leaves live notifier untouched' test_build_failure_leaves_live_notifier_untouched
     run_test 'post-disable failures recover or fail hard' test_post_disable_failures_recover_or_fail_hard
     run_test 'rollback uses exact order and accepts no force' test_rollback_uses_exact_order_and_accepts_no_force
+    run_test 'rollback reports the exact failing stage' test_rollback_reports_the_exact_failing_stage
+    run_test 'source recovery reports and propagates the exact failing stage' test_source_recovery_reports_and_propagates_the_exact_failing_stage
     run_test 'operations have no unsafe shortcuts' test_operations_have_no_unsafe_shortcuts
     run_test 'production contracts are wired' test_production_contracts_are_wired
     run_test 'plugin publication halt diagnostics are fixed' test_plugin_publish_halt_diagnostics_are_fixed

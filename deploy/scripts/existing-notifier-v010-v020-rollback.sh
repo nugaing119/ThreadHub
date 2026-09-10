@@ -179,21 +179,46 @@ v010_v020_rollback_mark_source_recovered() {
         && printf '[OK] Exact notifier v0.1.0 source state was restored disabled; v0.2.0 evidence remains quarantined\n'
 }
 
+existing_notifier_v010_v020_rollback_step() {
+    local stage="$1"
+    local status=0
+
+    shift
+    printf '[threadhub] notifier rollback stage: %s\n' "${stage}" >&2
+    "$@" || {
+        status=$?
+        printf '[threadhub] ERROR: notifier rollback halted at stage: %s\n' \
+            "${stage}" >&2
+        return "${status}"
+    }
+}
+
 existing_notifier_v010_v020_rollback() (
     set -Eeuo pipefail
 
     [[ "$#" -eq 0 ]] || return 2
-    v010_v020_rollback_validate_capture
-    v010_v020_rollback_validate_phase
-    v010_v020_rollback_require_disabled
-    v010_v020_rollback_require_quiescent_target
-    v010_v020_rollback_require_pilot_review
-    v010_v020_rollback_capture_current_baseline
-    v010_v020_rollback_stop_target_mailer
-    v010_v020_rollback_recover_source || return $?
-    v010_v020_rollback_verify_source_disabled
-    v010_v020_rollback_compare_source_baseline
-    v010_v020_rollback_mark_source_recovered
+    existing_notifier_v010_v020_rollback_step validate-capture \
+        v010_v020_rollback_validate_capture || return $?
+    existing_notifier_v010_v020_rollback_step validate-phase \
+        v010_v020_rollback_validate_phase || return $?
+    existing_notifier_v010_v020_rollback_step require-disabled \
+        v010_v020_rollback_require_disabled || return $?
+    existing_notifier_v010_v020_rollback_step require-quiescent-target \
+        v010_v020_rollback_require_quiescent_target || return $?
+    existing_notifier_v010_v020_rollback_step require-pilot-review \
+        v010_v020_rollback_require_pilot_review || return $?
+    existing_notifier_v010_v020_rollback_step capture-current-baseline \
+        v010_v020_rollback_capture_current_baseline || return $?
+    existing_notifier_v010_v020_rollback_step stop-target-mailer \
+        v010_v020_rollback_stop_target_mailer || return $?
+    existing_notifier_v010_v020_rollback_step recover-source \
+        v010_v020_rollback_recover_source || return $?
+    existing_notifier_v010_v020_rollback_step verify-source-disabled \
+        v010_v020_rollback_verify_source_disabled || return $?
+    existing_notifier_v010_v020_rollback_step compare-source-baseline \
+        v010_v020_rollback_compare_source_baseline || return $?
+    existing_notifier_v010_v020_rollback_step mark-source-recovered \
+        v010_v020_rollback_mark_source_recovered || return $?
 )
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then

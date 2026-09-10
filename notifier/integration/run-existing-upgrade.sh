@@ -735,6 +735,9 @@ accept_target_context() {
 
 explicit_rollback() {
     local rollback_before="${integration_root}/counts-before-explicit-rollback"
+    local rollback_output="${integration_root}/rollback-output"
+    local recovery_stage=""
+    local rollback_stage=""
     local status=0
     db_counts "${rollback_before}"
     private run_current existing-notifier-control.sh drain
@@ -742,12 +745,34 @@ explicit_rollback() {
     private run_current existing-notifier-control.sh disable
     set +e
     printf '%s\n' 'I REVIEWED V0.2.0 PILOT DELIVERY ROLLBACK' | \
-        timeout --foreground --kill-after=10s 300s script -q -e -c \
+        timeout --foreground --kill-after=10s 480s script -q -e -c \
         "env THREADHUB_EXISTING_NOTIFIER_ENV_FILE=${notifier_env} ${repository_root}/deploy/scripts/existing-notifier-v010-v020-rollback.sh" \
-        /dev/null >>"${diagnostic_file}" 2>&1
+        /dev/null >"${rollback_output}" 2>&1
     status=$?
     set -e
-    [[ "${status}" == 0 ]] || return 1
+    cat "${rollback_output}" >>"${diagnostic_file}"
+    if [[ "${status}" != 0 ]]; then
+        rollback_stage="$(sed -n \
+            's/^\[threadhub\] notifier rollback stage: \([a-z0-9-]*\)\r*$/\1/p' \
+            "${rollback_output}" | tail -n 1)"
+        if [[ "${rollback_stage}" == recover-source ]]; then
+            recovery_stage="$(sed -n \
+                's/^\[threadhub\] notifier source recovery stage: \([a-z0-9-]*\)\r*$/\1/p' \
+                "${rollback_output}" | tail -n 1)"
+            case "${recovery_stage}" in
+                capture-validation|disposition-roots|queue|environment|release|override|plugin-pair|control|mailer-image|compose-init|mattermost-start|mailer-start|source-runtime-verify)
+                    rollback_stage="recover-source-${recovery_stage}"
+                    ;;
+            esac
+        fi
+        case "${rollback_stage}" in
+            validate-capture|validate-phase|require-disabled|require-quiescent-target|require-pilot-review|capture-current-baseline|stop-target-mailer|recover-source|recover-source-capture-validation|recover-source-disposition-roots|recover-source-queue|recover-source-environment|recover-source-release|recover-source-override|recover-source-plugin-pair|recover-source-control|recover-source-mailer-image|recover-source-compose-init|recover-source-mattermost-start|recover-source-mailer-start|recover-source-source-runtime-verify|verify-source-disabled|compare-source-baseline|mark-source-recovered)
+                record_stage "explicit-rollback-${rollback_stage}" || true
+                ;;
+            *) record_stage explicit-rollback-unavailable || true ;;
+        esac
+        return 1
+    fi
     verify_source_runtime
     [[ "$(portable_hash "${notifier_env}")" == "$(<"${integration_root}/source-env-before.sha256")" ]]
     [[ "$(privileged_hash "${runtime_parent}/notifier/compose.override.yml")" == "$(<"${integration_root}/source-override-before.sha256")" ]]

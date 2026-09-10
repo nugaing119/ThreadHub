@@ -1077,46 +1077,76 @@ existing_notifier_v010_v020_expected_recovery_baseline() {
         && printf '%s\n' "${candidate}"
 }
 
+existing_notifier_v010_v020_recovery_step() {
+    local stage="$1"
+    local status=0
+
+    shift
+    printf '[threadhub] notifier source recovery stage: %s\n' "${stage}" >&2
+    "$@" || {
+        status=$?
+        printf '[threadhub] ERROR: notifier source recovery halted at stage: %s\n' \
+            "${stage}" >&2
+        return "${status}"
+    }
+}
+
 existing_notifier_v010_v020_recover_source_runtime() (
     local attempt_root="$1"
     local notifier_root
     local service
 
-    existing_notifier_v010_v020_source_capture_is_complete "${attempt_root}" || return 1
+    existing_notifier_v010_v020_recovery_step capture-validation \
+        existing_notifier_v010_v020_source_capture_is_complete "${attempt_root}" \
+        || return $?
     notifier_root="$(existing_notifier_v010_v020_value THN_DATA_ROOT)"
     service="$(existing_notifier_v010_v020_value THN_MATTERMOST_SERVICE)"
-    existing_notifier_v010_v020_prepare_disposition_roots "${attempt_root}" || return 1
+    existing_notifier_v010_v020_recovery_step disposition-roots \
+        existing_notifier_v010_v020_prepare_disposition_roots "${attempt_root}" \
+        || return $?
     existing_notifier_v010_v020_compose_combined stop threadhub-mailer >/dev/null 2>&1 || true
     existing_notifier_v010_v020_compose_combined stop "${service}" >/dev/null 2>&1 || true
 
-    existing_notifier_v010_v020_restore_queue "${attempt_root}" || return 1
-    existing_notifier_v010_v020_restore_object \
+    existing_notifier_v010_v020_recovery_step queue \
+        existing_notifier_v010_v020_restore_queue "${attempt_root}" || return $?
+    existing_notifier_v010_v020_recovery_step environment \
+        existing_notifier_v010_v020_restore_object \
         "${EXISTING_NOTIFIER_V010_V020_ENV_FILE}" \
         "${attempt_root}/source/existing-notifier.env" \
         "${attempt_root}/displaced/env-not-used" \
-        "${attempt_root}/quarantine/existing-notifier-v020.env" file || return 1
-    existing_notifier_v010_v020_restore_object \
+        "${attempt_root}/quarantine/existing-notifier-v020.env" file || return $?
+    existing_notifier_v010_v020_recovery_step release \
+        existing_notifier_v010_v020_restore_object \
         "${notifier_root}/release" "${attempt_root}/source/release" \
         "${attempt_root}/displaced/release-v010" \
-        "${attempt_root}/quarantine/release-v020" directory || return 1
-    existing_notifier_v010_v020_restore_object \
+        "${attempt_root}/quarantine/release-v020" directory || return $?
+    existing_notifier_v010_v020_recovery_step override \
+        existing_notifier_v010_v020_restore_object \
         "${notifier_root}/compose.override.yml" "${attempt_root}/source/compose.override.yml" \
         "${attempt_root}/displaced/compose-v010.override.yml" \
-        "${attempt_root}/quarantine/compose-v020.override.yml" file || return 1
-    existing_notifier_v010_v020_restore_source_plugin_pair "${attempt_root}" || return 1
-    existing_notifier_v010_v020_restore_object \
+        "${attempt_root}/quarantine/compose-v020.override.yml" file || return $?
+    existing_notifier_v010_v020_recovery_step plugin-pair \
+        existing_notifier_v010_v020_restore_source_plugin_pair "${attempt_root}" \
+        || return $?
+    existing_notifier_v010_v020_recovery_step control \
+        existing_notifier_v010_v020_restore_object \
         "${notifier_root}/control/state.json" "${attempt_root}/source/control-state.json" \
         "${attempt_root}/displaced/control-not-used" \
-        "${attempt_root}/quarantine/control-v020.json" file || return 1
-    existing_notifier_v010_v020_restore_source_image "${attempt_root}" || return 1
+        "${attempt_root}/quarantine/control-v020.json" file || return $?
+    existing_notifier_v010_v020_recovery_step mailer-image \
+        existing_notifier_v010_v020_restore_source_image "${attempt_root}" || return $?
 
     EXISTING_NOTIFIER_ENV_FILE="${EXISTING_NOTIFIER_V010_V020_ENV_FILE}"
-    existing_notifier_init_compose
-    existing_notifier_compose_combined up -d --no-deps --wait --wait-timeout 240 \
-        "${service}" || return 1
-    existing_notifier_compose_combined up -d --no-deps --wait --wait-timeout 120 \
-        threadhub-mailer || return 1
-    existing_notifier_v010_v020_verify_source_runtime "${attempt_root}"
+    existing_notifier_v010_v020_recovery_step compose-init \
+        existing_notifier_init_compose || return $?
+    existing_notifier_v010_v020_recovery_step mattermost-start \
+        existing_notifier_compose_combined up -d --no-deps --wait --wait-timeout 240 \
+            "${service}" || return $?
+    existing_notifier_v010_v020_recovery_step mailer-start \
+        existing_notifier_compose_combined up -d --no-deps --wait --wait-timeout 120 \
+            threadhub-mailer || return $?
+    existing_notifier_v010_v020_recovery_step source-runtime-verify \
+        existing_notifier_v010_v020_verify_source_runtime "${attempt_root}" || return $?
 )
 
 v010_v020_tx_recover_source() {
