@@ -395,3 +395,41 @@ jobs:
           path: ${{ runner.temp }}/threadhub-existing-adoption-evidence
           if-no-files-found: error
           retention-days: 7
+
+  notifier-existing-upgrade:
+    needs: [notifier-integration, notifier-existing-adoption]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+
+    steps:
+      - name: Check out repository with full transition history
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go 1.25.14
+        uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6.5.0
+        with:
+          go-version: 1.25.14
+          cache-dependency-path: notifier/go.sum
+
+      - name: Run exact real-image existing notifier transition
+        shell: bash
+        env:
+          INTEGRATION_RESULT_FILE: ${{ runner.temp }}/threadhub-existing-upgrade-evidence/results.txt
+          INTEGRATION_PUBLIC_EVIDENCE_FILE: ${{ runner.temp }}/threadhub-existing-upgrade-evidence/public-evidence.txt
+          INTEGRATION_SAFE_DIAGNOSTIC_FILE: ${{ runner.temp }}/threadhub-existing-upgrade-evidence/safe-diagnostic.txt
+          INTEGRATION_PROGRESS_FILE: ${{ runner.temp }}/threadhub-existing-upgrade-evidence/progress.txt
+        run: |
+          set -Eeuo pipefail
+          install -d -m 0755 "${RUNNER_TEMP}/threadhub-existing-upgrade-evidence"
+          ./notifier/integration/run-existing-upgrade.sh
+
+      - name: Upload privacy-safe existing-upgrade evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: notifier-existing-upgrade-evidence
+          path: ${{ runner.temp }}/threadhub-existing-upgrade-evidence
+          if-no-files-found: error
+          retention-days: 7

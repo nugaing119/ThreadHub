@@ -471,11 +471,26 @@ container_address() {
     printf '%s:%s' "${address}" "${port}"
 }
 
+capture_container_id="$(compose_run ps --all --quiet smtp-fixture 2>>"${diagnostic_file}")" \
+    || abort_run NF-HARNESS-capture-container-query
+[[ "${capture_container_id}" =~ ^[a-f0-9]{12,64}$ ]] \
+    || abort_run NF-HARNESS-capture-container-missing
+capture_container_state="$("${container_command[@]}" inspect \
+    --format '{{if .State.OOMKilled}}oom{{else if .State.Running}}running{{else}}exited{{end}}' \
+    "${capture_container_id}" 2>>"${diagnostic_file}")" \
+    || abort_run NF-HARNESS-capture-container-inspect
+case "${capture_container_state}" in
+    running) ;;
+    oom) abort_run NF-HARNESS-capture-container-oom ;;
+    exited) abort_run NF-HARNESS-capture-container-exited ;;
+    *) abort_run NF-HARNESS-capture-container-inspect ;;
+esac
+
 mattermost_address="$(container_address mattermost 8065)" || abort_run NF-HARNESS-published-mattermost
-capture_address="$(container_address smtp-fixture 8081)" || abort_run NF-HARNESS-capture-api
+capture_address="$(container_address smtp-fixture 8081)" || abort_run NF-HARNESS-capture-container-network
 mailer_address="$(container_address threadhub-mailer 8080)" || abort_run NF-HARNESS-published-mailer
 wait_http "http://${mattermost_address}/api/v4/system/ping" 180 || abort_run NF-HARNESS-bootstrap
-wait_http "http://${capture_address}/healthz" 120 || abort_run NF-HARNESS-capture-api
+wait_http "http://${capture_address}/healthz" 120 || abort_run NF-HARNESS-capture-health
 wait_http "http://${mailer_address}/healthz" 120 || abort_run NF-HARNESS-compose-start-mailer
 
 result_assertion=NF-HARNESS-plugin-stop

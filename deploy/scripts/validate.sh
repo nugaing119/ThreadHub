@@ -319,6 +319,10 @@ for script in \
     "${SCRIPT_DIR}/existing-notifier-status.sh" \
     "${SCRIPT_DIR}/existing-notifier-smtp-test.sh" \
     "${SCRIPT_DIR}/existing-notifier-rollback.sh" \
+    "${SCRIPT_DIR}/existing-notifier-v010-v020-recovery-gate.sh" \
+    "${SCRIPT_DIR}/existing-notifier-v010-v020-preflight.sh" \
+    "${SCRIPT_DIR}/existing-notifier-v010-v020-upgrade.sh" \
+    "${SCRIPT_DIR}/existing-notifier-v010-v020-rollback.sh" \
     "${SCRIPT_DIR}/configure-notifier.sh" \
     "${SCRIPT_DIR}/notifier-control.sh" \
     "${SCRIPT_DIR}/notifier-smtp-test.sh" \
@@ -330,6 +334,8 @@ require_file "${SCRIPT_DIR}/notifier-plugin-transaction.sh"
 require_file "${SCRIPT_DIR}/notifier-plugin-files.sh"
 require_file "${SCRIPT_DIR}/notifier-plugin-install-lib.sh"
 require_file "${SCRIPT_DIR}/notifier-artifact-build-lib.sh"
+require_file "${SCRIPT_DIR}/existing-notifier-v010-v020-common.sh"
+require_file "${SCRIPT_DIR}/existing-notifier-v010-v020-transaction.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh"
 [[ -x "${DEPLOY_DIR}/tests/notifier-artifact-security-test.sh" ]] \
     || die "Notifier artifact security fixture test must be executable"
@@ -440,6 +446,12 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-overlay-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh"
 require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-preflight-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-evidence-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-transaction-test.sh"
+require_file "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-operations-test.sh"
+require_file "${REPOSITORY_ROOT}/notifier/integration/run-existing-upgrade.sh"
+require_file "${REPOSITORY_ROOT}/notifier/integration/existing-upgrade-scenario-ids.txt"
 [[ -x "${DEPLOY_DIR}/tests/common-compose-test.sh" ]] \
     || die "Common Compose guard regression test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh" ]] \
@@ -462,6 +474,19 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
     || die "Existing notifier setup test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh" ]] \
     || die "Existing notifier operations test must be executable"
+for upgrade_test in \
+    "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-preflight-test.sh" \
+    "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-evidence-test.sh" \
+    "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-transaction-test.sh" \
+    "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-operations-test.sh"; do
+    [[ -x "${upgrade_test}" ]] \
+        || die "Existing notifier transition test must be executable: ${upgrade_test}"
+done
+[[ -x "${REPOSITORY_ROOT}/notifier/integration/run-existing-upgrade.sh" ]] \
+    || die "Existing notifier transition real-image runner must be executable"
+[[ "$(grep -Ec '^NF-UPGRADE-[0-9]{2}$' \
+    "${REPOSITORY_ROOT}/notifier/integration/existing-upgrade-scenario-ids.txt")" == 12 ]] \
+    || die "Existing notifier transition must declare exactly 12 NF-UPGRADE scenarios"
 "${DEPLOY_DIR}/tests/common-compose-test.sh"
 "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
@@ -473,6 +498,10 @@ require_file "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-plugin-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-setup-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-operations-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-v010-v020-preflight-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-v010-v020-evidence-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-v010-v020-transaction-test.sh"
+"${DEPLOY_DIR}/tests/existing-notifier-v010-v020-operations-test.sh"
 log "Notifier licensing, installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv

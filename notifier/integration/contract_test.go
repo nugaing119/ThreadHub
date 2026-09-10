@@ -108,6 +108,46 @@ func TestHarnessAcceptsOnlyPrivateIPv4ContainerAddresses(t *testing.T) {
 	}
 }
 
+func TestHarnessClassifiesSMTPFixtureFailuresWithoutRawDiagnostics(t *testing.T) {
+	t.Parallel()
+
+	runner := readContractFile(t, "run.sh")
+	for _, required := range []string{
+		`compose_run ps --all --quiet smtp-fixture`,
+		`{{if .State.OOMKilled}}oom{{else if .State.Running}}running{{else}}exited{{end}}`,
+		`abort_run NF-HARNESS-capture-container-query`,
+		`abort_run NF-HARNESS-capture-container-missing`,
+		`abort_run NF-HARNESS-capture-container-inspect`,
+		`abort_run NF-HARNESS-capture-container-oom`,
+		`abort_run NF-HARNESS-capture-container-exited`,
+		`abort_run NF-HARNESS-capture-container-network`,
+		`abort_run NF-HARNESS-capture-health`,
+	} {
+		if !strings.Contains(runner, required) {
+			t.Fatalf("runner privacy-safe SMTP fixture classification is missing %q", required)
+		}
+	}
+	if strings.Contains(runner, `compose_run logs smtp-fixture`) ||
+		strings.Contains(runner, `container logs`) {
+		t.Fatal("runner exports raw SMTP fixture logs instead of bounded failure identifiers")
+	}
+
+	failures := readContractFile(t, "cmd/acceptance/failure-assertions.txt")
+	for _, required := range []string{
+		"NF-HARNESS-capture-container-query\n",
+		"NF-HARNESS-capture-container-missing\n",
+		"NF-HARNESS-capture-container-inspect\n",
+		"NF-HARNESS-capture-container-oom\n",
+		"NF-HARNESS-capture-container-exited\n",
+		"NF-HARNESS-capture-container-network\n",
+		"NF-HARNESS-capture-health\n",
+	} {
+		if !strings.Contains(failures, required) {
+			t.Fatalf("failure assertion allowlist is missing %q", strings.TrimSpace(required))
+		}
+	}
+}
+
 func TestHarnessPinsIsolationAndNoImplicitBuildContracts(t *testing.T) {
 	t.Parallel()
 
@@ -376,8 +416,8 @@ func TestCIHasBoundedPrivacySafeIntegrationArtifact(t *testing.T) {
 		}
 	}
 	const node24UploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1"
-	if count := strings.Count(workflow, node24UploadArtifact); count != 2 {
-		t.Fatalf("CI must pin both artifact uploads to the reviewed Node.js 24 action, got %d", count)
+	if count := strings.Count(workflow, node24UploadArtifact); count != 3 {
+		t.Fatalf("CI must pin all three notifier artifact uploads to the reviewed Node.js 24 action, got %d", count)
 	}
 }
 

@@ -827,6 +827,69 @@ notifier_test_plugin_files_privileged() {
     command "${command_name}" "$@"
 }
 
+notifier_test_privileged_only_bundle() {
+    local command_name="$1"
+    shift
+    local filtered=()
+    local argument
+
+    if [[ "${command_name}" == test ]]; then
+        for argument in "$@"; do
+            if [[ "${argument}" == "${NOTIFIER_TEST_LOGICAL_BUNDLE}" ]]; then
+                filtered+=("${NOTIFIER_TEST_ACTUAL_BUNDLE}")
+            else
+                filtered+=("${argument}")
+            fi
+        done
+        command test "${filtered[@]}"
+        return
+    fi
+    if [[ "${command_name}" == sha256sum \
+        && "${1:-}" == "${NOTIFIER_TEST_LOGICAL_BUNDLE}" ]]; then
+        command sha256sum "${NOTIFIER_TEST_ACTUAL_BUNDLE}"
+        return
+    fi
+    if [[ "${command_name}" == install ]]; then
+        while (($# > 0)); do
+            case "$1" in
+                -o|-g) shift 2 ;;
+                "${NOTIFIER_TEST_LOGICAL_BUNDLE}")
+                    filtered+=("${NOTIFIER_TEST_ACTUAL_BUNDLE}")
+                    shift
+                    ;;
+                *) filtered+=("$1"); shift ;;
+            esac
+        done
+        command install "${filtered[@]}"
+        return
+    fi
+    notifier_test_plugin_files_privileged "${command_name}" "$@"
+}
+
+notifier_test_privileged_only_reviewed_runtime() {
+    local command_name="$1"
+    shift
+    local filtered=()
+    local argument
+
+    if [[ "${command_name}" == find \
+        && "${1:-}" == "${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}" ]]; then
+        shift
+        command find "${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}" "$@" \
+            | sed "s#^${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}#${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}#"
+        return
+    fi
+    for argument in "$@"; do
+        case "${argument}" in
+            "${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}"*)
+                filtered+=("${NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT}${argument#"${NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT}"}")
+                ;;
+            *) filtered+=("${argument}") ;;
+        esac
+    done
+    notifier_test_plugin_files_privileged "${command_name}" "${filtered[@]}"
+}
+
 make_reviewed_plugin_pair_fixture() {
     local fixture="$1"
     local version="$2"
@@ -1154,6 +1217,109 @@ test_plugin_pair_staging_materializes_only_the_reviewed_objects() (
     [[ "${referent_sha}" == "$(openssl dgst -sha256 "${referent}" | awk '{print $NF}')" ]]
 )
 
+test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    library="${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    [[ -f "${library}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${library}"
+
+    reviewed_root="${fixture}/reviewed/com.threadhub.channel-email-notifier"
+    actual_bundle="${fixture}/private/plugin.tar.gz"
+    logical_bundle="${fixture}/root-only/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    mkdir -p "${reviewed_root}/server/dist" "$(dirname "${actual_bundle}")" \
+        "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${reviewed_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${reviewed_root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'privileged-reviewed-bundle' > "${actual_bundle}"
+    expected_sha="$(openssl dgst -sha256 "${actual_bundle}" | awk '{print $NF}')"
+    NOTIFIER_TEST_LOGICAL_BUNDLE="${logical_bundle}"
+    NOTIFIER_TEST_ACTUAL_BUNDLE="${actual_bundle}"
+    SUDO_COMMAND=(notifier_test_privileged_only_bundle)
+
+    notifier_plugin_stage_pair \
+        "${logical_bundle}" "${reviewed_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" || return 1
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch}" \
+        && notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
+)
+
+test_plugin_pair_staging_accepts_a_privileged_only_reviewed_runtime() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    # shellcheck source=/dev/null
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+
+    actual_root="${fixture}/private/com.threadhub.channel-email-notifier"
+    logical_root="${fixture}/root-only/com.threadhub.channel-email-notifier"
+    bundle="${fixture}/reviewed/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    mkdir -p "${actual_root}/server/dist" "$(dirname "${bundle}")" \
+        "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${actual_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${actual_root}/server/dist/plugin-linux-amd64"
+    COPYFILE_DISABLE=1 tar -czf "${bundle}" \
+        -C "${fixture}/private" com.threadhub.channel-email-notifier
+    expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
+    NOTIFIER_TEST_LOGICAL_REVIEWED_ROOT="${logical_root}"
+    NOTIFIER_TEST_ACTUAL_REVIEWED_ROOT="${actual_root}"
+    SUDO_COMMAND=(notifier_test_privileged_only_reviewed_runtime)
+
+    notifier_plugin_stage_pair \
+        "${bundle}" "${logical_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" || return 1
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${logical_root}" "${scratch}" \
+        && notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
+)
+
+test_plugin_pair_staging_reports_only_a_fixed_failure_phase() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf "${fixture}"' EXIT
+    library="${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    [[ -f "${library}" ]] || return 1
+    # shellcheck source=/dev/null
+    source "${library}"
+
+    reviewed_root="${fixture}/reviewed/com.threadhub.channel-email-notifier"
+    bundle="${fixture}/reviewed/plugin.tar.gz"
+    runtime_stage="${fixture}/release/runtime.stage"
+    bundle_stage="${fixture}/release/bundle.stage.tar.gz"
+    scratch="${fixture}/scratch"
+    output="${fixture}/output"
+    mkdir -p "${reviewed_root}/server/dist" "${fixture}/release" "${scratch}"
+    printf '%s\n' '{"reviewed":true}' > "${reviewed_root}/plugin.json"
+    printf '%s\n' 'reviewed-executable' > "${reviewed_root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' 'reviewed-bundle-bytes' > "${bundle}"
+    expected_sha="$(openssl dgst -sha256 "${bundle}" | awk '{print $NF}')"
+
+    notifier_test_plugin_stage_failure() {
+        local command_name="$1"
+        shift
+        if [[ "${command_name}" == install && "${*: -1}" == "${bundle_stage}" ]]; then
+            return 29
+        fi
+        notifier_test_plugin_files_privileged "${command_name}" "$@"
+    }
+    SUDO_COMMAND=(notifier_test_plugin_stage_failure)
+
+    set +e
+    notifier_plugin_stage_pair \
+        "${bundle}" "${reviewed_root}" "${runtime_stage}" "${bundle_stage}" \
+        "${expected_sha}" "${scratch}" > "${output}" 2>&1
+    result=$?
+    set -e
+    [[ "${result}" -ne 0 ]] || return 1
+    grep -Fx '[threadhub] ERROR: notifier plugin staging halted at phase: bundle-materialization' \
+        "${output}" >/dev/null || return 1
+    ! grep -F "${fixture}" "${output}" >/dev/null
+)
+
 test_plugin_move_rejects_symlink_and_directory_races_without_clobber() (
     fixture="$(mktemp -d)"
     trap 'rm -rf "${fixture}"' EXIT
@@ -1262,6 +1428,15 @@ run_test \
 run_test \
     'plugin pair staging materializes only the reviewed runtime tree and filestore bundle' \
     test_plugin_pair_staging_materializes_only_the_reviewed_objects
+run_test \
+    'plugin pair staging accepts a privileged-only reviewed bundle' \
+    test_plugin_pair_staging_accepts_a_privileged_only_reviewed_bundle
+run_test \
+    'plugin pair staging accepts a privileged-only reviewed runtime' \
+    test_plugin_pair_staging_accepts_a_privileged_only_reviewed_runtime
+run_test \
+    'plugin pair staging failure diagnostics expose only a fixed phase' \
+    test_plugin_pair_staging_reports_only_a_fixed_failure_phase
 run_test \
     'plugin publication rejects symlink and directory races without clobbering' \
     test_plugin_move_rejects_symlink_and_directory_races_without_clobber

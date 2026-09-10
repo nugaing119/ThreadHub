@@ -107,6 +107,14 @@ notifier_plugin_bundle_is_exact() {
     [[ "${actual_sha}" == "${expected_sha}" ]]
 }
 
+notifier_plugin_stage_record_halt() {
+    case "$1" in
+        checksum-validation|reviewed-bundle-validation|reviewed-runtime-validation|reviewed-runtime-empty|reviewed-runtime-missing|reviewed-runtime-not-directory|reviewed-runtime-privileged-only|reviewed-runtime-symlink|scratch-root-validation|bundle-integrity-validation|destination-absence-validation|runtime-root-creation|entry-listing|runtime-materialization|bundle-materialization|runtime-verification|bundle-verification) ;;
+        *) return 2 ;;
+    esac
+    printf '[threadhub] ERROR: notifier plugin staging halted at phase: %s\n' "$1" >&2
+}
+
 notifier_plugin_pair_presence() {
     local runtime_root="$1"
     local bundle_path="$2"
@@ -141,7 +149,12 @@ notifier_plugin_tree_is_exact() (
 
     "${SUDO_COMMAND[@]}" test -d "${root}" || return 1
     "${SUDO_COMMAND[@]}" test ! -L "${root}" || return 1
-    [[ -d "${reviewed_root}" && ! -L "${reviewed_root}" ]] || return 1
+    # Transition evidence is intentionally stored below a root:root 0700
+    # attempt directory. Keep that boundary private and inspect the reviewed
+    # tree through the initialized privilege command instead of requiring the
+    # invoking user to traverse it.
+    "${SUDO_COMMAND[@]}" test -d "${reviewed_root}" || return 1
+    "${SUDO_COMMAND[@]}" test ! -L "${reviewed_root}" || return 1
     [[ -d "${scratch_root}" && ! -L "${scratch_root}" ]] || return 1
     comparison_dir="$(mktemp -d "${scratch_root}/.plugin-tree.XXXXXX")" || return 1
     # shellcheck disable=SC2329 # invoked by the EXIT/signal trap below
@@ -149,7 +162,7 @@ notifier_plugin_tree_is_exact() (
         "${SUDO_COMMAND[@]}" rm -rf -- "${comparison_dir}" >/dev/null 2>&1 || true
     }
     trap cleanup_tree_comparison EXIT HUP INT TERM
-    find "${reviewed_root}" -mindepth 1 -print \
+    "${SUDO_COMMAND[@]}" find "${reviewed_root}" -mindepth 1 -print \
         | awk -v prefix="${reviewed_root}/" '{ print substr($0, length(prefix) + 1) }' \
         | LC_ALL=C sort > "${comparison_dir}/reviewed-entries" || return 1
     "${SUDO_COMMAND[@]}" find "${root}" -mindepth 1 -print \
@@ -165,12 +178,12 @@ notifier_plugin_tree_is_exact() (
         notifier_plugin_relative_path_is_allowed "${relative}" || return 1
         reviewed_path="${reviewed_root}/${relative}"
         runtime_path="${root}/${relative}"
-        [[ ! -L "${reviewed_path}" ]] || return 1
+        "${SUDO_COMMAND[@]}" test ! -L "${reviewed_path}" || return 1
         "${SUDO_COMMAND[@]}" test ! -L "${runtime_path}" || return 1
-        if [[ -d "${reviewed_path}" ]]; then
+        if "${SUDO_COMMAND[@]}" test -d "${reviewed_path}"; then
             "${SUDO_COMMAND[@]}" test -d "${runtime_path}" || return 1
             expected_identity=2000:2000:744
-        elif [[ -f "${reviewed_path}" ]]; then
+        elif "${SUDO_COMMAND[@]}" test -f "${reviewed_path}"; then
             "${SUDO_COMMAND[@]}" test -f "${runtime_path}" || return 1
             "${SUDO_COMMAND[@]}" cmp -s "${reviewed_path}" "${runtime_path}" \
                 || return 1
@@ -310,12 +323,16 @@ notifier_plugin_stage_pair() (
     stage_started=false
     stage_complete=false
     stage_entries=""
+    failure_phase=checksum-validation
 
     # shellcheck disable=SC2329 # invoked by the EXIT/signal trap below
     cleanup_partial_stage() {
         local original_status=$?
 
         trap - EXIT HUP INT TERM
+        if [[ "${stage_complete}" != true && "${original_status}" -ne 0 ]]; then
+            notifier_plugin_stage_record_halt "${failure_phase}" || true
+        fi
         if [[ "${stage_started}" == true && "${stage_complete}" != true ]]; then
             "${SUDO_COMMAND[@]}" rm -rf -- "${runtime_stage}" >/dev/null 2>&1 || true
             "${SUDO_COMMAND[@]}" rm -f -- "${bundle_stage}" >/dev/null 2>&1 || true
@@ -327,12 +344,34 @@ notifier_plugin_stage_pair() (
     }
     trap cleanup_partial_stage EXIT HUP INT TERM
 
+    failure_phase=checksum-validation
     [[ "${expected_sha}" =~ ^[a-f0-9]{64}$ ]] || return 1
-    [[ -f "${reviewed_bundle}" && ! -L "${reviewed_bundle}" ]] || return 1
-    [[ -d "${reviewed_root}" && ! -L "${reviewed_root}" ]] || return 1
+    failure_phase=reviewed-bundle-validation
+    "${SUDO_COMMAND[@]}" test -f "${reviewed_bundle}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${reviewed_bundle}" || return 1
+    failure_phase=reviewed-runtime-validation
+    if [[ -z "${reviewed_root}" ]]; then
+        failure_phase=reviewed-runtime-empty
+        return 1
+    fi
+    if "${SUDO_COMMAND[@]}" test -L "${reviewed_root}"; then
+        failure_phase=reviewed-runtime-symlink
+        return 1
+    fi
+    if ! "${SUDO_COMMAND[@]}" test -d "${reviewed_root}"; then
+        if "${SUDO_COMMAND[@]}" test -e "${reviewed_root}"; then
+            failure_phase=reviewed-runtime-not-directory
+        else
+            failure_phase=reviewed-runtime-missing
+        fi
+        return 1
+    fi
+    failure_phase=scratch-root-validation
     [[ -d "${scratch_root}" && ! -L "${scratch_root}" ]] || return 1
+    failure_phase=bundle-integrity-validation
     [[ "$(notifier_plugin_privileged_sha256 "${reviewed_bundle}")" == "${expected_sha}" ]] \
         || return 1
+    failure_phase=destination-absence-validation
     for path in "${runtime_stage}" "${bundle_stage}"; do
         if "${SUDO_COMMAND[@]}" test -e "${path}" \
             || "${SUDO_COMMAND[@]}" test -L "${path}"; then
@@ -343,33 +382,41 @@ notifier_plugin_stage_pair() (
     stage_started=true
     # Mattermost 11.7.7 canonicalizes an installed runtime tree to these
     # non-writable group/other modes when synchronizing the filestore bundle.
-    "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 "${runtime_stage}"
+    failure_phase=runtime-root-creation
+    "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 "${runtime_stage}" \
+        || return 1
+    failure_phase=entry-listing
     stage_entries="$(mktemp "${scratch_root}/.plugin-stage.XXXXXX")" || return 1
-    find "${reviewed_root}" -mindepth 1 -print \
+    "${SUDO_COMMAND[@]}" find "${reviewed_root}" -mindepth 1 -print \
         | LC_ALL=C sort > "${stage_entries}" || return 1
+    failure_phase=runtime-materialization
     while IFS= read -r reviewed_path; do
         relative="${reviewed_path#"${reviewed_root}/"}"
         [[ -n "${relative}" && "${relative}" != "${reviewed_path}" ]] || return 1
         notifier_plugin_relative_path_is_allowed "${relative}" || return 1
-        [[ ! -L "${reviewed_path}" ]] || return 1
-        if [[ -d "${reviewed_path}" ]]; then
+        "${SUDO_COMMAND[@]}" test ! -L "${reviewed_path}" || return 1
+        if "${SUDO_COMMAND[@]}" test -d "${reviewed_path}"; then
             "${SUDO_COMMAND[@]}" install -d -o 2000 -g 2000 -m 0744 \
-                "${runtime_stage}/${relative}"
-        elif [[ -f "${reviewed_path}" ]]; then
+                "${runtime_stage}/${relative}" || return 1
+        elif "${SUDO_COMMAND[@]}" test -f "${reviewed_path}"; then
             file_mode=0644
             [[ "${relative}" != server/dist/plugin-linux-amd64 ]] || file_mode=0755
             "${SUDO_COMMAND[@]}" install -o 2000 -g 2000 -m "${file_mode}" \
-                "${reviewed_path}" "${runtime_stage}/${relative}"
+                "${reviewed_path}" "${runtime_stage}/${relative}" || return 1
         else
             return 1
         fi
     done < "${stage_entries}"
-    rm -f -- "${stage_entries}"
+    rm -f -- "${stage_entries}" || return 1
     stage_entries=""
+    failure_phase=bundle-materialization
     "${SUDO_COMMAND[@]}" install -o 2000 -g 2000 -m 0640 \
-        "${reviewed_bundle}" "${bundle_stage}"
-    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch_root}"
-    notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}"
+        "${reviewed_bundle}" "${bundle_stage}" || return 1
+    failure_phase=runtime-verification
+    notifier_plugin_tree_is_exact "${runtime_stage}" "${reviewed_root}" "${scratch_root}" \
+        || return 1
+    failure_phase=bundle-verification
+    notifier_plugin_bundle_is_exact "${bundle_stage}" "${expected_sha}" || return 1
     stage_complete=true
 )
 

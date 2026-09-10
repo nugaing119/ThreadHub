@@ -177,7 +177,25 @@ func TestRequiredScenarioAndFailureAllowListsAreComplete(t *testing.T) {
 		"NF-HARNESS-plugin-pair",
 		"NF-HARNESS-plugin-pair-tamper",
 		"NF-HARNESS-plugin-pair-negative",
-		"NF-HARNESS-capture-api",
+		"NF-HARNESS-capture-container-query",
+		"NF-HARNESS-capture-container-missing",
+		"NF-HARNESS-capture-container-inspect",
+		"NF-HARNESS-capture-container-oom",
+		"NF-HARNESS-capture-container-exited",
+		"NF-HARNESS-capture-container-network",
+		"NF-HARNESS-capture-health",
+		"NF-HARNESS-smtp-trust-probe",
+		"NF-HARNESS-capture-initial",
+		"NF-HARNESS-capture-functional-before",
+		"NF-HARNESS-capture-functional-after",
+		"NF-HARNESS-capture-mailer-fault-before",
+		"NF-HARNESS-capture-smtp-fault-before",
+		"NF-HARNESS-capture-duplicate-before",
+		"NF-HARNESS-capture-mailer-recreate-before",
+		"NF-HARNESS-capture-mattermost-recreate-before",
+		"NF-HARNESS-capture-hmac-before",
+		"NF-HARNESS-capture-control-before",
+		"NF-HARNESS-capture-control-cutoff-before",
 		"NF-HARNESS-compose",
 		"NF-FN-01-public-root",
 		"NF-FN-01-first-attempt-latency",
@@ -245,6 +263,36 @@ func TestMattermostRecreateScenarioHasPrivacySafeStageFailures(t *testing.T) {
 	} {
 		if !bytes.Contains(source, []byte(`return "`+assertion+`"`)) {
 			t.Fatalf("mattermost recreate stage failure is missing %q", assertion)
+		}
+	}
+}
+
+func TestCaptureAPIFailuresIdentifyTheAcceptanceStage(t *testing.T) {
+	t.Parallel()
+
+	source, err := os.ReadFile("main.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(source, []byte(`return "NF-HARNESS-capture-api"`)) {
+		t.Fatal("acceptance runner retains an ambiguous capture API failure")
+	}
+	for _, assertion := range []string{
+		"NF-HARNESS-smtp-trust-probe",
+		"NF-HARNESS-capture-initial",
+		"NF-HARNESS-capture-functional-before",
+		"NF-HARNESS-capture-functional-after",
+		"NF-HARNESS-capture-mailer-fault-before",
+		"NF-HARNESS-capture-smtp-fault-before",
+		"NF-HARNESS-capture-duplicate-before",
+		"NF-HARNESS-capture-mailer-recreate-before",
+		"NF-HARNESS-capture-mattermost-recreate-before",
+		"NF-HARNESS-capture-hmac-before",
+		"NF-HARNESS-capture-control-before",
+		"NF-HARNESS-capture-control-cutoff-before",
+	} {
+		if !bytes.Contains(source, []byte(`return "`+assertion+`"`)) {
+			t.Fatalf("acceptance stage failure is missing %q", assertion)
 		}
 	}
 }
@@ -483,6 +531,15 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 	for name, snapshot := range map[string]captureSnapshot{
 		"duplicate": {Captures: []capture{{RecipientHash: strings.Repeat("a", 64)}, {RecipientHash: strings.Repeat("a", 64)}}},
 		"negative":  {Captures: []capture{{RecipientHash: strings.Repeat("b", 64), EnvelopeCount: -1}}},
+		"negative root context": {Captures: []capture{{
+			RecipientHash: strings.Repeat("e", 64), EnvelopeCount: 1, ContextRootCount: -1, LastAttemptAtMS: 1,
+		}}},
+		"negative thread context": {Captures: []capture{{
+			RecipientHash: strings.Repeat("f", 64), EnvelopeCount: 1, ContextThreadCount: -1, LastAttemptAtMS: 1,
+		}}},
+		"context total exceeds envelopes": {Captures: []capture{{
+			RecipientHash: strings.Repeat("a", 64), EnvelopeCount: 1, ContextRootCount: 1, ContextThreadCount: 1, LastAttemptAtMS: 1,
+		}}},
 		"bad hash":  {Captures: []capture{{RecipientHash: "recipient@integration.invalid", EnvelopeCount: 1, LastAttemptAtMS: 1}}},
 		"missing attempt timestamp": {Captures: []capture{{
 			RecipientHash: strings.Repeat("d", 64), EnvelopeCount: 1, GenericContent: true,
@@ -498,6 +555,12 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 	}
 	if !validateCaptureSnapshot(captureSnapshot{Captures: []capture{{RecipientHash: strings.Repeat("c", 64), EnvelopeCount: 0, GenericContent: true}}}) {
 		t.Fatal("validateCaptureSnapshot() rejected a valid aggregate")
+	}
+	if !validateCaptureSnapshot(captureSnapshot{Captures: []capture{{
+		RecipientHash: strings.Repeat("d", 64), EnvelopeCount: 2, GenericContent: true,
+		ContextRootCount: 1, ContextThreadCount: 1, LastAttemptAtMS: 1,
+	}}}) {
+		t.Fatal("validateCaptureSnapshot() rejected valid project-context counts")
 	}
 }
 

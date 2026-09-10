@@ -49,6 +49,21 @@ artifact에는 다음 비밀정보 없는 필드만 기록됩니다. 이 설명�
 | existing-adoption scenario count | 10 |
 | result | `pass` 또는 실패 시 안전한 `NF-ADOPT-*` ID |
 
+## existing-upgrade evidence contract
+
+`notifier-existing-upgrade` CI job은 source commit
+`c193155eeb6298771d4366d6af4cae81499487b8`의 정확한 v0.1.0
+existing-adoption 프로필을 v0.2.0으로 전환하고 복구하는
+`NF-UPGRADE-01`~`NF-UPGRADE-12`를 검증합니다. successful transition, 공개·비공개
+root/thread 컨텍스트, 명시적 rollback, plugin publication 직후 실패, schema migration
+직후 실패와 두 번째 전환을 포함합니다.
+
+성공 artifact에는 검증한 source commit, 고정 Mattermost·PostgreSQL image digest,
+source/target notifier version, source/target plugin bundle SHA-256, 12개 시나리오 수와
+`pass` 결과만 기록합니다. Team·사용자·채널·게시물·파일 집계 원문, 도메인, 이메일,
+메시지 본문과 queue row는 공개하지 않습니다. 아직 실행되지 않은 커밋을 통과로 표시하지
+않으며, 실제 해당 커밋의 CI artifact가 생성되기 전에는 migration-ready 증거가 아닙니다.
+
 ## 2. 자동·반자동 검증
 
 다음 항목은 저장소 검증 스크립트, GitHub Actions와 실제 시험 인스턴스에서

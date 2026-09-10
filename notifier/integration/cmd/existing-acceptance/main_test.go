@@ -205,3 +205,28 @@ func TestWaitDeltaRejectsNonGenericNotification(t *testing.T) {
 		t.Fatal("waitDelta() accepted a non-generic notification delivery")
 	}
 }
+
+func TestWaitContextDeltaRequiresExactRootAndThreadAggregates(t *testing.T) {
+	t.Parallel()
+
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	recipient := "recipient@integration.invalid"
+	recipientHash := protocol.HashIdentifier(secret, "integration-recipient", recipient)
+	c := &client{http: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body: io.NopCloser(strings.NewReader(`{"captures":[{"recipient_hash":"` + recipientHash +
+				`","envelope_count":2,"generic_content":false,"context_root_count":1,"context_thread_count":1,"last_attempt_at_ms":1}]}`)),
+			Header: make(http.Header),
+		}, nil
+	})}}
+
+	want := map[string]contextDelivery{recipient: {Envelopes: 2, Roots: 1, Threads: 1}}
+	if err := waitContextDelta(context.Background(), c, secret, captureSnapshot{Captures: []capture{}}, want, 50*time.Millisecond); err != nil {
+		t.Fatalf("waitContextDelta() rejected exact context aggregates: %v", err)
+	}
+	want[recipient] = contextDelivery{Envelopes: 2, Roots: 2, Threads: 0}
+	if err := waitContextDelta(context.Background(), c, secret, captureSnapshot{Captures: []capture{}}, want, 5*time.Millisecond); err == nil {
+		t.Fatal("waitContextDelta() accepted the wrong event-type aggregates")
+	}
+}
