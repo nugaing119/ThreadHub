@@ -218,15 +218,39 @@ evidence_capture_failure_class() {
     printf '%s' unavailable
 }
 
+transaction_failure_class() {
+    local output_file="$1"
+    local phase=""
+
+    for phase in \
+        source_captured target_release_verified target_env_published target_release_published \
+        target_override_published target_plugin_pair_published target_mailer_started \
+        target_queue_v2_verified target_mattermost_recreated target_pair_verified \
+        after_baseline_captured baseline_matched disabled_verified; do
+        if grep -Fxq "[threadhub] ERROR: notifier transition halted after phase: ${phase}" \
+            "${output_file}"; then
+            printf '%s' "transaction-after-${phase//_/-}"
+            return 0
+        fi
+    done
+    printf '%s' unavailable
+}
+
 upgrade_failure_class() {
     local status="$1"
     local output_file="$2"
     local stage=""
     local capture_class=""
+    local transaction_class=""
 
     capture_class="$(evidence_capture_failure_class "${output_file}")"
     if [[ "${capture_class}" != unavailable ]]; then
         printf '%s' "capture-${capture_class}"
+        return 0
+    fi
+    transaction_class="$(transaction_failure_class "${output_file}")"
+    if [[ "${transaction_class}" != unavailable ]]; then
+        printf '%s' "${transaction_class}"
         return 0
     fi
 

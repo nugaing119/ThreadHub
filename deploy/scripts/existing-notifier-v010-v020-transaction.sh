@@ -25,6 +25,14 @@ existing_notifier_v010_v020_tx_plugin_pair_transaction() {
     notifier_plugin_transaction "$@"
 }
 
+existing_notifier_v010_v020_tx_record_halt() {
+    case "$1" in
+        source_captured|target_release_verified|target_env_published|target_release_published|target_override_published|target_plugin_pair_published|target_mailer_started|target_queue_v2_verified|target_mattermost_recreated|target_pair_verified|after_baseline_captured|baseline_matched|disabled_verified) ;;
+        *) return 2 ;;
+    esac
+    printf '[threadhub] ERROR: notifier transition halted after phase: %s\n' "$1" >&2
+}
+
 existing_notifier_v010_v020_tx_require_new_attempt() {
     local attempt_root="$1"
     local state_file
@@ -69,6 +77,7 @@ existing_notifier_v010_v020_transaction() (
         if [[ "${transaction_complete}" == true || "${transaction_started}" != true ]]; then
             exit "${original_result}"
         fi
+        existing_notifier_v010_v020_tx_record_halt "${current_phase}" || true
         set +e
         if v010_v020_tx_recover_source "${attempt_root}"; then
             if ! existing_notifier_v010_v020_tx_state_write \

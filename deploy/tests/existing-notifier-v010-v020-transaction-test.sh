@@ -190,6 +190,24 @@ test_every_boundary_recovers_or_fails_hard() (
             [[ ! -e "${attempt_root}/transaction-state.json" ]] || return 1
             ! grep -Fx recover-source "${calls}" >/dev/null || return 1
         else
+            case "${failed}" in
+                verify-target-release) expected_halt_phase=source_captured ;;
+                publish-target-env) expected_halt_phase=target_release_verified ;;
+                publish-target-release) expected_halt_phase=target_env_published ;;
+                publish-target-override) expected_halt_phase=target_release_published ;;
+                publish-target-plugin-pair) expected_halt_phase=target_override_published ;;
+                start-target-mailer) expected_halt_phase=target_plugin_pair_published ;;
+                inspect-target-queue-v2) expected_halt_phase=target_mailer_started ;;
+                recreate-target-mattermost) expected_halt_phase=target_queue_v2_verified ;;
+                verify-target-pair) expected_halt_phase=target_mattermost_recreated ;;
+                capture-after-baseline) expected_halt_phase=target_pair_verified ;;
+                compare-baseline) expected_halt_phase=after_baseline_captured ;;
+                verify-disabled) expected_halt_phase=baseline_matched ;;
+                mark-target-ready) expected_halt_phase=disabled_verified ;;
+                *) return 1 ;;
+            esac
+            grep -Fx "[threadhub] ERROR: notifier transition halted after phase: ${expected_halt_phase}" \
+                "${output}" >/dev/null || return 1
             [[ "$(existing_notifier_v010_v020_tx_state_current "${attempt_root}")" == source_recovered ]] || return 1
             [[ "$(tail -n 1 "${calls}")" == recover-source ]] || return 1
             if grep -Fx publish-target-env "${calls}" >/dev/null; then
