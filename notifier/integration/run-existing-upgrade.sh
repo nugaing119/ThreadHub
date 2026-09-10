@@ -414,7 +414,7 @@ EOF
         source_bundle_created=true
     fi
     private connect_smtp_fixture
-    printf '%s\n' recipient-a@integration.invalid >"${integration_root}/smtp-recipient"
+    printf '%s\n' probe@integration.invalid >"${integration_root}/smtp-recipient"
     private run_current_stdin "${integration_root}/smtp-recipient" \
         "${source_root}/deploy/scripts/existing-notifier-smtp-test.sh" --recipient-stdin
     private activate_source_all_channels
