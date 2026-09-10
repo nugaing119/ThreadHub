@@ -36,6 +36,7 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 		{name: "smtp recipient stdin", args: []string{"smtp-test", "--recipient-stdin"}, want: "smtp-test"},
 		{name: "backup alert json stdin", args: []string{"backup-alert", "--json-stdin"}, want: "backup-alert"},
 		{name: "queue inspect json", args: []string{"queue-inspect", "--json"}, want: "queue-inspect"},
+		{name: "offline queue inspect json", args: []string{"queue-inspect", "--json", "--offline"}, want: "queue-inspect-offline"},
 		{name: "retry failed", args: []string{"retry-failed"}, want: "retry-failed"},
 		{name: "cancel failed", args: []string{"cancel-failed"}, want: "cancel-failed"},
 	} {
@@ -44,6 +45,10 @@ func TestRunCommandAcceptsOnlyExactSubcommandContracts(t *testing.T) {
 			operations := commandOperations{
 				inspectQueue: func(string) (store.Inspection, error) {
 					called = "queue-inspect"
+					return store.Inspection{}, nil
+				},
+				inspectOfflineQueue: func(string) (store.Inspection, error) {
+					called = "queue-inspect-offline"
 					return store.Inspection{}, nil
 				},
 				serve:       func(context.Context, config.Config) error { called = "serve"; return nil },

@@ -244,6 +244,18 @@ existing_notifier_v010_v020_run_queue_inspector() {
         queue-inspect --json > "${output_file}"
 }
 
+existing_notifier_v010_v020_run_offline_queue_inspector() {
+    local output_file="$1"
+    local source_mailer
+
+    source_mailer="$(existing_notifier_v010_v020_value THN_DATA_ROOT)/mailer"
+    "${DOCKER_COMMAND[@]}" run --rm --pull never --network none --read-only \
+        --cap-drop ALL --security-opt no-new-privileges --user 65532:65532 \
+        --mount "type=bind,src=${source_mailer},dst=/var/lib/threadhub-notifier,readonly" \
+        "threadhub/notifier-mailer:${EXISTING_NOTIFIER_V020_VERSION}" \
+        queue-inspect --json --offline > "${output_file}"
+}
+
 v010_v020_capture_inspect_queue_v1() {
     local attempt_root="$1"
     local temporary_dir
@@ -254,7 +266,7 @@ v010_v020_capture_inspect_queue_v1() {
     chmod 0700 "${temporary_dir}"
     inspection_file="${temporary_dir}/queue-inspection.json"
     destination="${attempt_root}/queue-inspection.json"
-    if ! existing_notifier_v010_v020_run_queue_inspector "${inspection_file}"; then
+    if ! existing_notifier_v010_v020_run_offline_queue_inspector "${inspection_file}"; then
         rm -rf -- "${temporary_dir}"
         return 1
     fi

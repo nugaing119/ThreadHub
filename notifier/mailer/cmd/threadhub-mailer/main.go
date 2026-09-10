@@ -48,14 +48,15 @@ type smtpAcceptanceError struct {
 func (e *smtpAcceptanceError) Error() string { return errSMTPAcceptance.Error() }
 
 type commandOperations struct {
-	inspectQueue   func(string) (store.Inspection, error)
-	serve          func(context.Context, config.Config) error
-	healthcheck    func(context.Context, config.Config) error
-	status         func(context.Context, config.Config) (store.Status, error)
-	smtpAcceptance func(context.Context, config.Config, string) smtpclient.Result
-	backupAlert    func(context.Context, config.Config, string, string) smtpclient.Result
-	retryFailed    func(context.Context, config.Config) (int64, error)
-	cancelFailed   func(context.Context, config.Config) (int64, error)
+	inspectQueue        func(string) (store.Inspection, error)
+	inspectOfflineQueue func(string) (store.Inspection, error)
+	serve               func(context.Context, config.Config) error
+	healthcheck         func(context.Context, config.Config) error
+	status              func(context.Context, config.Config) (store.Status, error)
+	smtpAcceptance      func(context.Context, config.Config, string) smtpclient.Result
+	backupAlert         func(context.Context, config.Config, string, string) smtpclient.Result
+	retryFailed         func(context.Context, config.Config) (int64, error)
+	cancelFailed        func(context.Context, config.Config) (int64, error)
 }
 
 type statusOutput struct {
@@ -113,6 +114,16 @@ func runCommand(ctx context.Context, args []string, stdin io.Reader, stdout io.W
 			return errUsage
 		}
 		inspection, err := operations.inspectQueue(queueInspectionPath)
+		if err != nil {
+			return err
+		}
+		return json.NewEncoder(stdout).Encode(inspection)
+	}
+	if command == "queue-inspect-offline" {
+		if operations.inspectOfflineQueue == nil {
+			return errUsage
+		}
+		inspection, err := operations.inspectOfflineQueue(queueInspectionPath)
 		if err != nil {
 			return err
 		}
@@ -225,6 +236,8 @@ func parseCommand(args []string) (string, error) {
 		return "config-fingerprint", nil
 	case len(args) == 2 && args[0] == "queue-inspect" && args[1] == "--json":
 		return "queue-inspect", nil
+	case len(args) == 3 && args[0] == "queue-inspect" && args[1] == "--json" && args[2] == "--offline":
+		return "queue-inspect-offline", nil
 	case len(args) == 1 && args[0] == "retry-failed":
 		return "retry-failed", nil
 	case len(args) == 1 && args[0] == "cancel-failed":
@@ -311,15 +324,24 @@ func safeSMTPCode(value int) int {
 
 func productionOperations() commandOperations {
 	return commandOperations{
-		inspectQueue: defaultInspectQueue,
-		serve:        defaultServe, healthcheck: defaultHealthcheck, status: defaultStatus,
-		smtpAcceptance: defaultSMTPAcceptance, backupAlert: defaultBackupAlert,
-		retryFailed: defaultRetryFailed, cancelFailed: defaultCancelFailed,
+		inspectQueue:        defaultInspectQueue,
+		inspectOfflineQueue: defaultInspectOfflineQueue,
+		serve:               defaultServe,
+		healthcheck:         defaultHealthcheck,
+		status:              defaultStatus,
+		smtpAcceptance:      defaultSMTPAcceptance,
+		backupAlert:         defaultBackupAlert,
+		retryFailed:         defaultRetryFailed,
+		cancelFailed:        defaultCancelFailed,
 	}
 }
 
 func defaultInspectQueue(path string) (store.Inspection, error) {
 	return store.Inspect(path)
+}
+
+func defaultInspectOfflineQueue(path string) (store.Inspection, error) {
+	return store.InspectOffline(path)
 }
 
 func defaultStatus(ctx context.Context, cfg config.Config) (store.Status, error) {

@@ -99,6 +99,17 @@ type SQLiteStore struct {
 }
 
 func Inspect(path string) (Inspection, error) {
+	return inspect(path, false)
+}
+
+// InspectOffline reads a queue that the caller has already made quiescent.
+// Immutable mode prevents SQLite from creating WAL sidecars in a read-only
+// evidence mount, and must not be used while another process can write it.
+func InspectOffline(path string) (Inspection, error) {
+	return inspect(path, true)
+}
+
+func inspect(path string, immutable bool) (Inspection, error) {
 	if !filepath.IsAbs(path) {
 		return Inspection{}, ErrInvalidStore
 	}
@@ -107,6 +118,9 @@ func Inspect(path string) (Inspection, error) {
 	}
 	query := url.Values{}
 	query.Set("mode", "ro")
+	if immutable {
+		query.Set("immutable", "1")
+	}
 	query.Add("_pragma", "query_only(1)")
 	query.Add("_pragma", "busy_timeout(5000)")
 	dsn := (&url.URL{Scheme: "file", Path: path, RawQuery: query.Encode()}).String()

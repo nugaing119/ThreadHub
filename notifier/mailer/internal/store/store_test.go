@@ -147,6 +147,32 @@ func TestInspectReportsSchemaV1WithoutMigrating(t *testing.T) {
 	}
 }
 
+func TestInspectOfflineReadsClosedWALDatabaseFromReadOnlyDirectory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "queue.db")
+	store := openTestStore(t, path)
+	if err := store.Close(); err != nil {
+		t.Fatalf("Close() error = %v", err)
+	}
+	for _, sidecar := range []string{path + "-wal", path + "-shm"} {
+		if err := os.Remove(sidecar); err != nil && !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("remove closed WAL sidecar %s: %v", filepath.Base(sidecar), err)
+		}
+	}
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatalf("Chmod(read-only directory) error = %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+
+	inspection, err := InspectOffline(path)
+	if err != nil {
+		t.Fatalf("InspectOffline(closed WAL database in read-only directory) error = %v", err)
+	}
+	if inspection.SchemaVersion != 2 {
+		t.Fatalf("InspectOffline() schema version = %d, want 2", inspection.SchemaVersion)
+	}
+}
+
 func TestInspectReportsOnlySafeAggregatesForSchemaV2(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "queue.db")
 	store := openTestStore(t, path)

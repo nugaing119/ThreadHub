@@ -264,7 +264,10 @@ test_control_mailer_and_queue_schema_gates() (
         printf '%s' "${fixture_mailer_id}"
     }
     fixture_queue_inspection='{"schema_version":1,"events":2,"nonces":3,"pending":1,"sending":0,"sent":1,"failed":0,"cancelled":0}'
-    existing_notifier_v010_v020_run_queue_inspector() { printf '%s\n' "${fixture_queue_inspection}" > "$1"; }
+    existing_notifier_v010_v020_run_queue_inspector() { return 1; }
+    existing_notifier_v010_v020_run_offline_queue_inspector() {
+        printf '%s\n' "${fixture_queue_inspection}" > "$1"
+    }
 
     v010_v020_capture_control_is_disabled "${attempt_root}" || return 1
     v010_v020_capture_mailer_is_stopped "${attempt_root}" || return 1
