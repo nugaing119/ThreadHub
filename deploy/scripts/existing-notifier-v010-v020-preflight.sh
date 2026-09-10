@@ -341,9 +341,15 @@ existing_notifier_v010_v020_live_mattermost_is_supported() {
 existing_notifier_v010_v020_live_postgres_is_supported() {
     local service="$1"
     local output_file="$2"
+    local actual
 
     existing_notifier_v010_v020_compose_combined exec -T "${service}" psql --version > "${output_file}" || return 1
-    [[ "$(tr -d '\r\n' < "${output_file}")" == "psql (PostgreSQL) ${EXISTING_NOTIFIER_V010_POSTGRES_VERSION}" ]]
+    [[ "$(wc -l < "${output_file}" | tr -d '[:space:]')" == 1 ]] || return 1
+    actual="$(awk '
+      $1 == "psql" && $2 == "(PostgreSQL)" && NF >= 3 { count++; value=$3 }
+      END { if (count != 1) exit 1; print value }
+    ' "${output_file}")" || return 1
+    [[ "${actual}" == "${EXISTING_NOTIFIER_V010_POSTGRES_VERSION}" ]]
 }
 
 existing_notifier_v010_v020_live_site_url_matches() {

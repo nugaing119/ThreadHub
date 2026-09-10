@@ -436,6 +436,7 @@ prepare_preflight_fixture() {
     : > "${calls}"
     fixture_version=11.7.7
     fixture_postgres_version=18.4
+    fixture_postgres_suffix=' (Debian 18.4-1.pgdg13+2)'
     fixture_pair_presence=present
     fixture_pair_sha=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
     fixture_plugin_json='{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.1.0"}],"inactive":[]}'
@@ -463,7 +464,7 @@ fake_preflight_combined_compose() {
       'ps -q postgres') printf '%064d\n' 2 ;;
       'ps -q threadhub-mailer') printf '%064d\n' 3 ;;
       'exec -T mattermost mattermost version') printf 'Version: %s\nBuild Enterprise Ready: false\n' "${fixture_version}" ;;
-      'exec -T postgres psql --version') printf 'psql (PostgreSQL) %s\n' "${fixture_postgres_version}" ;;
+      'exec -T postgres psql --version') printf 'psql (PostgreSQL) %s%s\n' "${fixture_postgres_version}" "${fixture_postgres_suffix}" ;;
       'exec -T mattermost mmctl config get ServiceSettings.SiteURL --local --suppress-warnings') printf '%s\n' 'https://threadhub.valid.test' ;;
       'exec -T mattermost mmctl plugin list --local --suppress-warnings --json') printf '%s\n' "${fixture_plugin_json}" ;;
       'exec -T threadhub-mailer /threadhub-mailer status --json')
