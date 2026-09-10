@@ -15,6 +15,31 @@ fail() { printf 'not ok - %s\n' "$1" >&2; failures=$((failures + 1)); }
 pass() { printf 'ok - %s\n' "$1"; }
 run_test() { if "$2"; then pass "$1"; else fail "$1"; fi; }
 
+v010_v020_test_privileged() {
+    local command_name="$1"
+    shift
+    local filtered=()
+    if [[ "${command_name}" == stat && "${1:-}" == -c && "${2:-}" == '%u:%g:%a' ]]; then
+        if stat -c '%a' "$3" >/dev/null 2>&1; then
+            printf '0:0:%s\n' "$(stat -c '%a' "$3")"
+        else
+            printf '0:0:%s\n' "$(stat -f '%Lp' "$3")"
+        fi
+        return
+    fi
+    if [[ "${command_name}" == install ]]; then
+        while (($# > 0)); do
+            case "$1" in
+                -o|-g) shift 2 ;;
+                *) filtered+=("$1"); shift ;;
+            esac
+        done
+        command install "${filtered[@]}"
+        return
+    fi
+    command "${command_name}" "$@"
+}
+
 test_entry_points_exist() {
     [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]
 }
@@ -188,6 +213,94 @@ test_plugin_publish_halt_diagnostics_are_fixed() (
         > "${output}" 2>&1
 )
 
+test_target_plugin_extraction_uses_preserved_stage_bundle() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${fixture}"' EXIT
+    # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
+    source "${UPGRADE_SCRIPT}"
+    SUDO_COMMAND=(v010_v020_test_privileged)
+    REPOSITORY_ROOT="${fixture}/repository"
+    live_data="${fixture}/live-data"
+    target_root="${fixture}/target"
+    bundle_source="${fixture}/bundle-source"
+    plugin_id=com.threadhub.channel-email-notifier
+    plugin_root="${bundle_source}/${plugin_id}"
+    preserved_bundle="${target_root}/plugin-bundle.tar.gz"
+    source_bundle="${REPOSITORY_ROOT}/notifier/dist/${plugin_id}-0.2.0.tar.gz"
+    scratch="${fixture}/scratch"
+    mkdir -p \
+        "$(dirname "${source_bundle}")" "${live_data}/release" "${target_root}" "${scratch}" \
+        "${plugin_root}/server/dist" \
+        "${plugin_root}/third_party/licenses/github.com/mattermost/mattermost/server/public"
+    printf '%s\n' \
+        '{"description":"reviewed","homepage_url":"https://threadhub.invalid","id":"com.threadhub.channel-email-notifier","min_server_version":"11.7.7","name":"ThreadHub Notifier","server":{"executables":{"linux-amd64":"server/dist/plugin-linux-amd64"}},"support_url":"https://threadhub.invalid","version":"0.2.0"}' \
+        > "${plugin_root}/plugin.json"
+    printf '%s\n' executable > "${plugin_root}/server/dist/plugin-linux-amd64"
+    printf '%s\n' license > "${plugin_root}/LICENSE"
+    printf '%s\n' notices > "${plugin_root}/THIRD_PARTY_NOTICES.md"
+    printf '%s\n' readme > "${plugin_root}/third_party/README.md"
+    printf '%s\n' modules > "${plugin_root}/third_party/modules.tsv"
+    printf '%s\n' sdk-license \
+        > "${plugin_root}/third_party/licenses/github.com/mattermost/mattermost/server/public/LICENSE.txt"
+    COPYFILE_DISABLE=1 tar -czf "${source_bundle}" -C "${bundle_source}" "${plugin_id}"
+    bundle_sha="$(sha256_file "${source_bundle}")"
+    cat > "${live_data}/release/release.env" <<EOF
+NOTIFIER_PLUGIN_BUNDLE=notifier/dist/${plugin_id}-0.2.0.tar.gz
+NOTIFIER_PLUGIN_BUNDLE_SHA256=${bundle_sha}
+EOF
+    existing_notifier_v010_v020_preserve_target_bundle \
+        "${live_data}/release" "${preserved_bundle}" || return 1
+    rm -f -- "${source_bundle}"
+
+    existing_notifier_v010_v020_value() {
+        [[ "$1" == THN_DATA_ROOT ]] || return 1
+        printf '%s\n' "${live_data}"
+    }
+    existing_notifier_v010_v020_target_root() {
+        printf '%s\n' "${target_root}"
+    }
+
+    extracted_bundle=""
+    extracted_sha=""
+    extracted_root=""
+    existing_notifier_v010_v020_extract_target_plugin \
+        "${scratch}" extracted_bundle extracted_sha extracted_root || return 1
+    [[ "${extracted_bundle}" == "${scratch}/target-plugin-bundle.tar.gz" \
+        && "${extracted_sha}" == "${bundle_sha}" \
+        && -f "${extracted_bundle}" && ! -L "${extracted_bundle}" \
+        && "$(sha256_file "${extracted_bundle}")" == "${bundle_sha}" \
+        && "${extracted_root}" == "${scratch}/reviewed/${plugin_id}" \
+        && -f "${extracted_root}/plugin.json" ]]
+)
+
+test_target_bundle_is_preserved_before_repository_artifact_disappears() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${fixture}"' EXIT
+    # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
+    source "${UPGRADE_SCRIPT}"
+    REPOSITORY_ROOT="${fixture}/repository"
+    release_dir="${fixture}/release"
+    target_root="${fixture}/target"
+    source_bundle="${REPOSITORY_ROOT}/notifier/dist/com.threadhub.channel-email-notifier-0.2.0.tar.gz"
+    preserved_bundle="${target_root}/plugin-bundle.tar.gz"
+    mkdir -p "$(dirname "${source_bundle}")" "${release_dir}" "${target_root}"
+    printf '%s\n' reviewed-bundle > "${source_bundle}"
+    bundle_sha="$(sha256_file "${source_bundle}")"
+    cat > "${release_dir}/release.env" <<EOF
+NOTIFIER_PLUGIN_BUNDLE=notifier/dist/com.threadhub.channel-email-notifier-0.2.0.tar.gz
+NOTIFIER_PLUGIN_BUNDLE_SHA256=${bundle_sha}
+EOF
+
+    SUDO_COMMAND=(v010_v020_test_privileged)
+
+    existing_notifier_v010_v020_preserve_target_bundle \
+        "${release_dir}" "${preserved_bundle}" || return 1
+    rm -f -- "${source_bundle}"
+    [[ -f "${preserved_bundle}" && ! -L "${preserved_bundle}" \
+        && "$(sha256_file "${preserved_bundle}")" == "${bundle_sha}" \
+        && "$(v010_v020_test_privileged stat -c '%u:%g:%a' "${preserved_bundle}")" == 0:0:600 ]]
+)
+
 test_acceptance_handoff_is_exact() (
     # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
     source "${UPGRADE_SCRIPT}"
@@ -311,6 +424,8 @@ if [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]; then
     run_test 'operations have no unsafe shortcuts' test_operations_have_no_unsafe_shortcuts
     run_test 'production contracts are wired' test_production_contracts_are_wired
     run_test 'plugin publication halt diagnostics are fixed' test_plugin_publish_halt_diagnostics_are_fixed
+    run_test 'target plugin extraction uses the preserved stage bundle' test_target_plugin_extraction_uses_preserved_stage_bundle
+    run_test 'target bundle is preserved before the repository artifact disappears' test_target_bundle_is_preserved_before_repository_artifact_disappears
     run_test 'acceptance handoff is exact' test_acceptance_handoff_is_exact
     run_test 'failed or pending work blocks without disposition' test_failed_or_pending_work_blocks_without_disposition
     run_test 'pilot work requires exact interactive review' test_pilot_work_requires_exact_interactive_review

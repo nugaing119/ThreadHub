@@ -103,6 +103,68 @@ existing_notifier_v010_v020_validate_target_bundle() (
     ' "${extracted_root}/plugin.json" >/dev/null
 )
 
+existing_notifier_v010_v020_preserved_target_bundle_is_exact() (
+    local release_dir="$1"
+    local preserved_bundle="$2"
+    local temporary_dir
+    local release_copy
+    local bundle_relative
+    local bundle_sha
+
+    [[ "$#" -eq 2 ]] || return 2
+    temporary_dir="$(mktemp -d)" || return 1
+    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    chmod 0700 "${temporary_dir}"
+    release_copy="${temporary_dir}/release.env"
+    "${SUDO_COMMAND[@]}" cat "${release_dir}/release.env" > "${release_copy}" || return 1
+    chmod 0600 "${release_copy}"
+    bundle_relative="$(existing_notifier_v010_v020_release_value \
+        "${release_copy}" NOTIFIER_PLUGIN_BUNDLE)" || return 1
+    bundle_sha="$(existing_notifier_v010_v020_release_value \
+        "${release_copy}" NOTIFIER_PLUGIN_BUNDLE_SHA256)" || return 1
+    [[ "${bundle_relative}" == "notifier/dist/com.threadhub.channel-email-notifier-${EXISTING_NOTIFIER_V020_VERSION}.tar.gz" \
+        && "${bundle_sha}" =~ ^[a-f0-9]{64}$ ]] || return 1
+    "${SUDO_COMMAND[@]}" test -f "${preserved_bundle}" \
+        && "${SUDO_COMMAND[@]}" test ! -L "${preserved_bundle}" \
+        && [[ "$(existing_notifier_v010_v020_capture_identity "${preserved_bundle}")" == 0:0:600 ]] \
+        && [[ "$(notifier_plugin_privileged_sha256 "${preserved_bundle}")" == "${bundle_sha}" ]]
+)
+
+existing_notifier_v010_v020_preserve_target_bundle() (
+    local release_dir="$1"
+    local preserved_bundle="$2"
+    local temporary_dir
+    local release_copy
+    local bundle_relative
+    local bundle_sha
+    local source_bundle
+
+    [[ "$#" -eq 2 ]] || return 2
+    temporary_dir="$(mktemp -d)" || return 1
+    trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
+    chmod 0700 "${temporary_dir}"
+    release_copy="${temporary_dir}/release.env"
+    "${SUDO_COMMAND[@]}" cat "${release_dir}/release.env" > "${release_copy}" || return 1
+    chmod 0600 "${release_copy}"
+    bundle_relative="$(existing_notifier_v010_v020_release_value \
+        "${release_copy}" NOTIFIER_PLUGIN_BUNDLE)" || return 1
+    bundle_sha="$(existing_notifier_v010_v020_release_value \
+        "${release_copy}" NOTIFIER_PLUGIN_BUNDLE_SHA256)" || return 1
+    source_bundle="${REPOSITORY_ROOT}/${bundle_relative}"
+    [[ "${bundle_relative}" == "notifier/dist/com.threadhub.channel-email-notifier-${EXISTING_NOTIFIER_V020_VERSION}.tar.gz" \
+        && "${bundle_sha}" =~ ^[a-f0-9]{64}$ \
+        && -f "${source_bundle}" && ! -L "${source_bundle}" \
+        && "$(sha256_file "${source_bundle}")" == "${bundle_sha}" ]] || return 1
+    if "${SUDO_COMMAND[@]}" test -e "${preserved_bundle}" \
+        || "${SUDO_COMMAND[@]}" test -L "${preserved_bundle}"; then
+        return 1
+    fi
+    "${SUDO_COMMAND[@]}" install -o 0 -g 0 -m 0600 \
+        "${source_bundle}" "${preserved_bundle}" || return 1
+    existing_notifier_v010_v020_preserved_target_bundle_is_exact \
+        "${release_dir}" "${preserved_bundle}"
+)
+
 existing_notifier_v010_v020_verify_target_stage() (
     local target_root
     local temporary_dir
@@ -125,6 +187,8 @@ existing_notifier_v010_v020_verify_target_stage() (
         || return 1
     notifier_artifact_release_is_current "${target_root}/release" || return 1
     existing_notifier_v010_v020_validate_target_bundle "${target_root}/release" || return 1
+    existing_notifier_v010_v020_preserved_target_bundle_is_exact \
+        "${target_root}/release" "${target_root}/plugin-bundle.tar.gz" || return 1
     temporary_dir="$(mktemp -d)" || return 1
     trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
     chmod 0700 "${temporary_dir}"
@@ -202,6 +266,8 @@ v010_v020_upgrade_prepare_target_release() (
         existing_notifier_render_override "${target_override}"
     ) || return 1
     notifier_build_artifacts "${target_root}/release" || return $?
+    existing_notifier_v010_v020_preserve_target_bundle \
+        "${target_root}/release" "${target_root}/plugin-bundle.tar.gz" || return 1
     existing_notifier_v010_v020_run_queue_inspector "${queue_inspection}" || return 1
     existing_notifier_v010_v020_queue_inspection_is_valid "${queue_inspection}" || return 1
     [[ "$(jq -er '.schema_version' "${queue_inspection}")" == 1 ]] || return 1
@@ -399,12 +465,20 @@ v010_v020_tx_publish_target_override() {
 
 existing_notifier_v010_v020_extract_target_plugin() {
     local scratch_root="$1"
+    local output_bundle_name="$2"
+    local output_sha_name="$3"
+    local output_root_name="$4"
     local release_copy
     local bundle_relative
     local bundle_sha
-    local bundle_path
+    local preserved_bundle
+    local reviewed_bundle
     local reviewed_root
 
+    [[ "$#" -eq 4 \
+        && "${output_bundle_name}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ \
+        && "${output_sha_name}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ \
+        && "${output_root_name}" =~ ^[a-zA-Z_][a-zA-Z0-9_]*$ ]] || return 2
     release_copy="${scratch_root}/release.env"
     "${SUDO_COMMAND[@]}" cat \
         "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/release/release.env" \
@@ -412,19 +486,28 @@ existing_notifier_v010_v020_extract_target_plugin() {
     chmod 0600 "${release_copy}"
     bundle_relative="$(existing_notifier_v010_v020_release_value "${release_copy}" NOTIFIER_PLUGIN_BUNDLE)" || return 1
     bundle_sha="$(existing_notifier_v010_v020_release_value "${release_copy}" NOTIFIER_PLUGIN_BUNDLE_SHA256)" || return 1
-    bundle_path="${REPOSITORY_ROOT}/${bundle_relative}"
+    preserved_bundle="$(existing_notifier_v010_v020_target_root)/plugin-bundle.tar.gz"
+    reviewed_bundle="${scratch_root}/target-plugin-bundle.tar.gz"
+    existing_notifier_v010_v020_preserved_target_bundle_is_exact \
+        "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/release" \
+        "${preserved_bundle}" || return 1
     [[ "${bundle_relative}" == "notifier/dist/com.threadhub.channel-email-notifier-${EXISTING_NOTIFIER_V020_VERSION}.tar.gz" \
         && "${bundle_sha}" =~ ^[a-f0-9]{64}$ \
-        && -f "${bundle_path}" && ! -L "${bundle_path}" \
-        && "$(sha256_file "${bundle_path}")" == "${bundle_sha}" ]] || return 1
-    tar -tzf "${bundle_path}" > "${scratch_root}/entries" || return 1
+        && ! -e "${reviewed_bundle}" && ! -L "${reviewed_bundle}" \
+        && "$(notifier_plugin_privileged_sha256 "${preserved_bundle}")" == "${bundle_sha}" ]] \
+        || return 1
+    "${SUDO_COMMAND[@]}" cat "${preserved_bundle}" > "${reviewed_bundle}" || return 1
+    chmod 0600 "${reviewed_bundle}"
+    [[ -f "${reviewed_bundle}" && ! -L "${reviewed_bundle}" \
+        && "$(sha256_file "${reviewed_bundle}")" == "${bundle_sha}" ]] || return 1
+    tar -tzf "${reviewed_bundle}" > "${scratch_root}/entries" || return 1
     notifier_plugin_bundle_entries_are_valid \
         "${scratch_root}/entries" com.threadhub.channel-email-notifier current || return 1
-    tar -tvzf "${bundle_path}" > "${scratch_root}/verbose-entries" || return 1
+    tar -tvzf "${reviewed_bundle}" > "${scratch_root}/verbose-entries" || return 1
     awk '{ type=substr($1,1,1); if (type != "-" && type != "d") exit 1 }' \
         "${scratch_root}/verbose-entries" || return 1
     mkdir -m 0700 "${scratch_root}/reviewed"
-    tar --extract --gzip --file "${bundle_path}" --directory "${scratch_root}/reviewed" \
+    tar --extract --gzip --file "${reviewed_bundle}" --directory "${scratch_root}/reviewed" \
         --no-same-owner --no-same-permissions || return 1
     reviewed_root="${scratch_root}/reviewed/com.threadhub.channel-email-notifier"
     jq -e --arg version "${EXISTING_NOTIFIER_V020_VERSION}" '
@@ -432,9 +515,9 @@ existing_notifier_v010_v020_extract_target_plugin() {
       .min_server_version == "11.7.7" and
       .server.executables["linux-amd64"] == "server/dist/plugin-linux-amd64"
     ' "${reviewed_root}/plugin.json" >/dev/null || return 1
-    EXISTING_NOTIFIER_V020_TARGET_BUNDLE="${bundle_path}"
-    EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA="${bundle_sha}"
-    EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT="${reviewed_root}"
+    printf -v "${output_bundle_name}" '%s' "${reviewed_bundle}"
+    printf -v "${output_sha_name}" '%s' "${bundle_sha}"
+    printf -v "${output_root_name}" '%s' "${reviewed_root}"
 }
 
 existing_notifier_v010_v020_plugin_publish_record_halt() {
@@ -466,6 +549,9 @@ v010_v020_tx_publish_target_plugin_pair() (
     local bundle_device
     local stage_device
     local stage_status
+    local target_bundle=""
+    local target_bundle_sha=""
+    local target_reviewed_root=""
 
     target_root="$(existing_notifier_v010_v020_target_root)"
     live_runtime="$(existing_notifier_v010_v020_value THN_MATTERMOST_PLUGINS_ROOT)/${plugin_id}"
@@ -482,7 +568,8 @@ v010_v020_tx_publish_target_plugin_pair() (
     scratch_root="$(mktemp -d)" || return 1
     trap 'notifier_plugin_cleanup_scratch_root "${scratch_root}"' EXIT HUP INT TERM
     chmod 0700 "${scratch_root}"
-    existing_notifier_v010_v020_extract_target_plugin "${scratch_root}" || {
+    existing_notifier_v010_v020_extract_target_plugin \
+        "${scratch_root}" target_bundle target_bundle_sha target_reviewed_root || {
         stage_status=$?
         existing_notifier_v010_v020_plugin_publish_record_halt target-extracted
         return "${stage_status}"
@@ -500,10 +587,10 @@ v010_v020_tx_publish_target_plugin_pair() (
             return "${stage_status}"
         }
     notifier_plugin_stage_pair \
-        "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE}" \
-        "${EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT}" \
+        "${target_bundle}" \
+        "${target_reviewed_root}" \
         "${stage_runtime}" "${stage_bundle}" \
-        "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${scratch_root}" || {
+        "${target_bundle_sha}" "${scratch_root}" || {
             stage_status=$?
             existing_notifier_v010_v020_plugin_publish_record_halt target-staged
             return "${stage_status}"
@@ -545,8 +632,8 @@ v010_v020_tx_publish_target_plugin_pair() (
                 "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${scratch_root}" \
             && notifier_plugin_pair_is_exact \
                 "${stage_runtime}" "${stage_bundle}" \
-                "${EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT}" \
-                "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${scratch_root}"
+                "${target_reviewed_root}" \
+                "${target_bundle_sha}" "${scratch_root}"
     }
     plugin_tx_stop_service() { return 0; }
     plugin_tx_start_service() { return 0; }
@@ -554,8 +641,8 @@ v010_v020_tx_publish_target_plugin_pair() (
     plugin_tx_verify_plugin() {
         notifier_plugin_pair_is_exact \
             "${live_runtime}" "${live_bundle}" \
-            "${EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT}" \
-            "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${scratch_root}"
+            "${target_reviewed_root}" \
+            "${target_bundle_sha}" "${scratch_root}"
     }
     # shellcheck disable=SC2329 # invoked indirectly by notifier_plugin_transaction
     plugin_tx_verify_previous_objects() {
@@ -620,17 +707,21 @@ v010_v020_tx_verify_target_pair() (
     local bundle
     local mailer_id
     local expected_mailer_id
+    local target_bundle=""
+    local target_bundle_sha=""
+    local target_reviewed_root=""
 
     temporary_dir="$(mktemp -d)" || return 1
     trap 'rm -rf -- "${temporary_dir}"' EXIT HUP INT TERM
     chmod 0700 "${temporary_dir}"
-    existing_notifier_v010_v020_extract_target_plugin "${temporary_dir}" || return 1
+    existing_notifier_v010_v020_extract_target_plugin \
+        "${temporary_dir}" target_bundle target_bundle_sha target_reviewed_root || return 1
     service="$(existing_notifier_v010_v020_value THN_MATTERMOST_SERVICE)"
     runtime="$(existing_notifier_v010_v020_value THN_MATTERMOST_PLUGINS_ROOT)/com.threadhub.channel-email-notifier"
     bundle="$(existing_notifier_v010_v020_value THN_MATTERMOST_DATA_ROOT)/plugins/com.threadhub.channel-email-notifier.tar.gz"
     notifier_plugin_pair_is_exact \
-        "${runtime}" "${bundle}" "${EXISTING_NOTIFIER_V020_TARGET_REVIEWED_ROOT}" \
-        "${EXISTING_NOTIFIER_V020_TARGET_BUNDLE_SHA}" "${temporary_dir}" || return 1
+        "${runtime}" "${bundle}" "${target_reviewed_root}" \
+        "${target_bundle_sha}" "${temporary_dir}" || return 1
     plugin_list="${temporary_dir}/plugins.json"
     existing_notifier_compose_combined exec -T "${service}" \
         mmctl plugin list --local --suppress-warnings --json > "${plugin_list}" || return 1
