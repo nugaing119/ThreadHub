@@ -96,6 +96,10 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		!strings.Contains(runner, `record_stage "successful-transition-outage-recovery-${failure_class}"`) {
 		t.Fatal("outage recovery failure does not publish a bounded privacy-safe reason")
 	}
+	if !strings.Contains(runner, "preflight_failure_class") ||
+		!strings.Contains(runner, `record_stage "transition-evidence-preflight-${failure_class}"`) {
+		t.Fatal("transition preflight failure does not publish a bounded privacy-safe reason")
+	}
 	for _, stage := range []string{
 		"transition-evidence-env-hash",
 		"transition-evidence-release-hash",

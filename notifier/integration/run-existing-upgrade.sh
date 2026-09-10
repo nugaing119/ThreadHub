@@ -154,6 +154,52 @@ acceptance_assert_outage() {
     return 1
 }
 
+preflight_failure_class() {
+    local output="$1"
+
+    case "${output}" in
+        *"Legacy notifier configuration is not the exact v0.1.0 source"*) printf '%s' source-config ;;
+        *"Legacy notifier configuration could not be validated safely"*) printf '%s' target-config ;;
+        *"Legacy notifier runtime paths are incomplete or unsafe"*) printf '%s' runtime-paths ;;
+        *"Legacy notifier inputs could not be fingerprinted"*) printf '%s' input-fingerprint ;;
+        *"Legacy Compose configuration could not be inspected"*) printf '%s' compose ;;
+        *"Legacy Compose model is not the exact supported source"*) printf '%s' source-model ;;
+        *"PostgreSQL service is ambiguous"*) printf '%s' postgres-service ;;
+        *"Exactly one Mattermost container is required"*) printf '%s' mattermost-count ;;
+        *"Exactly one PostgreSQL container is required"*) printf '%s' postgres-count ;;
+        *"Exactly one legacy Mailer container is required"*) printf '%s' mailer-count ;;
+        *"All exact source containers must be running and healthy"*) printf '%s' container-health ;;
+        *"Live Mattermost, PostgreSQL, or Site URL identity is unsupported"*) printf '%s' runtime-identity ;;
+        *"Legacy notifier release identity is not exact"*) printf '%s' release-identity ;;
+        *"Legacy notifier plugin pair is incomplete, inactive, or unreviewed"*) printf '%s' plugin-pair ;;
+        *"Running legacy Mailer image does not match its release"*) printf '%s' mailer-image ;;
+        *"Legacy Mailer aggregate status is unavailable or unsafe"*) printf '%s' mailer-status ;;
+        *"Current remote-backup and disposable-restore review is required"*) printf '%s' recovery-gate ;;
+        *"Compose inputs changed during preflight"*) printf '%s' compose-changed ;;
+        *"Legacy notifier inputs changed during preflight"*) printf '%s' input-changed ;;
+        *"Legacy notifier identity changed during preflight"*) printf '%s' identity-changed ;;
+        *) printf '%s' unavailable ;;
+    esac
+}
+
+run_transition_preflight() {
+    local output=""
+    local status=0
+    local failure_class=""
+
+    set +e
+    output="$(run_current existing-notifier-v010-v020-preflight.sh 2>&1)"
+    status=$?
+    set -e
+    [[ -z "${output}" ]] || printf '%s\n' "${output}" >>"${diagnostic_file}"
+    if [[ "${status}" -eq 0 ]]; then
+        return 0
+    fi
+    failure_class="$(preflight_failure_class "${output}")"
+    record_stage "transition-evidence-preflight-${failure_class}" || true
+    return 1
+}
+
 wait_http() {
     local endpoint="$1"
     local deadline=$((SECONDS + $2))
@@ -508,7 +554,7 @@ prepare_transition_evidence() {
     record_stage transition-evidence-recovery-gate
     write_recovery_gate
     record_stage transition-evidence-preflight
-    private run_current existing-notifier-v010-v020-preflight.sh
+    private run_transition_preflight
 }
 
 run_successful_transition() {
