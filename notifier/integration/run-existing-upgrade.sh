@@ -11,6 +11,7 @@ notifier_root="$(cd -- "${script_dir}/.." && pwd -P)"
 repository_root="$(cd -- "${notifier_root}/.." && pwd -P)"
 compose_file="${script_dir}/existing/docker-compose.yml"
 scenario_file="${script_dir}/existing-upgrade-scenario-ids.txt"
+primary_diagnostic="${repository_root}/deploy/scripts/existing-notifier-v010-v020-diagnostic.sh"
 source_commit=c193155eeb6298771d4366d6af4cae81499487b8
 source_version=0.1.0
 target_version=0.2.0
@@ -692,7 +693,8 @@ run_successful_transition() {
     set -e
     cat "${upgrade_output}" >>"${diagnostic_file}"
     if [[ "${status}" != 20 ]] || ! upgrade_reached_acceptance_handoff "${upgrade_output}"; then
-        failure_class="$(upgrade_failure_class "${status}" "${upgrade_output}")"
+        failure_class="$("${primary_diagnostic}" primary-failure "${status}" "${upgrade_output}")" \
+            || failure_class="$(upgrade_failure_class "${status}" "${upgrade_output}")"
         record_stage "successful-transition-upgrade-${failure_class}" || true
         return 1
     fi

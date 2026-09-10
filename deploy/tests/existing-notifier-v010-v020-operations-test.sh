@@ -9,6 +9,7 @@ TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 TEST_DEPLOY_DIR="$(cd "${TEST_DIR}/.." && pwd)"
 UPGRADE_SCRIPT="${TEST_DEPLOY_DIR}/scripts/existing-notifier-v010-v020-upgrade.sh"
 ROLLBACK_SCRIPT="${TEST_DEPLOY_DIR}/scripts/existing-notifier-v010-v020-rollback.sh"
+DIAGNOSTIC_SCRIPT="${TEST_DEPLOY_DIR}/scripts/existing-notifier-v010-v020-diagnostic.sh"
 failures=0
 
 fail() { printf 'not ok - %s\n' "$1" >&2; failures=$((failures + 1)); }
@@ -368,6 +369,20 @@ test_source_verification_cannot_invalidate_target_review() (
     [[ "$(<"${calls}")" == $'source-hashed\nsource-verified\ntarget-extracted\ntarget-staged' ]]
 )
 
+test_outer_transaction_failure_cannot_be_masked_by_recovery_staging() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${fixture}"' EXIT
+    output="${fixture}/upgrade-output"
+    cat > "${output}" <<'EOF'
+[threadhub] ERROR: notifier transition halted after phase: target_mailer_started
+[threadhub] ERROR: notifier plugin staging halted at phase: reviewed-runtime-validation
+EOF
+
+    [[ -x "${DIAGNOSTIC_SCRIPT}" ]] || return 1
+    [[ "$("${DIAGNOSTIC_SCRIPT}" primary-failure 1 "${output}")" \
+        == transaction-after-target-mailer-started ]]
+)
+
 test_acceptance_handoff_is_exact() (
     # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
     source "${UPGRADE_SCRIPT}"
@@ -494,6 +509,7 @@ if [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]; then
     run_test 'target plugin extraction uses the preserved stage bundle' test_target_plugin_extraction_uses_preserved_stage_bundle
     run_test 'target bundle is preserved before the repository artifact disappears' test_target_bundle_is_preserved_before_repository_artifact_disappears
     run_test 'source verification cannot invalidate target review' test_source_verification_cannot_invalidate_target_review
+    run_test 'outer transaction failure cannot be masked by recovery staging' test_outer_transaction_failure_cannot_be_masked_by_recovery_staging
     run_test 'acceptance handoff is exact' test_acceptance_handoff_is_exact
     run_test 'failed or pending work blocks without disposition' test_failed_or_pending_work_blocks_without_disposition
     run_test 'pilot work requires exact interactive review' test_pilot_work_requires_exact_interactive_review
