@@ -335,6 +335,43 @@ test_source_files_and_mailer_image_are_captured_privately() (
     ! v010_v020_capture_source_mailer_image "${second}"
 )
 
+test_source_plugin_capture_preserves_the_plugin_root_layout() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${fixture}"' EXIT
+    plugin_id=com.threadhub.channel-email-notifier
+    attempt_root="${fixture}/attempt"
+    live_runtime="${fixture}/live/plugins/${plugin_id}"
+    live_data="${fixture}/live/data"
+    live_bundle="${live_data}/plugins/${plugin_id}.tar.gz"
+    mkdir -p "${attempt_root}/source" "${live_runtime}" "$(dirname "${live_bundle}")"
+    printf '%s\n' live-bundle > "${live_bundle}"
+    # shellcheck source=../scripts/existing-notifier-v010-v020-common.sh
+    source "${COMMON}"
+    # shellcheck source=../scripts/notifier-plugin-files.sh
+    source "${TEST_DEPLOY_DIR}/scripts/notifier-plugin-files.sh"
+    SUDO_COMMAND=(env)
+    EXISTING_NOTIFIER_V010_RELEASE_BUNDLE_SHA="$(printf 'a%.0s' {1..64})"
+    existing_notifier_v010_v020_value() {
+        case "$1" in
+            THN_MATTERMOST_PLUGINS_ROOT) printf '%s\n' "${fixture}/live/plugins" ;;
+            THN_MATTERMOST_DATA_ROOT) printf '%s\n' "${live_data}" ;;
+            *) return 1 ;;
+        esac
+    }
+    notifier_plugin_capture_pair() {
+        local captured_plugin_root="$4/${3}"
+        mkdir -p "${captured_plugin_root}/server/dist"
+        printf '%s\n' plugin-manifest > "${captured_plugin_root}/plugin.json"
+        printf '%s\n' plugin-binary > "${captured_plugin_root}/server/dist/plugin-linux-amd64"
+        printf '0.1.0\t%s\n' "${EXISTING_NOTIFIER_V010_RELEASE_BUNDLE_SHA}"
+    }
+
+    v010_v020_capture_source_plugin_pair "${attempt_root}" || return 1
+    [[ -f "${attempt_root}/source/plugin-runtime/plugin.json" \
+        && -f "${attempt_root}/source/plugin-runtime/server/dist/plugin-linux-amd64" \
+        && ! -e "${attempt_root}/source/plugin-runtime/${plugin_id}" ]]
+)
+
 test_evidence_manifest_is_complete_and_contains_no_payload_values() (
     fixture="$(mktemp -d)"
     trap 'rm -rf -- "${fixture}"' EXIT
@@ -463,6 +500,7 @@ if [[ -f "${GATE_SCRIPT}" ]]; then
     run_test 'baseline contains only nonnegative aggregate counts' test_baseline_contains_only_nonnegative_aggregate_counts
     run_test 'control, stopped Mailer, and schema-v1 queue gates are enforced' test_control_mailer_and_queue_schema_gates
     run_test 'source files and Mailer image are captured privately' test_source_files_and_mailer_image_are_captured_privately
+    run_test 'source plugin capture preserves the plugin root layout' test_source_plugin_capture_preserves_the_plugin_root_layout
     run_test 'evidence manifest is complete and contains no payload values' test_evidence_manifest_is_complete_and_contains_no_payload_values
     run_test 'complete source capture is reverified without mutation' test_complete_source_capture_is_reverified_without_mutation
     run_test 'attempt root is exact, private, and no-clobber' test_attempt_root_is_exact_private_and_no_clobber

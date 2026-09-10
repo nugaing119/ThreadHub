@@ -369,6 +369,7 @@ v010_v020_capture_source_plugin_pair() {
     local runtime_root
     local bundle_path
     local scratch_root
+    local extraction_root
     local captured_runtime
     local destination_runtime
     local destination_bundle
@@ -383,13 +384,14 @@ v010_v020_capture_source_plugin_pair() {
     destination_bundle="${attempt_root}/source/plugin-bundle.tar.gz"
     scratch_root="$(mktemp -d)" || return 1
     chmod 0700 "${scratch_root}"
-    captured_runtime="${scratch_root}/runtime"
+    extraction_root="${scratch_root}/runtime"
+    captured_runtime="${extraction_root}/${plugin_id}"
     if [[ -z "${EXISTING_NOTIFIER_V010_RELEASE_BUNDLE_SHA:-}" ]]; then
         existing_notifier_v010_v020_read_source_release \
             "$(existing_notifier_v010_v020_value THN_DATA_ROOT)/release/release.env" \
             "${scratch_root}" || { rm -rf -- "${scratch_root}"; return 1; }
     fi
-    metadata="$(notifier_plugin_capture_pair "${runtime_root}" "${bundle_path}" "${plugin_id}" "${captured_runtime}" "${scratch_root}")" \
+    metadata="$(notifier_plugin_capture_pair "${runtime_root}" "${bundle_path}" "${plugin_id}" "${extraction_root}" "${scratch_root}")" \
         || { rm -rf -- "${scratch_root}"; return 1; }
     extra=""
     IFS=$'\t' read -r version sha extra <<< "${metadata}"
