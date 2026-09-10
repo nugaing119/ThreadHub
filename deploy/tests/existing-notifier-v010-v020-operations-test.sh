@@ -40,6 +40,14 @@ v010_v020_test_privileged() {
     command "${command_name}" "$@"
 }
 
+v010_v020_publish_test_privileged() {
+    if [[ "$1" == stat && "${2:-}" == -c && "${3:-}" == '%d' ]]; then
+        printf '1\n'
+        return
+    fi
+    v010_v020_test_privileged "$@"
+}
+
 test_entry_points_exist() {
     [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]
 }
@@ -301,6 +309,65 @@ EOF
         && "$(v010_v020_test_privileged stat -c '%u:%g:%a' "${preserved_bundle}")" == 0:0:600 ]]
 )
 
+test_source_verification_cannot_invalidate_target_review() (
+    fixture="$(mktemp -d)"
+    trap 'rm -rf -- "${fixture}"' EXIT
+    # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
+    source "${UPGRADE_SCRIPT}"
+    calls="${fixture}/calls"
+    : > "${calls}"
+    fixture_target_root="${fixture}/target"
+    live_plugins="${fixture}/live/plugins"
+    live_data="${fixture}/live/data"
+    mkdir -p "${fixture_target_root}" "${live_plugins}" "${live_data}/plugins" \
+        "${fixture}/attempt/source" "${fixture}/attempt/displaced" \
+        "${fixture}/attempt/quarantine"
+    SUDO_COMMAND=(v010_v020_publish_test_privileged)
+
+    existing_notifier_v010_v020_target_root() { printf '%s\n' "${fixture_target_root}"; }
+    existing_notifier_v010_v020_value() {
+        case "$1" in
+            THN_MATTERMOST_PLUGINS_ROOT) printf '%s\n' "${live_plugins}" ;;
+            THN_MATTERMOST_DATA_ROOT) printf '%s\n' "${live_data}" ;;
+            THN_MATTERMOST_SERVICE) printf '%s\n' mattermost ;;
+            *) return 1 ;;
+        esac
+    }
+    existing_notifier_v010_v020_capture_hash() {
+        printf '%s\n' source-hashed >> "${calls}"
+        printf '%064d\n' 1
+    }
+    notifier_plugin_pair_is_exact() {
+        printf '%s\n' source-verified >> "${calls}"
+        rm -rf -- "$5"
+    }
+    existing_notifier_v010_v020_extract_target_plugin() {
+        local scratch_root="$1"
+        local output_bundle_name="$2"
+        local output_sha_name="$3"
+        local output_root_name="$4"
+        local bundle="${scratch_root}/bundle.tar.gz"
+        local reviewed="${scratch_root}/reviewed/com.threadhub.channel-email-notifier"
+        printf '%s\n' target-extracted >> "${calls}"
+        mkdir -p "${reviewed}"
+        printf '%s\n' bundle > "${bundle}"
+        printf -v "${output_bundle_name}" '%s' "${bundle}"
+        printf -v "${output_sha_name}" '%064d' 2
+        printf -v "${output_root_name}" '%s' "${reviewed}"
+    }
+    notifier_plugin_stage_pair() {
+        printf '%s\n' target-staged >> "${calls}"
+        [[ -f "$1" && -d "$2" && -d "$6" ]] || return 1
+        mkdir -p "$3"
+        printf '%s\n' staged > "$4"
+    }
+    existing_notifier_v010_v020_compose_combined() { return 0; }
+    existing_notifier_v010_v020_tx_plugin_pair_transaction() { return 0; }
+
+    v010_v020_tx_publish_target_plugin_pair "${fixture}/attempt" || return 1
+    [[ "$(<"${calls}")" == $'source-hashed\nsource-verified\ntarget-extracted\ntarget-staged' ]]
+)
+
 test_acceptance_handoff_is_exact() (
     # shellcheck source=../scripts/existing-notifier-v010-v020-upgrade.sh
     source "${UPGRADE_SCRIPT}"
@@ -426,6 +493,7 @@ if [[ -x "${UPGRADE_SCRIPT}" && -x "${ROLLBACK_SCRIPT}" ]]; then
     run_test 'plugin publication halt diagnostics are fixed' test_plugin_publish_halt_diagnostics_are_fixed
     run_test 'target plugin extraction uses the preserved stage bundle' test_target_plugin_extraction_uses_preserved_stage_bundle
     run_test 'target bundle is preserved before the repository artifact disappears' test_target_bundle_is_preserved_before_repository_artifact_disappears
+    run_test 'source verification cannot invalidate target review' test_source_verification_cannot_invalidate_target_review
     run_test 'acceptance handoff is exact' test_acceptance_handoff_is_exact
     run_test 'failed or pending work blocks without disposition' test_failed_or_pending_work_blocks_without_disposition
     run_test 'pilot work requires exact interactive review' test_pilot_work_requires_exact_interactive_review

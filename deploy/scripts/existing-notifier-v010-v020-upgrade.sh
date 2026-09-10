@@ -540,7 +540,8 @@ v010_v020_tx_publish_target_plugin_pair() (
     local displaced_bundle
     local failed_runtime
     local failed_bundle
-    local scratch_root
+    local source_scratch_root
+    local target_scratch_root
     local source_sha
     local source_runtime
     local source_bundle
@@ -565,32 +566,36 @@ v010_v020_tx_publish_target_plugin_pair() (
     source_runtime="${attempt_root}/source/plugin-runtime"
     source_bundle="${attempt_root}/source/plugin-bundle.tar.gz"
     service="$(existing_notifier_v010_v020_value THN_MATTERMOST_SERVICE)"
-    scratch_root="$(mktemp -d)" || return 1
-    trap 'notifier_plugin_cleanup_scratch_root "${scratch_root}"' EXIT HUP INT TERM
-    chmod 0700 "${scratch_root}"
-    existing_notifier_v010_v020_extract_target_plugin \
-        "${scratch_root}" target_bundle target_bundle_sha target_reviewed_root || {
-        stage_status=$?
-        existing_notifier_v010_v020_plugin_publish_record_halt target-extracted
-        return "${stage_status}"
+    source_scratch_root="$(mktemp -d)" || return 1
+    target_scratch_root="$(mktemp -d)" || {
+        notifier_plugin_cleanup_scratch_root "${source_scratch_root}"
+        return 1
     }
+    trap 'notifier_plugin_cleanup_scratch_root "${source_scratch_root}"; notifier_plugin_cleanup_scratch_root "${target_scratch_root}"' EXIT HUP INT TERM
+    chmod 0700 "${source_scratch_root}" "${target_scratch_root}"
     source_sha="$(existing_notifier_v010_v020_capture_hash "${source_bundle}")" || {
         stage_status=$?
         existing_notifier_v010_v020_plugin_publish_record_halt source-hashed
         return "${stage_status}"
     }
     notifier_plugin_pair_is_exact \
-        "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${scratch_root}" \
+        "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${source_scratch_root}" \
         || {
             stage_status=$?
             existing_notifier_v010_v020_plugin_publish_record_halt source-verified
             return "${stage_status}"
         }
+    existing_notifier_v010_v020_extract_target_plugin \
+        "${target_scratch_root}" target_bundle target_bundle_sha target_reviewed_root || {
+        stage_status=$?
+        existing_notifier_v010_v020_plugin_publish_record_halt target-extracted
+        return "${stage_status}"
+    }
     notifier_plugin_stage_pair \
         "${target_bundle}" \
         "${target_reviewed_root}" \
         "${stage_runtime}" "${stage_bundle}" \
-        "${target_bundle_sha}" "${scratch_root}" || {
+        "${target_bundle_sha}" "${target_scratch_root}" || {
             stage_status=$?
             existing_notifier_v010_v020_plugin_publish_record_halt target-staged
             return "${stage_status}"
@@ -629,11 +634,11 @@ v010_v020_tx_publish_target_plugin_pair() (
     plugin_tx_prepare_targets() {
         [[ "$(notifier_plugin_pair_presence "${live_runtime}" "${live_bundle}")" == present ]] \
             && notifier_plugin_pair_is_exact \
-                "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${scratch_root}" \
+                "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${source_scratch_root}" \
             && notifier_plugin_pair_is_exact \
                 "${stage_runtime}" "${stage_bundle}" \
                 "${target_reviewed_root}" \
-                "${target_bundle_sha}" "${scratch_root}"
+                "${target_bundle_sha}" "${target_scratch_root}"
     }
     plugin_tx_stop_service() { return 0; }
     plugin_tx_start_service() { return 0; }
@@ -642,12 +647,12 @@ v010_v020_tx_publish_target_plugin_pair() (
         notifier_plugin_pair_is_exact \
             "${live_runtime}" "${live_bundle}" \
             "${target_reviewed_root}" \
-            "${target_bundle_sha}" "${scratch_root}"
+            "${target_bundle_sha}" "${target_scratch_root}"
     }
     # shellcheck disable=SC2329 # invoked indirectly by notifier_plugin_transaction
     plugin_tx_verify_previous_objects() {
         notifier_plugin_pair_is_exact \
-            "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${scratch_root}"
+            "${live_runtime}" "${live_bundle}" "${source_runtime}" "${source_sha}" "${source_scratch_root}"
     }
     existing_notifier_v010_v020_tx_plugin_pair_transaction \
         "${live_runtime}" "${stage_runtime}" "${displaced_runtime}" "${failed_runtime}" \
