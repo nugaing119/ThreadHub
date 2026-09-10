@@ -81,7 +81,9 @@ test_build_failure_leaves_live_notifier_untouched() (
     result=$?
     set -e
     [[ "${result}" == 42 && "$(<"${control}")" == enabled ]] || return 1
-    [[ "$(<"${calls}")" == $'preflight\nprepare-target-release' ]]
+    [[ "$(<"${calls}")" == $'preflight\nprepare-target-release' ]] || return 1
+    grep -Fx '[threadhub] ERROR: notifier upgrade halted at stage: prepare-target-release' \
+        "${output}" >/dev/null
 )
 
 test_post_disable_failures_recover_or_fail_hard() (

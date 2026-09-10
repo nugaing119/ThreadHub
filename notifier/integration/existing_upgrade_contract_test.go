@@ -131,6 +131,18 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		t.Fatal("upgrade execution failure does not publish a bounded privacy-safe reason")
 	}
 	for _, classification := range []string{
+		"preflight", "prepare-target-release", "recheck-preflight", "drain", "queue-zero",
+		"disable", "control-loaded-disabled", "stop-mailer", "capture-evidence", "transaction",
+		"post-status-disabled", "recovery-incomplete", "timeout", "unexpected",
+	} {
+		if !strings.Contains(runner, classification) {
+			t.Fatalf("upgrade execution safe classification %q is missing", classification)
+		}
+	}
+	if !strings.Contains(runner, "upgrade_reached_acceptance_handoff") {
+		t.Fatal("upgrade success must require the exact post-transition acceptance handoff")
+	}
+	for _, classification := range []string{
 		"capture-unavailable", "no-deliveries", "under-delivery", "over-delivery",
 		"mixed-count", "content-mismatch", "unavailable",
 	} {

@@ -202,6 +202,18 @@ run_transition_preflight() {
 
 upgrade_failure_class() {
     local status="$1"
+    local output_file="$2"
+    local stage=""
+
+    for stage in \
+        preflight prepare-target-release recheck-preflight drain queue-zero disable \
+        control-loaded-disabled stop-mailer capture-evidence transaction post-status-disabled; do
+        if grep -Fxq "[threadhub] ERROR: notifier upgrade halted at stage: ${stage}" \
+            "${output_file}"; then
+            printf '%s' "${stage}"
+            return 0
+        fi
+    done
 
     case "${status}" in
         1) printf '%s' failed ;;
@@ -209,6 +221,12 @@ upgrade_failure_class() {
         124|137) printf '%s' timeout ;;
         *) printf '%s' unexpected ;;
     esac
+}
+
+upgrade_reached_acceptance_handoff() {
+    grep -Fxq \
+        '[ACTION REQUIRED] Run ./deploy/scripts/existing-notifier-smtp-test.sh, then activate a public/private test-channel allowlist.' \
+        "$1"
 }
 
 wait_http() {
@@ -571,14 +589,16 @@ prepare_transition_evidence() {
 run_successful_transition() {
     local status=0
     local failure_class=""
+    local upgrade_output="${integration_root}/upgrade-output"
 
     record_stage successful-transition-upgrade
     set +e
-    private run_current existing-notifier-v010-v020-upgrade.sh
+    run_current existing-notifier-v010-v020-upgrade.sh >"${upgrade_output}" 2>&1
     status=$?
     set -e
-    if [[ "${status}" != 20 ]]; then
-        failure_class="$(upgrade_failure_class "${status}")"
+    cat "${upgrade_output}" >>"${diagnostic_file}"
+    if [[ "${status}" != 20 ]] || ! upgrade_reached_acceptance_handoff "${upgrade_output}"; then
+        failure_class="$(upgrade_failure_class "${status}" "${upgrade_output}")"
         record_stage "successful-transition-upgrade-${failure_class}" || true
         return 1
     fi
