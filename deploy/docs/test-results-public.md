@@ -32,6 +32,14 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 | --- | --- | --- | --- | --- | ---: | --- |
 | 2026-09-01 | `f867f91eb46c2b68643cdf011c336307a8f68548` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | 4 | pass |
 
+## notifier v0.2.1 검증 대기
+
+신규 canonical fresh용 notifier v0.2.1은 Go 1.26.8과
+`golang.org/x/crypto v0.56.0` 기준으로 검증 중이다. 아직 위 공개 자동 증거 표에 pass
+행을 추가하지 않는다. 최종 증거는 동일한 source commit에서 생성된 Linux AMD64 CI
+artifact와 필수 job 결과이며, 이 저장소 변경 과정에서는 운영 인스턴스 배포를 수행하지
+않았다. 정확한 CI가 성공한 뒤 개인정보 없는 고정 스키마 값만 기록한다.
+
 ## existing-adoption 자동 증거 계약
 
 `notifier-existing-adoption` CI job은 신규설치 real-image integration 성공 뒤 실행되며,

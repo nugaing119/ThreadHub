@@ -137,6 +137,7 @@ validate_notifier_documentation_contracts() {
     local deploy_dir="${repository_root}/deploy"
     local architecture="${deploy_dir}/docs/notifier-architecture.md"
     local canonical_standard="${deploy_dir}/docs/canonical-runtime-standard.md"
+    local security_review="${deploy_dir}/docs/security-image-review-2026-09-07.md"
     local prd="${repository_root}/docs/threadhub-prd-v4.3-final.md"
     local documents=(
         "${repository_root}/README.md"
@@ -151,6 +152,7 @@ validate_notifier_documentation_contracts() {
         "${deploy_dir}/docs/project-close.md"
         "${deploy_dir}/docs/test-plan.md"
         "${deploy_dir}/docs/test-results-public.md"
+        "${security_review}"
         "${canonical_standard}"
         "${architecture}"
         "${prd}"
@@ -248,6 +250,12 @@ validate_notifier_documentation_contracts() {
         'c193155eeb6298771d4366d6af4cae81499487b8' '`notifier-existing-upgrade`' \
         'NF-UPGRADE-01' 'NF-UPGRADE-12' 'CI artifact가 pass' \
         '조건을 모두 충족한 경우에만 `migration-ready`' || return 1
+    notifier_docs_require_terms "${canonical_standard}" \
+        'fresh v0.2.1 and legacy-held v0.2.0 boundary' \
+        '신규 canonical fresh 설치는 notifier v0.2.1' \
+        '기존 v0.2.0 인스턴스는 `legacy-held`' \
+        '저장소 갱신만으로 실행 중인 notifier가 바뀌지 않는다' \
+        'v0.2.0에서 v0.2.1로 전환하는 도구를 제공하지 않는다' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/test-results-public.md" \
         'existing-upgrade evidence contract' '`notifier-existing-upgrade`' \
         '`NF-UPGRADE-01`~`NF-UPGRADE-12`' '아직 실행되지 않은 커밋을 통과로 표시하지' || return 1
@@ -257,6 +265,24 @@ validate_notifier_documentation_contracts() {
         'Boot Volume 200GB' '200GB보다 작게 만들지 않습니다' \
         'NOTIFIER_MODE=all_channels' '나중에 만든 채널도' '이전 게시물은 발송하지 않습니다' \
         '고객 사용자를 초대하기 전에' 'allowlist 파일럿' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/quick-install.md" \
+        'fresh notifier v0.2.1 release boundary' \
+        'NOTIFIER_VERSION=0.2.1' 'new or empty `/srv/threadhub`' \
+        '저장소를 pull해도 설치된 runtime은 변경되지 않는다' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/existing-mattermost-notifier.md" \
+        'historical notifier v0.1.0 to v0.2.0 boundary' \
+        'v0.1.0에서 v0.2.0으로 전환하는 절차는 역사적 절차' \
+        'v0.2.1을 설치하거나 업그레이드하지 않는다' || return 1
+    notifier_docs_require_terms "${deploy_dir}/docs/test-plan.md" \
+        'notifier v0.2.1 security evidence' \
+        'Go 1.26.8' 'govulncheck v1.8.0' \
+        'golang.org/x/crypto v0.56.0' \
+        'run-v020-history.sh existing-adoption' \
+        'run-v020-history.sh existing-upgrade' || return 1
+    notifier_docs_require_terms "${security_review}" \
+        'notifier and Mattermost OpenPGP path separation' \
+        'notifier는 `golang.org/x/crypto/openpgp`를 import하지 않는다' \
+        'Mattermost plugin-signature 검증의 OpenPGP 경로' || return 1
     notifier_docs_require_terms "${deploy_dir}/docs/deployment-models.md" \
         'canonical fresh all-channel default' \
         'Boot Volume 기본 200GB' \

@@ -139,6 +139,11 @@ Mattermost 공식 문서는 플러그인을 Team Edition과 Enterprise Edition �
 
 ## 7. 선택 기준
 
+Notifier v0.2.1은 신규 canonical fresh 설치를 위한 보안 유지보수 release다. v0.2.0과
+비교해 수신자 선택, 이메일 내용, queue schema, SMTP 처리, `all_channels` 기본값 또는
+Mattermost Team Edition 라이선스 경계를 변경하지 않는다. 기존 v0.2.0 운영 runtime은
+이 문서나 저장소 갱신만으로 교체되지 않는다.
+
 즉시 채널 이메일이 필요하지 않으면 notifier 전체를 비활성 상태로 둘 수 있다. 멘션과
 DM 중심의 지연 가능한 알림만 필요하다면 Mattermost 기본 이메일 알림을 별도로 평가할
 수 있다. 모든 채널 새 글을 게시 직후, 채널 멤버에게, 프로젝트를 구분할 수 있는

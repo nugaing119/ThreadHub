@@ -160,6 +160,11 @@ region을 밝히고 별도 명시 승인을 받습니다.
 
 ## 기존 v0.1.0 notifier를 v0.2.0으로 전환
 
+v0.1.0에서 v0.2.0으로 전환하는 절차는 역사적 절차입니다.
+정확한 지원 commit과 release에만 적용하며, v0.2.1을 설치하거나 업그레이드하지 않는다.
+신규 canonical fresh의 v0.2.1과 기존 v0.2.0 `legacy-held` 정책은
+[표준 목표 상태](./canonical-runtime-standard.md)를 따릅니다.
+
 이 절은 source commit
 `c193155eeb6298771d4366d6af4cae81499487b8`에서 설치된 정확한 v0.1.0
 existing-adoption 프로필을 v0.2.0으로 전환하는 경우에만 적용합니다. 다른 commit,
