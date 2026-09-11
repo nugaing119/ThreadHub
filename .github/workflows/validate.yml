@@ -385,7 +385,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           install -d -m 0755 "${RUNNER_TEMP}/threadhub-existing-adoption-evidence"
-          ./notifier/integration/run-existing-adoption.sh
+          ./notifier/integration/run-v020-history.sh existing-adoption
 
       - name: Upload privacy-safe existing-adoption evidence
         if: always()
@@ -423,7 +423,7 @@ jobs:
         run: |
           set -Eeuo pipefail
           install -d -m 0755 "${RUNNER_TEMP}/threadhub-existing-upgrade-evidence"
-          ./notifier/integration/run-existing-upgrade.sh
+          ./notifier/integration/run-v020-history.sh existing-upgrade
 
       - name: Upload privacy-safe existing-upgrade evidence
         if: always()

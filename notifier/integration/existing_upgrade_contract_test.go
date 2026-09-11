@@ -203,7 +203,7 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		"timeout-minutes: 60",
 		"fetch-depth: 0",
 		"go-version: 1.25.14",
-		"run-existing-upgrade.sh",
+		"run-v020-history.sh existing-upgrade",
 		"threadhub-existing-upgrade-evidence",
 		"retention-days: 7",
 	} {
