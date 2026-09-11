@@ -24,7 +24,7 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 
 | test date | source commit | Mattermost image digest | PostgreSQL image digest | notifier version | plugin bundle SHA-256 | NF scenario count | result |
 | --- | --- | --- | --- | --- | --- | ---: | --- |
-| 2026-08-28 | `0cbb3c35927a7cc5b3cd0f07d8cdfbfbc98e072e` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | `a7643bbc2262418473aa1c79d418d562234cbf163d7b2b1d9faefee021cacf13` | 15 | pass |
+| 2026-09-11 | `4052de3e78c2ec2e43e66abcfd5f204ce195f908` | `sha256:12f18e9f6ad2a9c29a95393f337aa2ab0700517a55470cd943a759f5392a017f` | `sha256:63bdc97d67b5133bf0e5ebd500bec6d046fa851dc81340d838f0347e616107e8` | `0.2.1` | `4abb5f8371efe3184b403f0d460c58cf0115a7a75c8f01f2e4c169db3825a7b1` | 15 | pass |
 
 ## backup·restore 공개 자동 증거
 
@@ -32,13 +32,12 @@ OCI 식별자와 운영 로그는 비공개 운영 기록에서 관리합니다.
 | --- | --- | --- | --- | --- | ---: | --- |
 | 2026-09-01 | `f867f91eb46c2b68643cdf011c336307a8f68548` | `sha256:d23471992cb1e3b57807bdc0b45aa7a7982e290ac310a7dc4b85a7ccacdbdff1` | `sha256:d93de42662696f278fb34354b06fdaa90ad7ca3106d6f72fbd01d16da006d2cf` | `0.1.0` | 4 | pass |
 
-## notifier v0.2.1 검증 대기
+## notifier v0.2.1 검증 범위
 
 신규 canonical fresh용 notifier v0.2.1은 Go 1.26.8과
-`golang.org/x/crypto v0.56.0` 기준으로 검증 중이다. 아직 위 공개 자동 증거 표에 pass
-행을 추가하지 않는다. 최종 증거는 동일한 source commit에서 생성된 Linux AMD64 CI
-artifact와 필수 job 결과이며, 이 저장소 변경 과정에서는 운영 인스턴스 배포를 수행하지
-않았다. 정확한 CI가 성공한 뒤 개인정보 없는 고정 스키마 값만 기록한다.
+`golang.org/x/crypto v0.56.0` 기준으로 Linux AMD64 CI에서 검증했다. 위 공개 자동 증거는
+동일한 source commit에서 생성된 artifact의 고정 스키마 값만 기록하며, 운영 인스턴스
+배포나 비공개 운영 데이터는 포함하지 않는다.
 
 ## existing-adoption 자동 증거 계약
 
