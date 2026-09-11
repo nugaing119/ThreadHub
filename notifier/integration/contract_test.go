@@ -481,6 +481,14 @@ func TestFreshReleaseIdentityIsV021(t *testing.T) {
 	if !strings.Contains(workflow, "golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...") {
 		t.Fatal("CI does not pin govulncheck v1.8.0")
 	}
+
+	reproducibilityTest := readContractFile(t, "../../deploy/tests/notifier-mailer-reproducibility-test.sh")
+	if got := strings.Count(reproducibilityTest, "threadhub/notifier-plugin-bundle:0.2.1"); got != 2 {
+		t.Fatalf("v0.2.1 reproducibility image count = %d, want 2", got)
+	}
+	if strings.Contains(reproducibilityTest, "threadhub/notifier-plugin-bundle:0.2.0") {
+		t.Fatal("current reproducibility test still targets v0.2.0")
+	}
 }
 
 func readContractFile(t *testing.T, path string) string {
