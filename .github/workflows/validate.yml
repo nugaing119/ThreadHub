@@ -266,6 +266,10 @@ jobs:
         working-directory: notifier
         run: make test
 
+      - name: Verify notifier dependency scope
+        working-directory: notifier
+        run: make dependency-scope-check
+
       - name: Scan notifier for reachable Go vulnerabilities
         working-directory: notifier
         run: go run golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...

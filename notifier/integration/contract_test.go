@@ -51,6 +51,29 @@ func TestHarnessFileModeDetectionIsCrossPlatform(t *testing.T) {
 	}
 }
 
+func TestNotifierDependencySecurityGateIsWired(t *testing.T) {
+	t.Parallel()
+
+	gate := readContractFile(t, "../../deploy/tests/notifier-dependency-security-test.sh")
+	for _, required := range []string{
+		"golang.org/x/crypto v0.56.0",
+		"golang.org/x/crypto/pbkdf2",
+		"golang.org/x/crypto/scrypt",
+		"go list -deps ./...",
+	} {
+		if !strings.Contains(gate, required) {
+			t.Fatalf("dependency gate is missing %q", required)
+		}
+	}
+
+	makefile := readContractFile(t, "../Makefile")
+	workflow := readContractFile(t, "../../.github/workflows/validate.yml")
+	if !strings.Contains(makefile, "dependency-scope-check:") ||
+		!strings.Contains(workflow, "make dependency-scope-check") {
+		t.Fatal("dependency gate is not wired into Make and CI")
+	}
+}
+
 func TestHarnessUsesInternalBridgeEndpointsWithoutPortPublishing(t *testing.T) {
 	t.Parallel()
 

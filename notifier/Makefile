@@ -27,12 +27,13 @@ MAILER_PROBE_ENV := \
 	-e NOTIFIER_RATE_PER_MINUTE=10 \
 	-e NOTIFIER_CONTENT_MODE=project_team_channel
 
-.PHONY: verify fmt-check mod-verify license-check vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-artifact-secrets verify-reproducible clean
+.PHONY: verify fmt-check mod-verify license-check dependency-scope-check vet test integration verify-pins verify-dockerfile plugin-bundle mailer verify-artifacts verify-artifact-secrets verify-reproducible clean
 
 verify:
 	@$(MAKE) fmt-check
 	@$(MAKE) mod-verify
 	@$(MAKE) license-check
+	@$(MAKE) dependency-scope-check
 	@$(MAKE) vet
 	@$(MAKE) test
 	@$(MAKE) plugin-bundle
@@ -50,6 +51,9 @@ mod-verify:
 
 license-check:
 	@../deploy/tests/notifier-license-compliance-test.sh
+
+dependency-scope-check:
+	@../deploy/tests/notifier-dependency-security-test.sh
 
 vet:
 	@go vet ./...
