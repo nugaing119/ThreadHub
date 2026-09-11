@@ -4,7 +4,7 @@
   "description": "Queues privacy-bounded project context email notices for public and private channel posts.",
   "homepage_url": "https://github.com/nugaing119/ThreadHub",
   "support_url": "https://github.com/nugaing119/ThreadHub/issues",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "min_server_version": "11.7.7",
   "server": {
     "executables": {

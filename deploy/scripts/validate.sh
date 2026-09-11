@@ -415,14 +415,14 @@ if command -v ruby >/dev/null 2>&1; then
     ruby -rjson - "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" <<'RUBY'
 manifest = JSON.parse(File.read(ARGV.fetch(0)))
 abort("[threadhub] ERROR: notifier manifest ID is invalid") unless manifest["id"] == "com.threadhub.channel-email-notifier"
-abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.2.0"
+abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.2.1"
 abort("[threadhub] ERROR: notifier manifest server executable is invalid") unless manifest.dig("server", "executables") == {"linux-amd64" => "server/dist/plugin-linux-amd64"}
 RUBY
 else
     grep -F '"id": "com.threadhub.channel-email-notifier"' \
         "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
         || die "Notifier manifest ID is invalid"
-    grep -F '"version": "0.2.0"' \
+    grep -F '"version": "0.2.1"' \
         "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
         || die "Notifier manifest version is invalid"
     grep -F '"linux-amd64": "server/dist/plugin-linux-amd64"' \

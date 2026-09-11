@@ -383,7 +383,7 @@ func TestPluginRuntimeReadyRequiresExactlyOneRunningTarget(t *testing.T) {
 	running := mmPluginStatus{
 		PluginID: "com.threadhub.channel-email-notifier",
 		State:    mattermostPluginStateRunning,
-		Version:  "0.2.0",
+		Version:  "0.2.1",
 	}
 	if !pluginRuntimeReady([]mmPluginStatus{running}) {
 		t.Fatal("pluginRuntimeReady() rejected the exact running plugin")
@@ -430,7 +430,7 @@ func TestWaitPluginRuntimeDoesNotTreatPingOrConfiguredActiveAsReady(t *testing.T
 			state = mattermostPluginStateRunning
 		}
 		response.Header().Set("Content-Type", "application/json")
-		_, _ = io.WriteString(response, `[{"plugin_id":"com.threadhub.channel-email-notifier","state":`+strconv.Itoa(state)+`,"version":"0.2.0","error":""}]`)
+		_, _ = io.WriteString(response, `[{"plugin_id":"com.threadhub.channel-email-notifier","state":`+strconv.Itoa(state)+`,"version":"0.2.1","error":""}]`)
 	}))
 	defer server.Close()
 
@@ -540,7 +540,7 @@ func TestValidateCaptureSnapshotRejectsDuplicateHashesAndNegativeCounts(t *testi
 		"context total exceeds envelopes": {Captures: []capture{{
 			RecipientHash: strings.Repeat("a", 64), EnvelopeCount: 1, ContextRootCount: 1, ContextThreadCount: 1, LastAttemptAtMS: 1,
 		}}},
-		"bad hash":  {Captures: []capture{{RecipientHash: "recipient@integration.invalid", EnvelopeCount: 1, LastAttemptAtMS: 1}}},
+		"bad hash": {Captures: []capture{{RecipientHash: "recipient@integration.invalid", EnvelopeCount: 1, LastAttemptAtMS: 1}}},
 		"missing attempt timestamp": {Captures: []capture{{
 			RecipientHash: strings.Repeat("d", 64), EnvelopeCount: 1, GenericContent: true,
 		}}},
