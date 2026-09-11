@@ -43,11 +43,11 @@ github.com/wiggin77/merror	v1.0.5	MIT	third_party/licenses/github.com/wiggin77/m
 github.com/wiggin77/srslog	v1.0.1	BSD-3-Clause	third_party/licenses/github.com/wiggin77/srslog/LICENSE	https://github.com/wiggin77/srslog/blob/v1.0.1/LICENSE
 golang.org/x/crypto	v0.55.0	BSD-3-Clause	third_party/licenses/golang.org/x/crypto/LICENSE	https://cs.opensource.google/go/x/crypto/+/v0.55.0:LICENSE
 golang.org/x/mod	v0.40.0	BSD-3-Clause	third_party/licenses/golang.org/x/mod/semver/LICENSE	https://cs.opensource.google/go/x/mod/+/v0.40.0:LICENSE
-golang.org/x/net	v0.57.0	BSD-3-Clause	third_party/licenses/golang.org/x/net/LICENSE	https://cs.opensource.google/go/x/net/+/v0.57.0:LICENSE
+golang.org/x/net	v0.58.0	BSD-3-Clause	third_party/licenses/golang.org/x/net/LICENSE	https://cs.opensource.google/go/x/net/+/v0.58.0:LICENSE
 golang.org/x/sys	v0.47.0	BSD-3-Clause	third_party/licenses/golang.org/x/sys/unix/LICENSE	https://cs.opensource.google/go/x/sys/+/v0.47.0:LICENSE
 golang.org/x/text	v0.41.0	BSD-3-Clause	third_party/licenses/golang.org/x/text/LICENSE	https://cs.opensource.google/go/x/text/+/v0.41.0:LICENSE
 google.golang.org/genproto/googleapis/rpc	v0.0.0-20260526163538-3dc84a4a5aaa	Apache-2.0	third_party/licenses/google.golang.org/genproto/googleapis/rpc/status/LICENSE	https://github.com/googleapis/go-genproto/blob/3dc84a4a5aaa/googleapis/rpc/LICENSE
-google.golang.org/grpc	v1.83.1	Apache-2.0	third_party/licenses/google.golang.org/grpc/LICENSE	https://github.com/grpc/grpc-go/blob/v1.83.1/LICENSE
+google.golang.org/grpc	v1.83.2	Apache-2.0	third_party/licenses/google.golang.org/grpc/LICENSE	https://github.com/grpc/grpc-go/blob/v1.83.2/LICENSE
 google.golang.org/protobuf	v1.36.11	BSD-3-Clause	third_party/licenses/google.golang.org/protobuf/LICENSE	https://github.com/protocolbuffers/protobuf-go/blob/v1.36.11/LICENSE
 gopkg.in/natefinch/lumberjack.v2	v2.2.1	MIT	third_party/licenses/gopkg.in/natefinch/lumberjack.v2/LICENSE	https://github.com/natefinch/lumberjack/blob/v2.2.1/LICENSE
 gopkg.in/yaml.v2	v2.4.0	Apache-2.0	third_party/licenses/gopkg.in/yaml.v2/LICENSE	https://github.com/go-yaml/yaml/blob/v2.4.0/LICENSE
