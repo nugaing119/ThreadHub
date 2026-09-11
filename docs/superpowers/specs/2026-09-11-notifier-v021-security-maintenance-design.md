@@ -2,7 +2,7 @@
 
 **Date:** 2026-09-11
 
-**Status:** Proposed revision for review
+**Status:** Approved for implementation
 
 **Scope:** Canonical fresh installations only; existing v0.2.0 instances remain unchanged and no live deployment is authorized
 
