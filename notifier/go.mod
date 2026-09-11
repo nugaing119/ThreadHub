@@ -1,6 +1,6 @@
 module github.com/nugaing119/ThreadHub/notifier
 
-go 1.25.14
+go 1.26.0
 
 require (
 	github.com/mattermost/mattermost/server/public v0.3.0
@@ -49,7 +49,7 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/wiggin77/merror v1.0.5 // indirect
 	github.com/wiggin77/srslog v1.0.1 // indirect
-	golang.org/x/crypto v0.55.0 // indirect
+	golang.org/x/crypto v0.56.0 // indirect
 	golang.org/x/mod v0.40.0 // indirect
 	golang.org/x/net v0.58.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect

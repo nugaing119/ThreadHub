@@ -14,6 +14,10 @@
 
 - 실행 이미지의 정확한 태그·Digest와 notifier release는 `deploy/versions.env`가
   유일한 기준이다. 문서에 복사된 버전보다 이 파일의 검증된 값이 우선한다.
+- 신규 canonical fresh 설치는 notifier v0.2.1을 사용한다.
+- 기존 v0.2.0 인스턴스는 `legacy-held`로 유지한다.
+- 저장소 갱신만으로 실행 중인 notifier가 바뀌지 않는다.
+- 이 범위에서는 v0.2.0에서 v0.2.1로 전환하는 도구를 제공하지 않는다.
 - 신규 설치의 물리 레이아웃은 `deploy/docker-compose.yml`과
   [배포 모델](./deployment-models.md)의 `canonical fresh`가 기준이다.
 - 기존 Mattermost의 보호된 후설치 레이아웃은
@@ -73,7 +77,7 @@ CRS-1은 다음 두 프로필만 지원한다. hostname이나 고객 이름별 �
 
 ### 즉시 채널 이메일 notifier
 
-- 정확한 release의 ThreadHub plugin과 Mailer를 한 쌍으로 사용
+- canonical fresh는 정확한 notifier v0.2.1 plugin과 Mailer를 한 쌍으로 사용
 - 공개·비공개 채널의 사용자 작성 새 글과 스레드 답글만 처리
 - 게시 시점의 현재 채널 멤버 중 작성자·비활성 사용자·봇을 제외한 이메일 확인 사용자만
   수신

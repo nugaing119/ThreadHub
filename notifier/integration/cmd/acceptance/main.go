@@ -744,7 +744,7 @@ func (a *acceptance) verifyPluginActive(ctx context.Context) error {
 	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
 		return errors.New("plugin verifier is unavailable")
 	}
-	command := exec.CommandContext(ctx, "bash", verifier, pluginListPath, "com.threadhub.channel-email-notifier", "0.2.0")
+	command := exec.CommandContext(ctx, "bash", verifier, pluginListPath, "com.threadhub.channel-email-notifier", "0.2.1")
 	command.Stdout = io.Discard
 	command.Stderr = io.Discard
 	return command.Run()
@@ -761,7 +761,7 @@ func pluginRuntimeReady(statuses []mmPluginStatus) bool {
 
 func pluginRuntimeClassification(statuses []mmPluginStatus) string {
 	const pluginID = "com.threadhub.channel-email-notifier"
-	const pluginVersion = "0.2.0"
+	const pluginVersion = "0.2.1"
 	targets := 0
 	for _, status := range statuses {
 		if status.PluginID != pluginID {

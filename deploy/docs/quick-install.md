@@ -11,6 +11,11 @@ fresh installation only 절차입니다. 기존 프로젝트 데이터를 이전
 신규 고객 데이터 투입 전 보안·라이선스 gate는
 [보안 검증 기준](./security-validation.md)을 함께 따릅니다.
 
+이 절차의 검증된 release는 `NOTIFIER_VERSION=0.2.1`입니다.
+new or empty `/srv/threadhub`를 사용하는 신규 VM에만 설치합니다.
+저장소를 pull해도 설치된 runtime은 변경되지 않는다. 기존 인스턴스에서 이 마법사를
+실행하거나 새 release를 기존 데이터 경로에 연결하지 않습니다.
+
 ## 1. 설치 순서와 준비해야 할 값
 
 새 인스턴스의 순서는 다음과 같습니다. 기존 VM·`deploy/.env`·`/srv/threadhub`에
@@ -82,6 +87,7 @@ Compose가 이미 정상 설치된 호스트에서는 `ruby`를 별도로 설치
 
 마법사는 notifier HMAC을 생성하고 보호된 `deploy/.env`에만 기록합니다. SMTP
 username/password는 hidden prompt로 입력하며 명령행 인수로 전달하지 않습니다.
+플러그인과 Mailer는 `deploy/versions.env`의 notifier v0.2.1로 함께 빌드·설치합니다.
 신규 설치는 `NOTIFIER_CONTENT_MODE=project_team_channel`을 기록해 알림 제목과 본문에
 프로젝트 도메인, Team 표시명, 채널 표시명과 새 글/스레드 답글 유형을 포함합니다.
 메시지 본문·작성자명·첨부파일명은 포함하지 않습니다. 비공개 채널명 자체가 OCI Email

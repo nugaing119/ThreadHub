@@ -120,3 +120,24 @@ Alpine은 libc·locale과 컨테이너 UID가 다르므로 기존 데이터 디�
 
 이 표준 변경만으로 고객 파일럿을 Go로 전환하지 않는다. 해당 프로젝트의 수동 수락
 시험과 복구 VM 시험까지 통과해야 전체 Go를 판정한다.
+
+## 6. 2026-09-11 notifier v0.2.1 source-build 검토
+
+신규 canonical fresh에 사용할 notifier 소스 빌드는 다음 기준으로 별도 검토했다.
+
+- Go directive는 `1.26.0`이고, Docker·CI builder는 `1.26.8-bookworm`이다. 정확한
+  Linux AMD64와 multi-platform index digest는 `deploy/versions.env`를 기준으로 한다.
+- `golang.org/x/crypto`는 v0.56.0이며, 고정 `govulncheck v1.8.0` 결과 도달 가능한
+  취약 심볼과 취약 import 패키지는 각각 0건이다.
+- `GO-2026-6355`와 `GO-2026-6354`는 신규 notifier 모듈 그래프의 v0.56.0 전환으로
+  제거됐다.
+- `GO-2026-5932`는 module-only 결과로 남을 수 있지만 notifier는 `golang.org/x/crypto/openpgp`를 import하지 않는다.
+  빌드 의존성 게이트는
+  `golang.org/x/crypto/pbkdf2`와 `golang.org/x/crypto/scrypt`만 허용하고 SSH와
+  OpenPGP 패키지를 거부한다.
+- 위 source-build 결과는 Mattermost plugin-signature 검증의 OpenPGP 경로와 다르다.
+  Mattermost 11.10.1의 서명 검증 경로에 대한 기존 통제와 판정은 3절을 그대로 따른다.
+- 기존 v0.2.0 runtime은 `legacy-held`이며 이 검토나 저장소 갱신으로 변경하지 않는다.
+
+이 절은 v0.2.1 산출물의 Linux AMD64 재현성·history·rootfs·비밀정보 검사와 15개
+real-image 시나리오가 같은 commit의 CI에서 통과하기 전에는 출시 통과 증거가 아니다.

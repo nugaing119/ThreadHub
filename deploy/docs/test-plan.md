@@ -18,10 +18,11 @@
 | 중요 환경설정 | `readiness-check.sh` |
 | HTTPS와 HTTP 전환 | `readiness-check.sh` |
 | notifier unit/race·installer security | `cd notifier && make test` 및 `validate.sh` |
+| notifier v0.2.1 security evidence | Go 1.26.8, `golang.org/x/crypto v0.56.0`, `make dependency-scope-check`, `govulncheck v1.8.0` |
 | notifier artifact·history secret gate | pinned Gitleaks 8.30.1과 `verify-notifier-artifacts.sh` |
 | notifier real-image integration | `cd notifier && make integration` (로컬/CI Docker 환경) |
-| 기존 Mattermost notifier 채택 real-image integration | `./notifier/integration/run-existing-adoption.sh` (Linux Docker CI 환경) |
-| 기존 notifier v0.1.0→v0.2.0 전환 real-image integration | `./notifier/integration/run-existing-upgrade.sh` (`notifier-existing-upgrade` Linux Docker CI job) |
+| 기존 Mattermost notifier 채택 real-image integration | `./notifier/integration/run-v020-history.sh existing-adoption` (commit-pinned Linux Docker CI 환경) |
+| 기존 notifier v0.1.0→v0.2.0 전환 real-image integration | `./notifier/integration/run-v020-history.sh existing-upgrade` (commit-pinned `notifier-existing-upgrade` Linux Docker CI job) |
 | 백업 unit·보안 계약 | `./deploy/tests/backup-*.sh`와 `validate.sh` |
 | 백업 real-image integration | `sudo ./deploy/integration/backup/run.sh` (폐기 가능한 Ubuntu 24.04 AMD64 Docker 환경) |
 | OWASP 보안 검증 | exact-digest 이미지 취약점 검토, 폐기 인스턴스 ZAP baseline, OCI Logging·Monitoring 증거 |

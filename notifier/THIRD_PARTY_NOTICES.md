@@ -1,6 +1,6 @@
 # ThreadHub notifier 라이선스 및 제3자 고지
 
-기준일: 2026-09-04
+기준일: 2026-09-11
 
 ThreadHub Channel Email Notifier 플러그인과 Mailer는 ThreadHub의 MIT
 라이선스 코드입니다. 자체 라이선스 전문은 [LICENSE](./LICENSE)에 있으며, 빌드에
@@ -59,6 +59,11 @@ Form은 아래 공개 저장소에서 받을 수 있습니다. 이 안내와 각
    배포를 중단하고 별도 검토합니다.
 4. `deploy/tests/notifier-license-compliance-test.sh`와 전체 검증을 통과시킵니다.
 5. 플러그인 번들과 Mailer 이미지에 고지가 실제 포함됐는지 확인합니다.
+
+## Notifier v0.2.1 의존성 범위
+
+Notifier v0.2.1은 `golang.org/x/crypto` v0.56.0을 사용합니다. 실제 빌드 의존성은
+`pbkdf2`와 `scrypt`뿐이며 SSH와 OpenPGP 패키지를 가져오지 않습니다.
 
 이 문서는 프로젝트의 기술적 라이선스 준수 기준이며 법률 자문을 대신하지 않습니다.
 상업적 배포 조건이나 고객 계약과 충돌할 가능성이 있으면 출시 전에 법률 검토를

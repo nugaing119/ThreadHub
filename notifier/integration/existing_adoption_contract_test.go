@@ -104,7 +104,7 @@ func TestExistingAdoptionHarnessCoversFailClosedLifecycle(t *testing.T) {
 	for _, required := range []string{
 		"notifier-existing-adoption:",
 		"timeout-minutes: 45",
-		"run-existing-adoption.sh",
+		"run-v020-history.sh existing-adoption",
 	} {
 		if !strings.Contains(workflow, required) {
 			t.Fatalf("existing-adoption CI contract is missing %q", required)

@@ -1008,6 +1008,7 @@ test_status_normalizes_real_plugin_list_and_fails_closed() (
     trap 'rm -rf "${fixture}"' EXIT
     state_file="${fixture}/state.json"
     output="${fixture}/output"
+    current_notifier_version=""
     printf '%s\n' \
         '{"enabled":false,"delivery_enabled":false,"mode":"all_channels","channel_ids":[],"activated_at":0}' \
         > "${state_file}"
@@ -1036,7 +1037,9 @@ test_status_normalizes_real_plugin_list_and_fails_closed() (
         esac
     }
 
-    NOTIFIER_TEST_PLUGIN_LIST='[{"active":[{"id":"com.threadhub.channel-email-notifier","version":"0.2.0"}],"inactive":[]}]'
+    current_notifier_version="$(env_value NOTIFIER_VERSION "${VERSIONS_FILE}")" \
+        || return 1
+    NOTIFIER_TEST_PLUGIN_LIST="[{\"active\":[{\"id\":\"com.threadhub.channel-email-notifier\",\"version\":\"${current_notifier_version}\"}],\"inactive\":[]}]"
     notifier_status_dispatch "${state_file}" > "${output}" || return 1
     [[ "$(grep -F -c 'plugin=active' "${output}")" == 1 ]] || return 1
 

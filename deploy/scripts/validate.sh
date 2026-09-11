@@ -415,14 +415,14 @@ if command -v ruby >/dev/null 2>&1; then
     ruby -rjson - "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" <<'RUBY'
 manifest = JSON.parse(File.read(ARGV.fetch(0)))
 abort("[threadhub] ERROR: notifier manifest ID is invalid") unless manifest["id"] == "com.threadhub.channel-email-notifier"
-abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.2.0"
+abort("[threadhub] ERROR: notifier manifest version is invalid") unless manifest["version"] == "0.2.1"
 abort("[threadhub] ERROR: notifier manifest server executable is invalid") unless manifest.dig("server", "executables") == {"linux-amd64" => "server/dist/plugin-linux-amd64"}
 RUBY
 else
     grep -F '"id": "com.threadhub.channel-email-notifier"' \
         "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
         || die "Notifier manifest ID is invalid"
-    grep -F '"version": "0.2.0"' \
+    grep -F '"version": "0.2.1"' \
         "${REPOSITORY_ROOT}/notifier/plugin/plugin.json" >/dev/null \
         || die "Notifier manifest version is invalid"
     grep -F '"linux-amd64": "server/dist/plugin-linux-amd64"' \
@@ -437,6 +437,7 @@ require_file "${SCRIPT_DIR}/existing-notifier-preflight.sh"
 require_file "${SCRIPT_DIR}/existing-notifier-overlay.sh"
 require_file "${DEPLOY_DIR}/tests/common-compose-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh"
+require_file "${DEPLOY_DIR}/tests/notifier-dependency-security-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 require_file "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
@@ -456,6 +457,8 @@ require_file "${REPOSITORY_ROOT}/notifier/integration/existing-upgrade-scenario-
     || die "Common Compose guard regression test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh" ]] \
     || die "Notifier license compliance test must be executable"
+[[ -x "${DEPLOY_DIR}/tests/notifier-dependency-security-test.sh" ]] \
+    || die "Notifier dependency security test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-test.sh" ]] \
     || die "Notifier installer behavioral test must be executable"
 [[ -x "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh" ]] \
@@ -489,6 +492,9 @@ done
     || die "Existing notifier transition must declare exactly 12 NF-UPGRADE scenarios"
 "${DEPLOY_DIR}/tests/common-compose-test.sh"
 "${DEPLOY_DIR}/tests/notifier-license-compliance-test.sh"
+if command -v go >/dev/null 2>&1; then
+    "${DEPLOY_DIR}/tests/notifier-dependency-security-test.sh"
+fi
 "${DEPLOY_DIR}/tests/notifier-installer-test.sh"
 "${DEPLOY_DIR}/tests/notifier-installer-security-test.sh"
 "${DEPLOY_DIR}/tests/notifier-documentation-test.sh"
@@ -502,7 +508,7 @@ done
 "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-evidence-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-transaction-test.sh"
 "${DEPLOY_DIR}/tests/existing-notifier-v010-v020-operations-test.sh"
-log "Notifier licensing, installer configuration, state and SMTP acceptance behaviors are valid"
+log "Notifier licensing, dependency scope, installer configuration, state and SMTP acceptance behaviors are valid"
 
 require_command mv
 require_command ln

@@ -194,7 +194,7 @@ fixture_docker() {
               restart: "unless-stopped"
             },
             "threadhub-mailer": {
-              image: "threadhub/notifier-mailer:0.2.0",
+              image: "threadhub/notifier-mailer:0.2.1",
               pull_policy: "never",
               platform: "linux/amd64",
               user: "65532:65532",

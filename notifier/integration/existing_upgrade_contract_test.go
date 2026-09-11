@@ -202,8 +202,8 @@ func TestExistingUpgradeHarnessCoversExactReversibleTransition(t *testing.T) {
 		"needs: [notifier-integration, notifier-existing-adoption]",
 		"timeout-minutes: 60",
 		"fetch-depth: 0",
-		"go-version: 1.25.14",
-		"run-existing-upgrade.sh",
+		"go-version: 1.26.8",
+		"run-v020-history.sh existing-upgrade",
 		"threadhub-existing-upgrade-evidence",
 		"retention-days: 7",
 	} {

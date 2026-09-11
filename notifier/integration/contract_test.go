@@ -51,6 +51,29 @@ func TestHarnessFileModeDetectionIsCrossPlatform(t *testing.T) {
 	}
 }
 
+func TestNotifierDependencySecurityGateIsWired(t *testing.T) {
+	t.Parallel()
+
+	gate := readContractFile(t, "../../deploy/tests/notifier-dependency-security-test.sh")
+	for _, required := range []string{
+		"golang.org/x/crypto v0.56.0",
+		"golang.org/x/crypto/pbkdf2",
+		"golang.org/x/crypto/scrypt",
+		"go list -deps ./...",
+	} {
+		if !strings.Contains(gate, required) {
+			t.Fatalf("dependency gate is missing %q", required)
+		}
+	}
+
+	makefile := readContractFile(t, "../Makefile")
+	workflow := readContractFile(t, "../../.github/workflows/validate.yml")
+	if !strings.Contains(makefile, "dependency-scope-check:") ||
+		!strings.Contains(workflow, "make dependency-scope-check") {
+		t.Fatal("dependency gate is not wired into Make and CI")
+	}
+}
+
 func TestHarnessUsesInternalBridgeEndpointsWithoutPortPublishing(t *testing.T) {
 	t.Parallel()
 
@@ -398,9 +421,9 @@ func TestCIHasBoundedPrivacySafeIntegrationArtifact(t *testing.T) {
 	for _, required := range []string{
 		"notifier-integration:",
 		"timeout-minutes: 25",
-		"go-version: 1.25.14",
+		"go-version: 1.26.8",
 		"make test",
-		"golang.org/x/vuln/cmd/govulncheck@v1.7.0 ./...",
+		"golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...",
 		"make plugin-bundle mailer",
 		"make integration",
 		"threadhub-notifier-integration-artifacts/results.txt",
@@ -418,6 +441,53 @@ func TestCIHasBoundedPrivacySafeIntegrationArtifact(t *testing.T) {
 	const node24UploadArtifact = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1"
 	if count := strings.Count(workflow, node24UploadArtifact); count != 3 {
 		t.Fatalf("CI must pin all three notifier artifact uploads to the reviewed Node.js 24 action, got %d", count)
+	}
+}
+
+func TestFreshReleaseIdentityIsV021(t *testing.T) {
+	t.Parallel()
+
+	files := map[string][]string{
+		"../../deploy/versions.env": {
+			"NOTIFIER_VERSION=0.2.1",
+			"GO_BUILDER_IMAGE_TAG=1.26.8-bookworm",
+			"GO_BUILDER_IMAGE_DIGEST=sha256:bc6beb46032d45f421cf400036bf031cdc64f683ba9cdc124e31d063e71670bd",
+			"GO_BUILDER_IMAGE_INDEX_DIGEST=sha256:9fdc884aacc3bec89b20ffc69f4bb369c78210e3e4f600387b5128b12c199f81",
+		},
+		"../go.mod": {
+			"go 1.26.0",
+			"golang.org/x/crypto v0.56.0",
+		},
+		"../plugin/plugin.json": {
+			`"version": "0.2.1"`,
+		},
+		"../Dockerfile": {
+			"com.threadhub.channel-email-notifier-0.2.1.tar.gz",
+		},
+	}
+	for path, required := range files {
+		content := readContractFile(t, path)
+		for _, term := range required {
+			if !strings.Contains(content, term) {
+				t.Fatalf("%s is missing %q", path, term)
+			}
+		}
+	}
+
+	workflow := readContractFile(t, "../../.github/workflows/validate.yml")
+	if got := strings.Count(workflow, "go-version: 1.26.8"); got != 4 {
+		t.Fatalf("Go 1.26.8 setup count = %d, want 4", got)
+	}
+	if !strings.Contains(workflow, "golang.org/x/vuln/cmd/govulncheck@v1.8.0 ./...") {
+		t.Fatal("CI does not pin govulncheck v1.8.0")
+	}
+
+	reproducibilityTest := readContractFile(t, "../../deploy/tests/notifier-mailer-reproducibility-test.sh")
+	if got := strings.Count(reproducibilityTest, "threadhub/notifier-plugin-bundle:0.2.1"); got != 2 {
+		t.Fatalf("v0.2.1 reproducibility image count = %d, want 2", got)
+	}
+	if strings.Contains(reproducibilityTest, "threadhub/notifier-plugin-bundle:0.2.0") {
+		t.Fatal("current reproducibility test still targets v0.2.0")
 	}
 }
 
